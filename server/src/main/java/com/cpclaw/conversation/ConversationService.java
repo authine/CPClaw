@@ -95,10 +95,10 @@ public class ConversationService {
 
     private String buildAssistantContent(String content) {
         String value = content == null ? "" : content;
-        if (value.contains("删除") || value.contains("新增") || value.contains("创建") || value.contains("写入") || value.contains("修改") || value.contains("提交") || value.contains("报销") || value.contains("发票") || value.contains("填写")) {
+        if (value.contains("删除") || value.contains("新增") || value.contains("创建") || value.contains("写入") || value.contains("修改") || value.contains("提交") || value.contains("填写")) {
             return "已生成待确认的执行计划。MVP 阶段不会执行真实云枢写入，请在确认卡片中查看风险说明。";
         }
-        return "已基于本地 Metadata Index 生成模拟查询结果。\n\n| 销售订单 | 客户 | 金额 | 状态 |\n| --- | --- | ---: | --- |\n| SO-2026-001 | 示例客户A | 12800 | 待确认 |\n| SO-2026-002 | 示例客户B | 5600 | 已提交 |\n\n匹配原因：命中本地元数据中的销售订单实体。";
+        return "已基于本地 Metadata Index 生成结果预览。\n\n| 匹配对象 | 来源 | 处理状态 |\n| --- | --- | --- |\n| 待由元数据匹配结果确定 | 本地元数据索引 | 已生成结果占位 |\n\n匹配原因将由本地元数据检索结果提供。";
     }
 
     private String buildConversationTitle(String currentTitle, String content) {

@@ -36,6 +36,6 @@ public class MetadataController {
 
     @PostMapping("/sync")
     public ApiResponse<MetadataSyncResponse> sync() {
-        return ApiResponse.ok(metadataService.syncSampleMetadata());
+        return ApiResponse.ok(metadataService.initializeCloudPivotMetadata());
     }
 }

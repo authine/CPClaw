@@ -7,7 +7,7 @@
         <div>
           <el-input v-model="query" class="search-input" placeholder="搜索应用、实体或功能" />
           <el-button @click="search">搜索</el-button>
-          <el-button type="primary" @click="sync">同步模拟元数据</el-button>
+          <el-button type="primary" @click="sync">初始化云枢元数据</el-button>
         </div>
       </div>
     </template>
@@ -41,7 +41,7 @@ import type { MetadataAppSummary, MetadataSearchResult, MetadataSyncResponse } f
 const apps = ref<MetadataAppSummary[]>([])
 const results = ref<MetadataSearchResult[]>([])
 const syncResult = ref<MetadataSyncResponse>()
-const query = ref('销售订单')
+const query = ref('')
 
 onMounted(load)
 

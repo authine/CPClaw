@@ -2,7 +2,7 @@
   <el-upload action="#" :auto-upload="false" multiple :on-change="handleChange">
     <el-button>上传附件</el-button>
     <template #tip>
-      <div class="upload-tip">支持发票、图片、PDF、Excel 等业务材料。MVP 阶段上传后进入待解析状态。</div>
+      <div class="upload-tip">支持图片、PDF、Excel 等业务材料。MVP 阶段上传后进入待解析状态。</div>
     </template>
   </el-upload>
 </template>

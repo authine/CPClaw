@@ -69,7 +69,7 @@ public class AgentOrchestrator {
 
     private String detectIntent(String content) {
         String value = content == null ? "" : content;
-        if (value.contains("报销") || value.contains("发票") || value.contains("填写")) {
+        if (value.contains("填写")) {
             return "fill_form_from_attachment";
         }
         if (value.contains("删除") || value.contains("作废")) {
@@ -92,6 +92,6 @@ public class AgentOrchestrator {
         if (writeRisk) {
             return "已识别为 " + intent + "，匹配本地元数据“" + match.name() + "”。MVP 阶段仅生成确认卡片，不执行真实云枢写入。";
         }
-        return "已识别为查询类请求，匹配本地元数据“" + match.name() + "”，将返回模拟查询结果和匹配原因。";
+        return "已识别为查询类请求，匹配本地元数据“" + match.name() + "”，将返回结果预览和匹配原因。";
     }
 }

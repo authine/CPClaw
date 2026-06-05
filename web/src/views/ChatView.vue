@@ -11,7 +11,7 @@
       <MarkdownMessage v-for="message in messages" :key="message.id" :content="`${roleLabel(message.role)}：\n${message.content}`" />
       <CandidateSelector v-if="lastAgent" :candidates="lastAgent.candidates" />
       <PlanPreviewCard v-if="lastAgent" :summary="lastAgent.planSummary" />
-      <RiskConfirmationCard v-if="lastAgent?.requiresConfirmation" :summary="lastAgent.planSummary" />
+      <RiskConfirmationCard v-if="lastAgent?.requiresConfirmation" :summary="lastAgent.planSummary" @confirm="confirmLastOperation" />
       <ExecutionTimeline v-if="lastAgent" :items="lastAgent.steps" />
       <el-alert v-if="lastAgent" type="info" show-icon>
         <template #title>
@@ -22,7 +22,7 @@
     </div>
     <div class="chat-input">
       <AttachmentUploader @uploaded="attachments.push($event)" />
-      <el-input v-model="input" type="textarea" :rows="3" placeholder="例如：查询我的销售订单数据" />
+      <el-input v-model="input" type="textarea" :rows="3" placeholder="请输入你要操作的云枢业务目标" />
       <el-button type="primary" :disabled="!input.trim()" @click="submit">发送</el-button>
     </div>
   </el-card>
@@ -41,6 +41,7 @@ import PlanPreviewCard from '../components/chat/PlanPreviewCard.vue'
 import RiskConfirmationCard from '../components/chat/RiskConfirmationCard.vue'
 import ExecutionTimeline from '../components/chat/ExecutionTimeline.vue'
 import { createConversation, sendMessage } from '../services/conversationApi'
+import { confirmOperation } from '../services/auditApi'
 import { listModelConfigs } from '../services/settingsApi'
 import type { AgentResponse, AttachmentResponse } from '../types/agent'
 import type { MessageItem } from '../types/conversation'
@@ -91,6 +92,14 @@ async function submit() {
   })
   lastAgent.value = response
   messages.value.push(response.assistantMessage)
+}
+
+async function confirmLastOperation() {
+  if (!lastAgent.value?.confirmationId) {
+    return
+  }
+  await confirmOperation(lastAgent.value.confirmationId)
+  ElMessage.success('操作已确认，MVP 阶段已记录确认审计')
 }
 
 function roleLabel(role: MessageItem['role']) {

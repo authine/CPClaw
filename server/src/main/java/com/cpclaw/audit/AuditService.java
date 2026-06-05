@@ -80,6 +80,19 @@ public class AuditService {
         return confirmationRepository.save(confirmation);
     }
 
+    public Map<String, Object> confirm(String confirmationId) {
+        Confirmation confirmation = confirmationRepository.findById(confirmationId)
+            .orElseThrow(() -> new IllegalArgumentException("Confirmation not found"));
+        confirmation.setStatus("confirmed");
+        confirmation.setConfirmedAt(Instant.now());
+        confirmationRepository.save(confirmation);
+        return Map.of(
+            "id", confirmation.getId(),
+            "status", confirmation.getStatus(),
+            "agentRunId", confirmation.getAgentRunId()
+        );
+    }
+
     public Map<String, Object> getAgentRunPlaceholder(String id) {
         AgentRun run = agentRunRepository.findById(id).orElse(null);
         if (run == null) {

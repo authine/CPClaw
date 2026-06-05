@@ -15,8 +15,8 @@ public class MetadataSearchService {
     }
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {
-        String safeQuery = query == null || query.isBlank() ? "销售订单" : query.trim();
-        return searchDocumentRepository.findTop10BySearchTextContainingIgnoreCaseOrderByCreatedAtDesc(safeQuery).stream()
+        String safeQuery = query == null ? "" : query.trim();
+        return searchDocumentRepository.searchByText(safeQuery).stream()
             .map(document -> new MetadataSearchResult(
                 document.getObjectType(),
                 document.getObjectId(),
@@ -24,7 +24,7 @@ public class MetadataSearchService {
                 document.getCode(),
                 document.getGraphPath(),
                 document.getRiskLevel(),
-                "命中本地 Metadata Index：" + safeQuery
+                "命中本地 Metadata Index"
             ))
             .toList();
     }
@@ -34,6 +34,6 @@ public class MetadataSearchService {
         if (!results.isEmpty()) {
             return results.getFirst();
         }
-        return new MetadataSearchResult("unknown", "", "未匹配到本地元数据", "", "", "low", "本地 Metadata Index 暂无匹配，请先同步模拟元数据");
+        return new MetadataSearchResult("unknown", "", "未匹配到本地元数据", "", "", "low", "本地 Metadata Index 暂无匹配，请先初始化云枢元数据");
     }
 }

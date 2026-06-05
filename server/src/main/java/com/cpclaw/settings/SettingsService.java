@@ -116,7 +116,7 @@ public class SettingsService {
         if (!hasText(settings.getCloudPivotBaseUrl()) || !hasText(settings.getCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写普通用户云枢访问地址和账号");
         }
-        return new ConnectionTestResponse(true, "MVP 阶段已保存配置，真实云枢连接将在后续接入");
+        return new ConnectionTestResponse(true, "已保存普通用户云枢连接配置，可用于后续对话执行");
     }
 
     public ConnectionTestResponse testAdminCloudPivotConnection() {
@@ -124,7 +124,7 @@ public class SettingsService {
         if (!hasText(settings.getAdminCloudPivotBaseUrl()) || !hasText(settings.getAdminCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写管理员云枢环境和账号");
         }
-        return new ConnectionTestResponse(true, "MVP 阶段已保存管理员配置，可执行模拟元数据初始化");
+        return new ConnectionTestResponse(true, "已保存管理员云枢连接配置，可执行云枢元数据初始化");
     }
 
     private SystemSettings getOrCreateSettings() {
