@@ -1,5 +1,6 @@
 package com.cpclaw.settings;
 
+import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.credential.CredentialService;
 import com.cpclaw.model.entity.ModelConfig;
 import com.cpclaw.model.repository.ModelConfigRepository;
@@ -31,15 +32,18 @@ public class SettingsService {
     private final SystemSettingsRepository settingsRepository;
     private final ModelConfigRepository modelConfigRepository;
     private final CredentialService credentialService;
+    private final CloudPivotConnector cloudPivotConnector;
 
     public SettingsService(
         SystemSettingsRepository settingsRepository,
         ModelConfigRepository modelConfigRepository,
-        CredentialService credentialService
+        CredentialService credentialService,
+        CloudPivotConnector cloudPivotConnector
     ) {
         this.settingsRepository = settingsRepository;
         this.modelConfigRepository = modelConfigRepository;
         this.credentialService = credentialService;
+        this.cloudPivotConnector = cloudPivotConnector;
     }
 
     public SettingsResponse getSettings() {
@@ -116,7 +120,10 @@ public class SettingsService {
         if (!hasText(settings.getCloudPivotBaseUrl()) || !hasText(settings.getCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写普通用户云枢访问地址和账号");
         }
-        return new ConnectionTestResponse(true, "已保存普通用户云枢连接配置，可用于后续对话执行");
+        return credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, USER_CLOUDPIVOT_PASSWORD)
+            .filter(password -> cloudPivotConnector.testConnection(settings.getCloudPivotBaseUrl(), settings.getCloudPivotUsername(), password))
+            .map(password -> new ConnectionTestResponse(true, "普通用户云枢账号验证通过"))
+            .orElseGet(() -> new ConnectionTestResponse(false, "普通用户云枢账号验证失败"));
     }
 
     public ConnectionTestResponse testAdminCloudPivotConnection() {
@@ -124,7 +131,10 @@ public class SettingsService {
         if (!hasText(settings.getAdminCloudPivotBaseUrl()) || !hasText(settings.getAdminCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写管理员云枢环境和账号");
         }
-        return new ConnectionTestResponse(true, "已保存管理员云枢连接配置，可执行云枢元数据初始化");
+        return credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, ADMIN_CLOUDPIVOT_PASSWORD)
+            .filter(password -> cloudPivotConnector.testConnection(settings.getAdminCloudPivotBaseUrl(), settings.getAdminCloudPivotUsername(), password))
+            .map(password -> new ConnectionTestResponse(true, "管理员云枢账号验证通过，可执行云枢元数据初始化"))
+            .orElseGet(() -> new ConnectionTestResponse(false, "管理员云枢账号验证失败"));
     }
 
     private SystemSettings getOrCreateSettings() {

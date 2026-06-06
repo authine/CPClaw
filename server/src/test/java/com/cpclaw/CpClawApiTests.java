@@ -22,7 +22,8 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.username=sa",
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+    "spring.jpa.hibernate.ddl-auto=create-drop",
+    "cpclaw.cloudpivot.allow-metadata-fallback=true"
 })
 @AutoConfigureMockMvc
 class CpClawApiTests {
