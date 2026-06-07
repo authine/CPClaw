@@ -1,5 +1,6 @@
 package com.cpclaw;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -110,7 +111,7 @@ class CpClawApiTests {
                 .content("""
                     {
                       "conversationId":"%s",
-                      "content":"查询元数据对象",
+                      "content":"查询元数据对象 password=plain-text-secret {\\\"apiKey\\\":\\\"json-secret\\\"}",
                       "thinkingEnabled":false,
                       "attachmentIds":[]
                     }
@@ -123,6 +124,14 @@ class CpClawApiTests {
 
         String agentBody = agentResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(agentBody.contains("元数据对象"));
+        String queryAgentRunId = agentBody.replaceAll(".*\\\"agentRunId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        MvcResult queryAuditResult = mockMvc.perform(get("/api/audit/agent-runs/" + queryAgentRunId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.tools.length()").value(1))
+            .andReturn();
+        String queryAuditBody = queryAuditResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertFalse(queryAuditBody.contains("plain-text-secret"));
+        assertFalse(queryAuditBody.contains("\\\"json-secret\\\""));
 
         mockMvc.perform(get("/api/conversations/" + conversationId))
             .andExpect(status().isOk())

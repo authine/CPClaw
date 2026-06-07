@@ -9,6 +9,8 @@ import com.cpclaw.audit.entity.Confirmation;
 import com.cpclaw.conversation.dto.MessageItem;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.search.MetadataSearchService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,10 +21,12 @@ public class AgentOrchestrator {
 
     private final MetadataSearchService metadataSearchService;
     private final AuditService auditService;
+    private final ObjectMapper objectMapper;
 
-    public AgentOrchestrator(MetadataSearchService metadataSearchService, AuditService auditService) {
+    public AgentOrchestrator(MetadataSearchService metadataSearchService, AuditService auditService, ObjectMapper objectMapper) {
         this.metadataSearchService = metadataSearchService;
         this.auditService = auditService;
+        this.objectMapper = objectMapper;
     }
 
     public AgentResponse handleMessage(String conversationId, String userMessageId, String content, MessageItem assistantMessage) {
@@ -31,13 +35,18 @@ public class AgentOrchestrator {
         String riskLevel = writeRisk ? "medium" : "low";
         MetadataSearchResult match = metadataSearchService.bestMatch(content);
         String planSummary = buildPlanSummary(intent, match, writeRisk);
-        String planJson = "{\"intent\":\"" + intent + "\",\"metadataObject\":\"" + match.name() + "\",\"localMetadataOnly\":true}";
+        String planJson = toJson(Map.of("intent", intent, "metadataObject", match.name(), "localMetadataOnly", true));
         AgentRun run = auditService.createAgentRun(conversationId, userMessageId, intent, riskLevel, planJson);
-        auditService.recordToolCall(run.getId(), "metadata_search", "{\"query\":\"" + content + "\"}", "{\"match\":\"" + match.name() + "\"}");
+        auditService.recordToolCall(
+            run.getId(),
+            "metadata_search",
+            toJson(Map.of("query", content == null ? "" : content)),
+            toJson(Map.of("match", match.name()))
+        );
 
         Confirmation confirmation = null;
         if (writeRisk) {
-            confirmation = auditService.createConfirmation(conversationId, run.getId(), riskLevel, planSummary, "{\"operation\":\"" + intent + "\"}");
+            confirmation = auditService.createConfirmation(conversationId, run.getId(), riskLevel, planSummary, toJson(Map.of("operation", intent)));
         }
 
         return new AgentResponse(
@@ -93,5 +102,13 @@ public class AgentOrchestrator {
             return "已识别为 " + intent + "，匹配本地元数据“" + match.name() + "”。MVP 阶段仅生成确认卡片，不执行真实云枢写入。";
         }
         return "已识别为查询类请求，匹配本地元数据“" + match.name() + "”，将返回结果预览和匹配原因。";
+    }
+
+    private String toJson(Map<String, Object> value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to serialize agent audit data", exception);
+        }
     }
 }

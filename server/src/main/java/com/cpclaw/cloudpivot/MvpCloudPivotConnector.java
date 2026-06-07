@@ -24,20 +24,29 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.crypto.Cipher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MvpCloudPivotConnector implements CloudPivotConnector {
 
+    private static final Logger log = LoggerFactory.getLogger(MvpCloudPivotConnector.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
+    private final String configuredCorpId;
 
-    public MvpCloudPivotConnector(ObjectMapper objectMapper, @Value("${cpclaw.cloudpivot.allow-metadata-fallback:false}") boolean allowFallbackMetadata) {
+    public MvpCloudPivotConnector(
+        ObjectMapper objectMapper,
+        @Value("${cpclaw.cloudpivot.allow-metadata-fallback:false}") boolean allowFallbackMetadata,
+        @Value("${cpclaw.cloudpivot.corp-id:}") String configuredCorpId
+    ) {
         this.objectMapper = objectMapper;
         this.allowFallbackMetadata = allowFallbackMetadata;
+        this.configuredCorpId = configuredCorpId;
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(REQUEST_TIMEOUT)
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -76,6 +85,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private CloudPivotMetadataSnapshot fetchRemoteMetadata(String host, AuthSession session) {
         List<JsonNode> appNodes = firstSuccessfulList(host, session, List.of(
+            new Endpoint("GET", "/api/runtime/app/list_apps", Map.of()),
+            new Endpoint("GET", "/api/runtime/app/list_apps_group", Map.of()),
             new Endpoint("GET", "/api/app/apppackage/list_all", Map.of()),
             new Endpoint("GET", "/api/app/apppackage/list", Map.of()),
             new Endpoint("GET", "/api/app/apppackage/trees", Map.of())
@@ -113,6 +124,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities
     ) {
         List<JsonNode> entityNodes = firstSuccessfulList(host, session, List.of(
+            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode", Map.of("appCode", appCode)),
+            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode_find", Map.of("appCode", appCode)),
+            new Endpoint("GET", "/api/runtime/app/search_bizModels", Map.of("appCode", appCode)),
+            new Endpoint("GET", "/api/app/bizmodels/search", Map.of("appCode", appCode)),
             new Endpoint("GET", "/api/app/bizmodels/list", Map.of("appCode", appCode)),
             new Endpoint("GET", "/api/app/bizmodels/get_all", Map.of("appCode", appCode)),
             new Endpoint("GET", "/api/app/bizmodels/get_summary", Map.of("appCode", appCode))
@@ -132,7 +147,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         if (!hasText(entityCode)) {
             return;
         }
-        String appCode = firstText(entityNode, "appCode", "appPackageCode", "packageCode").orElse(fallbackAppCode);
+        String appCode = firstText(entityNode, "appCode", "appPackageCode", "packageCode", "parentCode", "parentId").orElse(fallbackAppCode);
         if (!hasText(appCode)) {
             appCode = "cloudpivot_default_app";
         }
@@ -149,10 +164,12 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             try {
                 JsonNode body = requestJson(host, endpoint, session);
                 List<JsonNode> items = extractItems(body);
+                log.info("CloudPivot metadata endpoint {} returned {} item(s), status={}, shape={}", endpoint.path(), items.size(), responseStatus(body), describeShape(body, 0));
                 if (!items.isEmpty()) {
                     return items;
                 }
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException exception) {
+                log.info("CloudPivot metadata endpoint {} failed: {}", endpoint.path(), exception.getMessage());
             }
         }
         return List.of();
@@ -180,12 +197,12 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private Optional<AuthSession> tryAuthenticationCodeLogin(String host, LoginPayload payload) {
-        List<Map<String, String>> bodies = List.of(
-            loginMap(payload, "username"),
-            loginMap(payload, "account"),
-            loginMap(payload, "userName")
+        List<Map<String, Object>> bodies = List.of(
+            authenticationCodeLoginMap(host, payload, "username"),
+            authenticationCodeLoginMap(host, payload, "account"),
+            authenticationCodeLoginMap(host, payload, "userName")
         );
-        for (Map<String, String> body : bodies) {
+        for (Map<String, Object> body : bodies) {
             try {
                 HttpRequest request = baseRequest(host + "/user/login/Authentication/get_code")
                     .header("Content-Type", "application/json")
@@ -212,8 +229,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     private Optional<AuthSession> requestTokenByCode(String host, String code) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("code", code);
+        params.put("url", host + "/user");
+        params.put("client_secret", "");
         params.put("client_id", "api");
-        params.put("scope", "read");
+        params.put("redirect_uri", host + "/oauth");
         try {
             HttpRequest request = baseRequest(host + "/user/login/Authentication/get_token?" + formEncode(params))
                 .GET()
@@ -246,32 +265,44 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return Optional.empty();
     }
 
-    private Map<String, String> loginMap(LoginPayload payload, String accountField) {
-        Map<String, String> body = new LinkedHashMap<>();
+    private Map<String, Object> authenticationCodeLoginMap(String host, LoginPayload payload, String accountField) {
+        Map<String, Object> body = new LinkedHashMap<>();
         body.put(accountField, payload.username());
         body.put("password", payload.password());
-        body.put("client_id", "api");
-        body.put("scope", "read");
+        body.put("url", redirectUrl(host));
+        body.put("portal", true);
         if (hasText(payload.keyIndex())) {
-            body.put("key", payload.keyIndex());
             body.put("index", payload.keyIndex());
         }
         return body;
     }
 
     private Map<String, String> oauthMap(LoginPayload payload, String accountField) {
-        Map<String, String> body = loginMap(payload, accountField);
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put(accountField, payload.username());
+        body.put("password", payload.password());
+        body.put("client_id", "api");
+        body.put("scope", "read");
+        if (hasText(payload.keyIndex())) {
+            body.put("index", payload.keyIndex());
+        }
         body.put("grant_type", "password");
         return body;
     }
 
+    private String redirectUrl(String host) {
+        String authorizationUrl = host + "/user/oauth/authorize?client_id=api&response_type=code&scope=read&redirect_uri=" + host + "/oauth";
+        return host + "/user/login?redirect_uri=" + encode(authorizationUrl);
+    }
+
     private JsonNode requestJson(String host, Endpoint endpoint, AuthSession session) {
-        String url = host + endpoint.path();
+        String url = host + "/api" + endpoint.path();
         if (!endpoint.params().isEmpty()) {
             url += "?" + formEncode(endpoint.params());
         }
         HttpRequest.Builder builder = baseRequest(url)
             .header("Authorization", "Bearer " + session.accessToken())
+            .header("Time-Zone", "Asia/Shanghai")
             .header("X-Client-Lang", "zh-CN");
         if (hasText(session.corpId())) {
             builder.header("X-LowCode-Corpid", session.corpId());
@@ -289,7 +320,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300 || !hasText(response.body())) {
-                throw new IllegalStateException("云枢接口调用失败");
+                throw new IllegalStateException("云枢接口调用失败(status=" + response.statusCode() + ", bodyLength=" + (response.body() == null ? 0 : response.body().length()) + ")");
             }
             return objectMapper.readTree(response.body());
         } catch (IOException | InterruptedException exception) {
@@ -332,31 +363,105 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             return Optional.empty();
         }
         String refreshToken = firstText(source, "refresh_token", "refreshToken").orElse("");
-        String corpId = firstText(source, "corpId", "corp_id").orElse("");
-        String engineCode = firstText(source, "engineCode", "engine_code").orElse("");
+        String corpId = firstText(source, "corpId", "corp_id")
+            .or(() -> jwtText(token.get(), "corpId", "corp_id"))
+            .or(() -> hasText(configuredCorpId) ? Optional.of(configuredCorpId) : Optional.empty())
+            .orElse("");
+        String engineCode = firstText(source, "engineCode", "engine_code", "tenantId", "tenant_id")
+            .or(() -> jwtText(token.get(), "tenantId", "tenant_id", "engineCode", "engine_code"))
+            .orElse("");
         return Optional.of(new AuthSession(token.get(), refreshToken, corpId, engineCode));
     }
 
+    private Optional<String> jwtText(String token, String... keys) {
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                return Optional.empty();
+            }
+            byte[] decoded = Base64.getUrlDecoder().decode(parts[1]);
+            return firstText(objectMapper.readTree(decoded), keys);
+        } catch (RuntimeException | IOException exception) {
+            return Optional.empty();
+        }
+    }
+
     private List<JsonNode> extractItems(JsonNode body) {
-        JsonNode source = body;
-        if (body.has("data")) {
-            source = body.get("data");
+        return extractItems(body, 0);
+    }
+
+    private List<JsonNode> extractItems(JsonNode node, int depth) {
+        if (node == null || node.isNull() || depth > 4) {
+            return List.of();
         }
-        if (source.isArray()) {
-            return toList(source);
+        if (node.isArray()) {
+            return flattenArray(node, depth);
         }
-        for (String key : List.of("content", "list", "records", "rows", "items", "data")) {
-            if (source.has(key) && source.get(key).isArray()) {
-                return toList(source.get(key));
+        for (String key : List.of("data", "content", "list", "records", "rows", "items", "children", "result", "bizModels", "apps")) {
+            if (node.has(key)) {
+                List<JsonNode> items = extractItems(node.get(key), depth + 1);
+                if (!items.isEmpty()) {
+                    return items;
+                }
             }
         }
         return List.of();
+    }
+
+    private List<JsonNode> flattenArray(JsonNode arrayNode, int depth) {
+        List<JsonNode> result = new ArrayList<>();
+        arrayNode.forEach(item -> {
+            if (isMetadataNode(item)) {
+                result.add(item);
+            }
+            for (String childKey : List.of("children", "childs", "bizModels", "functions", "items", "list")) {
+                if (item.has(childKey)) {
+                    result.addAll(extractItems(item.get(childKey), depth + 1));
+                }
+            }
+        });
+        return result;
+    }
+
+    private boolean isMetadataNode(JsonNode node) {
+        return node != null && node.isObject() && (
+            firstText(node, "code", "appCode", "schemaCode", "bizModelCode", "modelCode", "id").isPresent()
+                || firstText(node, "name", "appName", "schemaName", "displayName").isPresent()
+        );
     }
 
     private List<JsonNode> toList(JsonNode arrayNode) {
         List<JsonNode> result = new ArrayList<>();
         arrayNode.forEach(result::add);
         return result;
+    }
+
+    private String responseStatus(JsonNode node) {
+        Optional<String> code = firstText(node, "errcode", "code", "status");
+        Optional<String> message = firstText(node, "data", "errmsg", "message", "msg");
+        return code.orElse("ok") + ":" + message.orElse("");
+    }
+
+    private String describeShape(JsonNode node, int depth) {
+        if (node == null || node.isNull()) {
+            return "null";
+        }
+        if (depth > 2) {
+            return node.isArray() ? "array(" + node.size() + ")" : node.getNodeType().name();
+        }
+        if (node.isArray()) {
+            return "array(" + node.size() + ")" + (node.isEmpty() ? "" : "[" + describeShape(node.get(0), depth + 1) + "]");
+        }
+        if (!node.isObject()) {
+            return node.getNodeType().name();
+        }
+        List<String> parts = new ArrayList<>();
+        node.fieldNames().forEachRemaining(field -> {
+            if (parts.size() < 12) {
+                parts.add(field + ":" + describeShape(node.get(field), depth + 1));
+            }
+        });
+        return "object{" + String.join(",", parts) + "}";
     }
 
     private Optional<String> firstText(JsonNode node, String... keys) {

@@ -7,8 +7,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class SensitiveDataMasker {
 
-    private static final List<Pattern> PATTERNS = List.of(
-        Pattern.compile("(?i)(password|token|cookie|authorization|api[_-]?key|secret|credential|session|key)\\s*[:=]\\s*[^\\s,;]+")
+    private static final String SENSITIVE_KEY = "password|token|cookie|authorization|api[_-]?key|apikey|secret|credential|session|access[_-]?token|accesstoken|refresh[_-]?token|refreshtoken";
+    private static final List<MaskRule> RULES = List.of(
+        new MaskRule(Pattern.compile("(?i)(\\\"(?:" + SENSITIVE_KEY + ")\\\"\\s*:\\s*)\\\"[^\\\"]*\\\""), "$1\"***\""),
+        new MaskRule(Pattern.compile("(?i)('(?:" + SENSITIVE_KEY + ")'\\s*:\\s*)'[^']*'"), "$1'***'"),
+        new MaskRule(Pattern.compile("(?i)((?:" + SENSITIVE_KEY + ")\\s*[:=]\\s*)[^\\s,;}&]+"), "$1***")
     );
 
     public String mask(String value) {
@@ -17,9 +20,12 @@ public class SensitiveDataMasker {
         }
 
         String masked = value;
-        for (Pattern pattern : PATTERNS) {
-            masked = pattern.matcher(masked).replaceAll("$1=***");
+        for (MaskRule rule : RULES) {
+            masked = rule.pattern().matcher(masked).replaceAll(rule.replacement());
         }
         return masked;
+    }
+
+    private record MaskRule(Pattern pattern, String replacement) {
     }
 }
