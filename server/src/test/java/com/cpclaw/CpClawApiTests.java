@@ -106,6 +106,46 @@ class CpClawApiTests {
         String body = conversation.getResponse().getContentAsString();
         String conversationId = body.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
 
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"   ",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("请输入要处理的内容"));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"查询元数据对象",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"查询系统商机情况",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false));
+
         MvcResult agentResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -124,10 +164,13 @@ class CpClawApiTests {
 
         String agentBody = agentResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(agentBody.contains("元数据对象"));
+        assertTrue(agentBody.contains("总计"));
+        assertFalse(agentBody.contains("已生成结果预览"));
         String queryAgentRunId = agentBody.replaceAll(".*\\\"agentRunId\\\":\\\"([^\\\"]+)\\\".*", "$1");
         MvcResult queryAuditResult = mockMvc.perform(get("/api/audit/agent-runs/" + queryAgentRunId))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.tools.length()").value(1))
+            .andExpect(jsonPath("$.data.tools.length()").value(2))
+            .andExpect(jsonPath("$.data.tools[1].toolName").value("cloudpivot_runtime_query"))
             .andReturn();
         String queryAuditBody = queryAuditResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertFalse(queryAuditBody.contains("plain-text-secret"));

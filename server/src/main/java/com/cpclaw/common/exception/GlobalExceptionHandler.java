@@ -15,6 +15,11 @@ public class GlobalExceptionHandler {
         this.masker = masker;
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadRequest(IllegalArgumentException exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(masker.mask(exception.getMessage())));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handle(Exception exception) {
         return ResponseEntity.internalServerError().body(ApiResponse.error(masker.mask(exception.getMessage())));

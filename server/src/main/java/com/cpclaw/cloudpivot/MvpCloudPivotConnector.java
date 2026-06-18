@@ -1,6 +1,7 @@
 package com.cpclaw.cloudpivot;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -81,6 +82,23 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             throw new IllegalStateException("云枢元数据接口未返回可用应用");
         }
         return snapshot;
+    }
+
+    @Override
+    public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize) {
+        if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
+            throw new IllegalArgumentException("请先在设置中绑定云枢访问地址、账号和密码");
+        }
+        if (!hasText(schemaCode)) {
+            throw new IllegalArgumentException("未匹配到可查询的云枢模型编码");
+        }
+        if (allowFallbackMetadata && isLocalTestUrl(baseUrl)) {
+            return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "local-fallback");
+        }
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password)
+            .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询业务数据"));
+        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, 50)));
     }
 
     private CloudPivotMetadataSnapshot fetchRemoteMetadata(String host, AuthSession session) {
@@ -173,6 +191,24 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             }
         }
         return List.of();
+    }
+
+    private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("mobile", false);
+        body.put("page", 0);
+        body.put("size", pageSize);
+        body.put("queryCode", "");
+        body.put("schemaCode", schemaCode);
+        body.put("filters", List.of());
+
+        JsonNode response = postJson(host, "/api/runtime/query/list", session, body);
+        JsonNode data = response.has("data") && response.get("data").isObject() ? response.get("data") : response;
+        long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
+        List<Map<String, Object>> records = extractRecordItems(data).stream()
+            .map(this::toMap)
+            .toList();
+        return new CloudPivotRuntimeQueryResult(schemaCode, total, records, "/api/runtime/query/list");
     }
 
     private Optional<AuthSession> authenticate(String host, String username, String password) {
@@ -296,10 +332,30 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private JsonNode requestJson(String host, Endpoint endpoint, AuthSession session) {
-        String url = host + "/api" + endpoint.path();
+        String url = host + endpoint.path();
         if (!endpoint.params().isEmpty()) {
             url += "?" + formEncode(endpoint.params());
         }
+        HttpRequest.Builder builder = authorizedRequest(url, session);
+        HttpRequest request = "POST".equals(endpoint.method())
+            ? builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8)).build()
+            : builder.GET().build();
+        return sendJson(request);
+    }
+
+    private JsonNode postJson(String host, String path, AuthSession session, Map<String, Object> body) {
+        try {
+            HttpRequest request = authorizedRequest(host + path, session)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
+                .build();
+            return sendJson(request);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("云枢请求参数序列化失败", exception);
+        }
+    }
+
+    private HttpRequest.Builder authorizedRequest(String url, AuthSession session) {
         HttpRequest.Builder builder = baseRequest(url)
             .header("Authorization", "Bearer " + session.accessToken())
             .header("Time-Zone", "Asia/Shanghai")
@@ -310,10 +366,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         if (hasText(session.engineCode())) {
             builder.header("X-LowCode-Enginecode", session.engineCode());
         }
-        HttpRequest request = "POST".equals(endpoint.method())
-            ? builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8)).build()
-            : builder.GET().build();
-        return sendJson(request);
+        return builder;
     }
 
     private JsonNode sendJson(HttpRequest request) {
@@ -388,6 +441,35 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private List<JsonNode> extractItems(JsonNode body) {
         return extractItems(body, 0);
+    }
+
+    private List<JsonNode> extractRecordItems(JsonNode node) {
+        for (String key : List.of("content", "records", "rows", "items", "list", "data")) {
+            if (node != null && node.has(key) && node.get(key).isArray()) {
+                return toList(node.get(key));
+            }
+        }
+        if (node != null && node.isArray()) {
+            return toList(node);
+        }
+        return List.of();
+    }
+
+    private Map<String, Object> toMap(JsonNode node) {
+        return objectMapper.convertValue(node, new TypeReference<>() {
+        });
+    }
+
+    private Optional<Long> firstLong(JsonNode node, String... keys) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        for (String key : keys) {
+            if (node.has(key) && node.get(key).canConvertToLong()) {
+                return Optional.of(node.get(key).asLong());
+            }
+        }
+        return Optional.empty();
     }
 
     private List<JsonNode> extractItems(JsonNode node, int depth) {

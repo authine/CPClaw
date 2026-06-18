@@ -4,9 +4,7 @@
       <div class="layout__brand">CPClaw</div>
       <el-menu router :default-active="$route.path" class="layout__menu">
         <el-menu-item index="/">对话操作</el-menu-item>
-        <el-menu-item index="/settings">系统设置</el-menu-item>
-        <el-menu-item index="/metadata">元数据</el-menu-item>
-        <el-menu-item index="/audit">审计</el-menu-item>
+        <el-menu-item index="/settings">云枢账号设置</el-menu-item>
       </el-menu>
     </el-aside>
     <el-main class="layout__main">

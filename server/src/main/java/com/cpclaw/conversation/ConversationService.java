@@ -63,21 +63,33 @@ public class ConversationService {
 
     @Transactional
     public AgentResponse sendMessage(SendMessageRequest request) {
-        Conversation conversation = conversationRepository.findById(request.conversationId())
-            .orElseGet(() -> fromSummary(createConversation(new CreateConversationRequest("新会话", request.modelConfigId(), request.thinkingEnabled()))));
+        if (request == null || !hasText(request.content())) {
+            throw new IllegalArgumentException("请输入要处理的内容");
+        }
+        Conversation conversation = resolveConversation(request);
         Instant now = Instant.now();
-        Message userMessage = createMessage(conversation.getId(), "user", request.content(), request.modelConfigId(), request.thinkingEnabled(), null, now);
+        String content = request.content().trim();
+        Message userMessage = createMessage(conversation.getId(), "user", content, request.modelConfigId(), request.thinkingEnabled(), null, now);
         messageRepository.save(userMessage);
 
-        String assistantContent = buildAssistantContent(request.content());
-        Message assistantMessage = createMessage(conversation.getId(), "assistant", assistantContent, request.modelConfigId(), request.thinkingEnabled(), "{\"source\":\"mvp-agent\"}", now.plusMillis(1));
+        Message assistantMessage = createMessage(conversation.getId(), "assistant", "", request.modelConfigId(), request.thinkingEnabled(), "{\"source\":\"runtime-agent\"}", now.plusMillis(1));
+        AgentResponse response = agentOrchestrator.handleMessage(conversation.getId(), userMessage.getId(), content, toMessageItem(assistantMessage));
+        assistantMessage.setContent(response.assistantMessage().content());
         messageRepository.save(assistantMessage);
 
-        conversation.setTitle(buildConversationTitle(conversation.getTitle(), request.content()));
+        conversation.setTitle(buildConversationTitle(conversation.getTitle(), content));
         conversation.setUpdatedAt(Instant.now());
         conversationRepository.save(conversation);
 
-        return agentOrchestrator.handleMessage(conversation.getId(), userMessage.getId(), request.content(), toMessageItem(assistantMessage));
+        return response;
+    }
+
+    private Conversation resolveConversation(SendMessageRequest request) {
+        if (!hasText(request.conversationId())) {
+            return fromSummary(createConversation(new CreateConversationRequest("新会话", request.modelConfigId(), request.thinkingEnabled())));
+        }
+        return conversationRepository.findById(request.conversationId())
+            .orElseGet(() -> fromSummary(createConversation(new CreateConversationRequest("新会话", request.modelConfigId(), request.thinkingEnabled()))));
     }
 
     private Message createMessage(String conversationId, String role, String content, String modelConfigId, boolean thinkingEnabled, String metadataJson, Instant createdAt) {
@@ -93,13 +105,6 @@ public class ConversationService {
         return message;
     }
 
-    private String buildAssistantContent(String content) {
-        String value = content == null ? "" : content;
-        if (value.contains("删除") || value.contains("新增") || value.contains("创建") || value.contains("写入") || value.contains("修改") || value.contains("提交") || value.contains("填写")) {
-            return "已生成待确认的执行计划。MVP 阶段不会执行真实云枢写入，请在确认卡片中查看风险说明。";
-        }
-        return "已基于本地 Metadata Index 生成结果预览。\n\n| 匹配对象 | 来源 | 处理状态 |\n| --- | --- | --- |\n| 待由元数据匹配结果确定 | 本地元数据索引 | 已生成结果占位 |\n\n匹配原因将由本地元数据检索结果提供。";
-    }
 
     private String buildConversationTitle(String currentTitle, String content) {
         if (currentTitle != null && !currentTitle.equals("新会话")) {
