@@ -75,10 +75,22 @@ public class CloudPivotRuntimeService {
         return values.entrySet().stream()
             .filter(entry -> entry.getValue() != null)
             .filter(entry -> !String.valueOf(entry.getKey()).toLowerCase().contains("password"))
+            .sorted((left, right) -> Integer.compare(displayPriority(left.getKey()), displayPriority(right.getKey())))
             .limit(5)
             .map(entry -> String.valueOf(entry.getKey()) + "=" + valueText(entry.getValue()))
             .reduce((left, right) -> left + "，" + right)
             .orElse("无可展示字段");
+    }
+
+    private int displayPriority(Object key) {
+        String value = String.valueOf(key);
+        if ("instanceName".equalsIgnoreCase(value) || "name".equalsIgnoreCase(value) || "title".equalsIgnoreCase(value)) {
+            return 0;
+        }
+        if ("id".equalsIgnoreCase(value) || "objectId".equalsIgnoreCase(value) || "dataId".equalsIgnoreCase(value)) {
+            return 2;
+        }
+        return 1;
     }
 
     private String valueText(Object value) {

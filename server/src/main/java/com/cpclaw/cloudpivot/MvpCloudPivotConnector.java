@@ -103,8 +103,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private CloudPivotMetadataSnapshot fetchRemoteMetadata(String host, AuthSession session) {
         List<JsonNode> appNodes = firstSuccessfulList(host, session, List.of(
-            new Endpoint("GET", "/api/runtime/app/list_apps", Map.of()),
-            new Endpoint("GET", "/api/runtime/app/list_apps_group", Map.of()),
+            new Endpoint("GET", "/api/runtime/app/list_apps", Map.of("isMobile", "false")),
+            new Endpoint("GET", "/api/runtime/app/list_apps_group", Map.of("isMobile", "false")),
             new Endpoint("GET", "/api/app/apppackage/list_all", Map.of()),
             new Endpoint("GET", "/api/app/apppackage/list", Map.of()),
             new Endpoint("GET", "/api/app/apppackage/trees", Map.of())
@@ -142,9 +142,9 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities
     ) {
         List<JsonNode> entityNodes = firstSuccessfulList(host, session, List.of(
-            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode", Map.of("appCode", appCode)),
-            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode_find", Map.of("appCode", appCode)),
-            new Endpoint("GET", "/api/runtime/app/search_bizModels", Map.of("appCode", appCode)),
+            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode", Map.of("appCode", appCode, "isMobile", "false")),
+            new Endpoint("GET", "/api/runtime/app/list_functions_by_appcode_find", Map.of("appCode", appCode, "isMobile", "false")),
+            new Endpoint("GET", "/api/runtime/app/search_bizModels", Map.of("appCode", appCode, "searchKey", "")),
             new Endpoint("GET", "/api/app/bizmodels/search", Map.of("appCode", appCode)),
             new Endpoint("GET", "/api/app/bizmodels/list", Map.of("appCode", appCode)),
             new Endpoint("GET", "/api/app/bizmodels/get_all", Map.of("appCode", appCode)),
@@ -195,20 +195,102 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("mobile", false);
-        body.put("page", 0);
-        body.put("size", pageSize);
         body.put("queryCode", "");
         body.put("schemaCode", schemaCode);
-        body.put("filters", List.of());
+        body.put("options", Map.of());
+        body.put("orderByFields", List.of());
+        body.put("orderType", "");
+        body.put("page", 0);
+        body.put("size", pageSize);
+        body.put("filtersNewCondition", List.of());
+        body.put("queryCondition", List.of());
 
-        JsonNode response = postJson(host, "/api/runtime/query/list", session, body);
-        JsonNode data = response.has("data") && response.get("data").isObject() ? response.get("data") : response;
-        long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
-        List<Map<String, Object>> records = extractRecordItems(data).stream()
-            .map(this::toMap)
-            .toList();
-        return new CloudPivotRuntimeQueryResult(schemaCode, total, records, "/api/runtime/query/list");
+        RuntimeException lastFailure = null;
+        for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
+            try {
+                JsonNode response = postJson(host, endpoint, session, body);
+                ensureBusinessSuccess(response, endpoint);
+                JsonNode data = response.has("data") && response.get("data").isObject() ? response.get("data") : response;
+                long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
+                List<Map<String, Object>> records = extractRecordItems(data).stream()
+                    .map(this::toMap)
+                    .map(record -> enrichRecordDetail(host, session, schemaCode, record))
+                    .toList();
+                return new CloudPivotRuntimeQueryResult(schemaCode, total, records, endpoint);
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("CloudPivot runtime query failed") : lastFailure;
+    }
+
+    private Map<String, Object> enrichRecordDetail(String host, AuthSession session, String schemaCode, Map<String, Object> record) {
+        String recordId = recordId(record).orElse(null);
+        if (!hasText(recordId)) {
+            return record;
+        }
+        try {
+            JsonNode detail = loadRecordDetail(host, session, schemaCode, recordId);
+            Map<String, Object> enriched = new LinkedHashMap<>(record);
+            Optional<String> displayName = firstText(detail, "instanceName", "name", "title");
+            JsonNode data = detail.has("data") && detail.get("data").isObject() ? detail.get("data") : detail;
+            displayName = displayName.or(() -> firstText(data, "instanceName", "name", "title"));
+            displayName.ifPresent(value -> enriched.putIfAbsent("instanceName", value));
+
+            JsonNode bizObject = firstObject(data, "bizObject", "bizObjectData", "object", "record").orElse(data);
+            displayName = displayName.or(() -> firstText(bizObject, "name", "title", "instanceName"));
+            displayName.ifPresent(value -> enriched.putIfAbsent("name", value));
+            JsonNode bizData = firstObject(bizObject, "data", "properties", "values", "formData").orElse(null);
+            if (bizData != null && bizData.isObject()) {
+                Map<String, Object> detailData = toMap(bizData);
+                Map<String, Object> mergedData = new LinkedHashMap<>();
+                displayName.ifPresent(value -> mergedData.put("instanceName", value));
+                Object existingData = enriched.get("data");
+                if (existingData instanceof Map<?, ?> existingDataMap) {
+                    existingDataMap.forEach((key, value) -> mergedData.put(String.valueOf(key), value));
+                }
+                detailData.forEach(mergedData::putIfAbsent);
+                enriched.put("data", mergedData);
+            }
+            return enriched;
+        } catch (RuntimeException exception) {
+            log.info("CloudPivot runtime detail endpoint failed(schemaCode={}, objectId={}): {}", schemaCode, recordId, exception.getMessage());
+            return record;
+        }
+    }
+
+    private JsonNode loadRecordDetail(String host, AuthSession session, String schemaCode, String recordId) {
+        RuntimeException lastFailure = null;
+        Map<String, String> params = Map.of("schemaCode", schemaCode, "objectId", recordId);
+        for (String path : apiPathVariants("/api/runtime/form/loadNew")) {
+            try {
+                JsonNode response = getJson(host, path, session, params);
+                ensureBusinessSuccess(response, path);
+                return response;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("CloudPivot runtime detail query failed") : lastFailure;
+    }
+
+    private Optional<String> recordId(Map<String, Object> record) {
+        for (String key : List.of("id", "objectId", "dataId")) {
+            Object value = record.get(key);
+            if (value != null && hasText(String.valueOf(value))) {
+                return Optional.of(String.valueOf(value));
+            }
+        }
+        Object data = record.get("data");
+        if (data instanceof Map<?, ?> dataMap) {
+            for (String key : List.of("id", "objectId", "dataId")) {
+                Object value = dataMap.get(key);
+                if (value != null && hasText(String.valueOf(value))) {
+                    return Optional.of(String.valueOf(value));
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private Optional<AuthSession> authenticate(String host, String username, String password) {
@@ -332,14 +414,35 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private JsonNode requestJson(String host, Endpoint endpoint, AuthSession session) {
-        String url = host + endpoint.path();
-        if (!endpoint.params().isEmpty()) {
-            url += "?" + formEncode(endpoint.params());
+        RuntimeException lastFailure = null;
+        for (String path : apiPathVariants(endpoint.path())) {
+            try {
+                String url = host + path;
+                if (!endpoint.params().isEmpty()) {
+                    url += "?" + formEncode(endpoint.params());
+                }
+                HttpRequest.Builder builder = authorizedRequest(url, session);
+                HttpRequest request = "POST".equals(endpoint.method())
+                    ? builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8)).build()
+                    : builder.GET().build();
+                JsonNode response = sendJson(request);
+                ensureBusinessSuccess(response, path);
+                return response;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
         }
-        HttpRequest.Builder builder = authorizedRequest(url, session);
-        HttpRequest request = "POST".equals(endpoint.method())
-            ? builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8)).build()
-            : builder.GET().build();
+        throw lastFailure == null ? new IllegalStateException("CloudPivot request failed") : lastFailure;
+    }
+
+    private JsonNode getJson(String host, String path, AuthSession session, Map<String, String> params) {
+        String url = host + path;
+        if (!params.isEmpty()) {
+            url += "?" + formEncode(params);
+        }
+        HttpRequest request = authorizedRequest(url, session)
+            .GET()
+            .build();
         return sendJson(request);
     }
 
@@ -352,6 +455,21 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             return sendJson(request);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("云枢请求参数序列化失败", exception);
+        }
+    }
+
+    private List<String> apiPathVariants(String path) {
+        if (path.startsWith("/api/") && !path.startsWith("/api/api/")) {
+            return List.of("/api" + path, path);
+        }
+        return List.of(path);
+    }
+
+    private void ensureBusinessSuccess(JsonNode response, String endpoint) {
+        Optional<Long> errcode = firstLong(response, "errcode", "code");
+        if (errcode.isPresent() && errcode.get() != 0L) {
+            String message = firstText(response, "errmsg", "message", "msg", "data").orElse("unknown error");
+            throw new IllegalStateException("CloudPivot business request failed(endpoint=" + endpoint + ", errcode=" + errcode.get() + ", message=" + message + ")");
         }
     }
 
@@ -553,6 +671,18 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 if (hasText(value)) {
                     return Optional.of(value);
                 }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<JsonNode> firstObject(JsonNode node, String... keys) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        for (String key : keys) {
+            if (node.has(key) && node.get(key).isObject()) {
+                return Optional.of(node.get(key));
             }
         }
         return Optional.empty();
