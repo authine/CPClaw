@@ -61,7 +61,7 @@ public class MetadataSearchService {
 
     private List<String> businessTerms(String query) {
         String value = query == null ? "" : query.trim();
-        for (String noise : List.of("帮我", "请", "一下", "系统中的", "系统中", "系统", "信息", "数据", "情况", "列表", "明细", "进行", "做", "一下", "分析", "洞察", "诊断", "趋势", "查询", "查看", "统计", "汇总", "了解", "中的", "的")) {
+        for (String noise : List.of("帮我", "请", "一下", "系统中的", "系统中", "系统", "信息", "数据", "情况", "列表", "明细", "进行", "处理", "操作", "做", "一下", "分析", "洞察", "诊断", "趋势", "查询", "查看", "统计", "汇总", "了解", "新增", "创建", "写入", "修改", "提交", "删除", "作废", "填写", "中的", "的")) {
             value = value.replace(noise, " ");
         }
         String[] parts = value.split("[\\s,，。；;：:、]+");
@@ -104,6 +104,24 @@ public class MetadataSearchService {
             return results.getFirst();
         }
         return new MetadataSearchResult("unknown", "", "未匹配到本地元数据", "", "", "low", "本地 Metadata Index 暂无匹配，请先初始化云枢元数据");
+    }
+
+    public List<MetadataSearchResult> suggestAvailableMetadata(int limit) {
+        return searchDocumentRepository.findAll().stream()
+            .sorted(Comparator
+                .comparingInt((MetadataSearchDocument document) -> "entity".equals(document.getObjectType()) ? 0 : 1)
+                .thenComparing(document -> safe(document.getName())))
+            .limit(Math.max(0, limit))
+            .map(document -> new MetadataSearchResult(
+                document.getObjectType(),
+                document.getObjectId(),
+                document.getName(),
+                document.getCode(),
+                document.getGraphPath(),
+                document.getRiskLevel(),
+                "可选本地 Metadata Index 对象"
+            ))
+            .toList();
     }
 
     private record ScoredDocument(MetadataSearchDocument document, int score) {

@@ -40,9 +40,12 @@ public class AgentOrchestrator {
 
     public AgentResponse handleMessage(String conversationId, String userMessageId, String content, String modelConfigId, boolean thinkingEnabled, MessageItem assistantMessage) {
         String intent = detectIntent(content);
+        MetadataSearchResult match = metadataSearchService.bestMatch(content);
+        if (needsClarification(intent, match)) {
+            intent = "clarify_intent";
+        }
         boolean writeRisk = isWriteIntent(intent);
         String riskLevel = writeRisk ? "medium" : "low";
-        MetadataSearchResult match = metadataSearchService.bestMatch(content);
         String planSummary = buildPlanSummary(intent, match, writeRisk);
         String planJson = toJson(Map.of("intent", intent, "metadataObject", match.name(), "metadataCode", match.code(), "localMetadataOnly", false));
         AgentRun run = auditService.createAgentRun(conversationId, userMessageId, intent, riskLevel, planJson);
@@ -54,7 +57,10 @@ public class AgentOrchestrator {
         );
 
         Confirmation confirmation = null;
-        if (writeRisk) {
+        if ("clarify_intent".equals(intent)) {
+            assistantMessage = withContent(assistantMessage, clarificationMessage(content, match));
+            planSummary = "当前信息不足以安全执行，已向用户发起澄清问题。";
+        } else if (writeRisk) {
             confirmation = auditService.createConfirmation(conversationId, run.getId(), riskLevel, planSummary, toJson(Map.of("operation", intent)));
             assistantMessage = withContent(assistantMessage, "我已理解你的操作请求。这个请求可能会修改云枢数据，需要你确认后再继续执行。");
         } else if (isDataReadIntent(intent)) {
@@ -75,7 +81,7 @@ public class AgentOrchestrator {
                 planSummary = "已识别为" + ("analyze_data".equals(intent) ? "分析" : "查询") + "类请求，但本地元数据中没有匹配到可直接查询的云枢模型，未调用云枢运行态接口。";
             }
         } else {
-            assistantMessage = withContent(assistantMessage, "我还没有理解你要操作的云枢对象。请补充应用名称、表单名称或更具体的查询条件。");
+            assistantMessage = withContent(assistantMessage, clarificationMessage(content, match));
         }
 
         return new AgentResponse(
@@ -89,7 +95,7 @@ public class AgentOrchestrator {
             List.of(
                 new ExecutionStepDto("意图理解", intent),
                 new ExecutionStepDto("本地元数据检索", match.name()),
-                new ExecutionStepDto(writeRisk ? "生成风险确认" : ("analyze_data".equals(intent) ? "云枢运行态查询与分析" : "云枢运行态查询"), writeRisk ? "pending-confirmation" : "completed")
+                new ExecutionStepDto(writeRisk ? "生成风险确认" : ("clarify_intent".equals(intent) ? "向用户澄清意图" : ("analyze_data".equals(intent) ? "云枢运行态查询与分析" : "云枢运行态查询")), writeRisk ? "pending-confirmation" : "completed")
             ),
             confirmation == null ? null : confirmation.getId(),
             assistantMessage
@@ -126,7 +132,7 @@ public class AgentOrchestrator {
     }
 
     private boolean isWriteIntent(String intent) {
-        return !isDataReadIntent(intent) && !"unknown".equals(intent);
+        return !isDataReadIntent(intent) && !"unknown".equals(intent) && !"clarify_intent".equals(intent);
     }
 
     private boolean isDataReadIntent(String intent) {
@@ -137,9 +143,16 @@ public class AgentOrchestrator {
         return match != null && "entity".equals(match.objectType()) && match.code() != null && !match.code().isBlank();
     }
 
+    private boolean needsClarification(String intent, MetadataSearchResult match) {
+        return "unknown".equals(intent) || (isDataReadIntent(intent) && !canQueryRuntime(match)) || (isWriteIntent(intent) && !canQueryRuntime(match));
+    }
+
     private String buildPlanSummary(String intent, MetadataSearchResult match, boolean writeRisk) {
         if (writeRisk) {
             return "已识别为 " + intent + "，匹配本地元数据“" + match.name() + "”。修改类操作需要确认后再继续。";
+        }
+        if ("clarify_intent".equals(intent) || "unknown".equals(intent)) {
+            return "当前请求信息不足，需要先向用户澄清业务对象、动作或筛选条件。";
         }
         if ("analyze_data".equals(intent)) {
             return "已识别为分析类请求，匹配本地元数据“" + match.name() + "”，将先查询云枢运行态数据，再生成业务分析。";
@@ -161,6 +174,37 @@ public class AgentOrchestrator {
         }
         String subject = value.trim().replaceAll("\\s+", " ");
         return subject.isBlank() ? "业务对象" : subject;
+    }
+
+    private String clarificationMessage(String content, MetadataSearchResult match) {
+        StringBuilder message = new StringBuilder();
+        message.append("我需要再确认一下你的意图，这样才能避免查错或误操作。\n\n");
+        message.append("我目前理解到的内容：你可能想处理“").append(businessSubject(content)).append("”相关事项。\n");
+        if (canQueryRuntime(match)) {
+            message.append("我找到了一个可能相关的云枢对象：“").append(match.name()).append("”。\n");
+        } else if (match != null && match.name() != null && !"未匹配到本地元数据".equals(match.name())) {
+            message.append("我找到的候选还不能直接查询：“").append(match.name()).append("”。\n");
+        } else {
+            message.append("我暂时没有匹配到可直接查询的云枢对象。\n");
+        }
+        message.append("\n请你补充一个方向即可：\n");
+        message.append("1. 你想查询/分析哪个应用或表单？例如：分析系统商机、查询销售订单。\n");
+        message.append("2. 你想做什么动作？例如：查询、统计、分析、修改、新增。\n");
+        message.append("3. 有没有筛选条件？例如：本月、负责人、阶段、客户名称。\n");
+        String suggestions = metadataSuggestions();
+        if (!suggestions.isBlank()) {
+            message.append("\n当前我能看到的部分对象：").append(suggestions).append("。");
+        }
+        return message.toString();
+    }
+
+    private String metadataSuggestions() {
+        return metadataSearchService.suggestAvailableMetadata(5).stream()
+            .map(MetadataSearchResult::name)
+            .filter(name -> name != null && !name.isBlank())
+            .distinct()
+            .reduce((left, right) -> left + "、" + right)
+            .orElse("");
     }
 
     private MessageItem withContent(MessageItem message, String content) {

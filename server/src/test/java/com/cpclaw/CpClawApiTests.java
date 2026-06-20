@@ -165,6 +165,24 @@ class CpClawApiTests {
         assertTrue(analysisBody.contains("结论摘要"));
         assertTrue(analysisBody.contains("系统商机"));
 
+        MvcResult clarificationResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"帮我处理一下",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andReturn();
+        String clarificationBody = clarificationResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(clarificationBody.contains("我需要再确认一下你的意图"));
+        assertTrue(clarificationBody.contains("你想做什么动作"));
+
         MvcResult agentResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
