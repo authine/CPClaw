@@ -1,72 +1,121 @@
-# CPClaw Progress
+# CPClaw 项目进度
 
-This file is the live project progress board for CPClaw. Future task updates should be recorded here first, then committed and pushed to GitHub so the latest state is visible remotely.
+本文件是 CPClaw 项目的实时进度看板。之后每完成一个任务、一次验证、一次阻塞排查或一次交付，都先更新本文件，再单独提交并推送到 GitHub，方便远程查看最新状态。
 
-## Current Snapshot
+## 当前结论
 
-- Date: 2026-06-20
-- Branch: `main`
-- Remote: `origin` -> `ssh://git@github.com/authine/CPClaw.git`
-- Project phase: MVP stabilization and conversation-workbench completion
-- Primary goal: deliver a usable CloudPivot super-agent conversation UI with settings, metadata initialization, conversation history, attachments, confirmation, and audit visibility.
+**项目尚未全部完成。**
 
-## Requirement Baseline
+当前更准确的状态是：前端工作台补强已在本地完成一轮实现并通过前端构建；`PROGRESS.md` 已提交并推送；但前端工作台代码本身还未提交，后端完整自动化测试还未跑通，Agent 也仍处于 MVP 规则型实现阶段，距离完整超级智能体仍有差距。
 
-CPClaw is a conversational super-agent for the CloudPivot low-code platform. Users should be able to use natural language to access CloudPivot applications and operate data in a way that approximates a real employee using the browser or APIs.
+## 当前快照
 
-Core MVP expectations:
+- 日期：2026-06-20
+- 分支：`main`
+- 远程仓库：`origin` -> `ssh://git@github.com/authine/CPClaw.git`
+- 当前阶段：MVP 稳定化与对话工作台补齐
+- 当前主目标：交付一个可用的云枢超级智能体对话式工作台，覆盖设置、元数据初始化、历史会话、附件、确认和审计入口。
+- Git 状态：`PROGRESS.md` 已提交推送；前端工作台相关文件仍是本地未提交改动。
 
-- Conversation-first UI as the main entry.
-- Multi-turn conversation support.
-- New conversation creation.
-- Historical conversations saved and viewable.
-- System settings for CloudPivot login URL, account, password, and model configuration.
-- Admin metadata initialization for CloudPivot app architecture.
-- Local metadata index used for intent matching and capability discovery.
-- ReAct + Reflection style execution pipeline, with the current implementation still in MVP/rule-based form.
-- Query scenarios first.
-- High-risk write/delete/workflow/action operations require confirmation before execution.
-- Audit records and tool inputs/outputs must be masked.
+## 原始需求基线
 
-## Latest Engineering Progress
+CPClaw 是面向云枢低代码平台的对话式超级智能体。用户应能通过自然语言访问和操作云枢应用，就像真实员工通过浏览器或 API 使用系统一样。
 
-### Frontend Workbench
+MVP 核心要求：
 
-- Status: in progress, local working tree only
-- Added conversation-focused workbench structure.
-- Added history conversation list and conversation switching.
-- Added new conversation actions.
-- Added model selector and thinking-mode switch on the conversation page.
-- Added attachment upload entry and sends uploaded attachment IDs with the next message.
-- Added Agent execution flow display, metadata match details, risk level, candidate objects, execution steps, and confirmation handling.
+- 对话式 UI 是第一入口。
+- 支持多轮对话。
+- 支持新建会话。
+- 支持历史会话保存和查看。
+- 支持系统设置：云枢登录地址、账号、密码、模型配置。
+- 支持管理员初始化云枢应用架构元数据。
+- 使用本地 Metadata Index 做意图匹配和能力发现。
+- 采用 ReAct + Reflection 的智能体设计方向；当前代码仍是 MVP 规则型实现。
+- 优先落地查询类场景。
+- 新增、修改、删除、流程、Action、附件等高风险操作必须二次确认。
+- 审计记录和工具输入输出必须脱敏。
 
-### Settings UI
+## 完成情况总览
 
-- Status: in progress, local working tree only
-- Expanded settings into user CloudPivot account, admin metadata environment, and model configuration sections.
-- Added saved credential indicators.
-- Added user/admin connection test actions.
-- Added model list and model capability display.
+| 模块 | 当前状态 | 说明 |
+| --- | --- | --- |
+| 中文进度文件 | 已完成 | 已新增本文件，并已推送到 GitHub。 |
+| 对话主界面 | 本地已实现，待提交 | 已补历史会话、新建会话、模型选择、思考模式、附件入口、执行过程和确认入口。 |
+| 设置页 | 本地已实现，待提交 | 已补普通用户云枢账号、管理员元数据环境、模型配置和连接测试入口。 |
+| 元数据页 | 本地已实现，待提交 | 已恢复路由入口，并补同步、搜索、加载、错误和结果摘要。 |
+| 审计页 | 本地已实现，待提交 | 已恢复路由入口，并补 Agent Run 查询、空态、未找到态、加载态和脱敏工具调用表格。 |
+| 前端构建 | 已通过 | `npm run build` 已通过。 |
+| 前端路由检查 | 已通过 | `/`、`/settings`、`/metadata`、`/audit` 均返回 200。 |
+| 敏感信息检查 | 已通过本轮 diff 检查 | 未发现原始云枢账号密码、明显 Bearer Token 或 API Key 字面量。 |
+| 后端自动化测试 | 未完成，环境/网络阻塞 | 已尝试 `mvn test`，但 Maven 依赖下载时网络中断。 |
+| 完整前后端联调 | 未完成 | 后端测试和后端服务未完整跑通，暂未做完整 E2E。 |
+| 完整 ReAct + Reflection Agent | 未完成 | 当前后端仍以 MVP 规则型 Agent 为主。 |
+| 浏览器自动化兜底 | 未完成 | 设计文档有目标，当前不是完整生产级实现。 |
+| 字段级元数据、Action、流程、表单完整同步 | 部分完成 | 当前已有元数据同步 MVP，但不是完整设计态能力采集。 |
+| 附件解析与字段映射 | 未完成 | 当前已接上传入口，解析和字段映射仍待实现。 |
 
-### Metadata UI
+## 最近工程进展
 
-- Status: in progress, local working tree only
-- Restored metadata route and navigation entry.
-- Added metadata sync action, search, loading state, error state, and sync summary.
+### 对话工作台
 
-### Audit UI
+- 状态：本地已实现，待提交
+- 已改造为对话优先的工作台结构。
+- 已增加历史会话列表和会话切换。
+- 已增加新建会话入口。
+- 已增加模型选择和思考模式开关。
+- 已增加附件上传入口，并在发送下一条消息时携带上传附件 ID。
+- 已展示 Agent 执行流程、元数据匹配、风险等级、候选对象、执行步骤和确认操作。
 
-- Status: in progress, local working tree only
-- Restored audit route and navigation entry.
-- Added Agent Run lookup, empty-state handling, not-found state, loading state, and masked tool-call table.
+### 设置页
 
-## Verification Log
+- 状态：本地已实现，待提交
+- 已扩展为普通用户云枢账号、管理员元数据环境、模型配置三个区域。
+- 已增加凭据已保存状态提示。
+- 已增加普通用户和管理员连接测试入口。
+- 已增加模型列表和模型能力展示。
 
-- `npm run build` in `web/`: passed on 2026-06-20.
-- `git diff --check`: passed on 2026-06-20. Only Windows line-ending warnings were shown.
-- Frontend dev server: running at `http://127.0.0.1:5173/` during local verification.
-- Frontend route HTTP checks returned 200 for `/`, `/settings`, `/metadata`, and `/audit`.
-- Sensitive diff scan: no original CloudPivot account password, obvious bearer token, or API key literal found in the current diff.
-- Backend `mvn test`: attempted using local JDK/Maven paths, but Maven dependency resolution failed because network access to Maven Central was interrupted (`Connection reset` / `Network is unreachable`). This was not a test assertion failure.
+### 元数据页
 
-## Current Blockers And Risks
+- 状态：本地已实现，待提交
+- 已恢复元数据路由和导航入口。
+- 已增加元数据同步按钮、搜索、加载状态、错误状态和同步结果摘要。
+
+### 审计页
+
+- 状态：本地已实现，待提交
+- 已恢复审计路由和导航入口。
+- 已增加 Agent Run 查询、空态、未找到态、加载态和脱敏工具调用表格。
+
+## 验证记录
+
+- 2026-06-20：`web/` 下执行 `npm run build`，结果通过。
+- 2026-06-20：执行 `git diff --check`，结果通过；仅出现 Windows 换行提示。
+- 2026-06-20：前端开发服务本地运行于 `http://127.0.0.1:5173/`。
+- 2026-06-20：前端路由 HTTP 检查通过：`/`、`/settings`、`/metadata`、`/audit` 均返回 200。
+- 2026-06-20：敏感信息 diff 检查未发现原始云枢账号密码、明显 Bearer Token 或 API Key 字面量。
+- 2026-06-20：尝试后端 `mvn test`，失败原因是 Maven Central 依赖下载过程中网络中断，报错包含 `Connection reset` / `Network is unreachable`。这不是测试断言失败。
+
+## 当前阻塞与风险
+
+- 后端自动化测试需要 Maven 依赖完整下载后才能继续。
+- 当前前端工作台改动还没有提交为功能提交。
+- 当前 Agent 还不是完整 ReAct + Reflection 流水线，复杂多轮理解、DAG 计划、上下文引用和 Reflection 仍需后续实现。
+- 附件目前只接入上传入口，尚未实现解析、字段映射和填单确认链路。
+- 元数据初始化仍是 MVP 能力，字段、表单、流程、Action 等完整设计态采集仍需增强。
+- 尚未完成完整前后端联合运行和 E2E 验证。
+
+## 下一步计划
+
+1. 等 Maven 依赖可用后，重新执行后端 `mvn test`。
+2. 启动后端与前端，完成设置、元数据同步、对话发送、确认、审计查询的端到端冒烟验证。
+3. 请用户先验证当前前端工作台体验。
+4. 根据用户反馈调整 UI 和交互细节。
+5. 决定是否将当前前端工作台本地改动提交为独立功能提交。
+6. 继续推进 Agent 能力：结构化意图理解、多轮上下文引用、候选澄清、DAG 计划、Reflection 检查。
+
+## 更新规则
+
+- 每个任务完成后必须更新本文件。
+- 每次验证、阻塞、恢复、交付前都必须更新本文件。
+- 本文件只记录事实进度，不写入密码、Token、Cookie、API Key、私钥或本地敏感配置。
+- 每次更新后单独提交并推送 `PROGRESS.md`，让 GitHub 保持最新状态。
