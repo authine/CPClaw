@@ -87,7 +87,7 @@ class CpClawApiTests {
         mockMvc.perform(post("/api/metadata/sync"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("cloudpivot-metadata-initialized"))
-            .andExpect(jsonPath("$.data.entityCount").value(5));
+            .andExpect(jsonPath("$.data.entityCount").value(6));
 
         mockMvc.perform(get("/api/metadata/apps"))
             .andExpect(status().isOk())
@@ -145,6 +145,25 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false));
+
+        MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"分析系统中的商机信息",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andReturn();
+        String analysisBody = analysisResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(analysisBody.contains("结论摘要"));
+        assertTrue(analysisBody.contains("系统商机"));
 
         MvcResult agentResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)

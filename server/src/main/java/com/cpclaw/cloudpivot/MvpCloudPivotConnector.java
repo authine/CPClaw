@@ -93,7 +93,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             throw new IllegalArgumentException("未匹配到可查询的云枢模型编码");
         }
         if (allowFallbackMetadata && isLocalTestUrl(baseUrl)) {
-            return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "local-fallback");
+            return fallbackRuntimeQueryResult(schemaCode, pageSize);
         }
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
@@ -742,10 +742,53 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_detail", "元数据明细", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_relation", "元数据关联", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "system_opportunity", "系统商机", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_form", "元数据表单", "data", "medium"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_attachment", "元数据附件", "attachment", "medium")
             )
         );
+    }
+
+    private CloudPivotRuntimeQueryResult fallbackRuntimeQueryResult(String schemaCode, int pageSize) {
+        if ("system_opportunity".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(
+                Map.of(
+                    "id", "opp-001",
+                    "data", Map.of(
+                        "name", "华东制造业数字化项目",
+                        "customer", "华东制造集团",
+                        "stage", "方案确认",
+                        "amount", 860000,
+                        "owner", "销售一部",
+                        "probability", "70%"
+                    )
+                ),
+                Map.of(
+                    "id", "opp-002",
+                    "data", Map.of(
+                        "name", "西南零售门店协同平台",
+                        "customer", "西南零售连锁",
+                        "stage", "需求沟通",
+                        "amount", 420000,
+                        "owner", "销售二部",
+                        "probability", "45%"
+                    )
+                ),
+                Map.of(
+                    "id", "opp-003",
+                    "data", Map.of(
+                        "name", "总部流程自动化扩容",
+                        "customer", "总部存量客户",
+                        "stage", "合同审批",
+                        "amount", 260000,
+                        "owner", "客户成功部",
+                        "probability", "85%"
+                    )
+                )
+            );
+            return new CloudPivotRuntimeQueryResult(schemaCode, records.size(), records.stream().limit(Math.max(1, pageSize)).toList(), "local-fallback");
+        }
+        return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "local-fallback");
     }
 
     private boolean hasText(String value) {
