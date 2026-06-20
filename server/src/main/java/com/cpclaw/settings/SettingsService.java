@@ -47,7 +47,7 @@ public class SettingsService {
     }
 
     public SettingsResponse getSettings() {
-        SystemSettings settings = getOrCreateSettings();
+        SystemSettings settings = settingsRepository.findById(SETTINGS_ID).orElseGet(this::newDefaultSettings);
         return new SettingsResponse(
             new UserCloudPivotSettings(
                 settings.getCloudPivotBaseUrl(),
@@ -116,7 +116,7 @@ public class SettingsService {
     }
 
     public ConnectionTestResponse testUserCloudPivotConnection() {
-        SystemSettings settings = getOrCreateSettings();
+        SystemSettings settings = settingsRepository.findById(SETTINGS_ID).orElseGet(this::newDefaultSettings);
         if (!hasText(settings.getCloudPivotBaseUrl()) || !hasText(settings.getCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写普通用户云枢访问地址和账号");
         }
@@ -127,7 +127,7 @@ public class SettingsService {
     }
 
     public ConnectionTestResponse testAdminCloudPivotConnection() {
-        SystemSettings settings = getOrCreateSettings();
+        SystemSettings settings = settingsRepository.findById(SETTINGS_ID).orElseGet(this::newDefaultSettings);
         if (!hasText(settings.getAdminCloudPivotBaseUrl()) || !hasText(settings.getAdminCloudPivotUsername())) {
             return new ConnectionTestResponse(false, "请先填写管理员云枢环境和账号");
         }
@@ -138,15 +138,17 @@ public class SettingsService {
     }
 
     private SystemSettings getOrCreateSettings() {
-        return settingsRepository.findById(SETTINGS_ID).orElseGet(() -> {
-            Instant now = Instant.now();
-            SystemSettings settings = new SystemSettings();
-            settings.setId(SETTINGS_ID);
-            settings.setSearchEngineType("mysql");
-            settings.setCreatedAt(now);
-            settings.setUpdatedAt(now);
-            return settingsRepository.save(settings);
-        });
+        return settingsRepository.findById(SETTINGS_ID).orElseGet(() -> settingsRepository.save(newDefaultSettings()));
+    }
+
+    private SystemSettings newDefaultSettings() {
+        Instant now = Instant.now();
+        SystemSettings settings = new SystemSettings();
+        settings.setId(SETTINGS_ID);
+        settings.setSearchEngineType("mysql");
+        settings.setCreatedAt(now);
+        settings.setUpdatedAt(now);
+        return settings;
     }
 
     private ModelConfigResponse toModelResponse(ModelConfig modelConfig) {
