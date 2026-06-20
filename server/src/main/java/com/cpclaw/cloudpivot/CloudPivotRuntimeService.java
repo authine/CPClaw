@@ -163,7 +163,7 @@ public class CloudPivotRuntimeService {
 
     private boolean isCountQuestion(String content) {
         String value = content == null ? "" : content;
-        return value.contains("统计") || value.contains("数量") || value.contains("总计") || value.contains("多少") || value.contains("几条");
+        return value.contains("统计") || value.contains("数量") || value.contains("总计") || value.contains("多少") || value.contains("几条") || value.contains("几个") || value.contains("几项") || value.contains("几笔") || value.contains("几份") || value.contains("几单") || value.contains("一共") || value.contains("总共") || value.contains("共有");
     }
 
     private boolean isAnalysisQuestion(String content) {

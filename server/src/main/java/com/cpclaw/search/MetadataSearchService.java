@@ -61,10 +61,12 @@ public class MetadataSearchService {
 
     private List<String> businessTerms(String query) {
         String value = query == null ? "" : query.trim();
-        for (String noise : List.of("帮我", "请", "一下", "系统中的", "系统中", "系统", "信息", "数据", "情况", "列表", "明细", "进行", "处理", "操作", "做", "一下", "分析", "洞察", "诊断", "趋势", "查询", "查看", "统计", "汇总", "了解", "新增", "创建", "写入", "修改", "提交", "删除", "作废", "填写", "中的", "的")) {
+        value = value.replaceAll("(一共|总共|共有)?有?多少[条个项笔份单]?", " ");
+        value = value.replaceAll("(一共|总共|共有)?有?几[条个项笔份单]?", " ");
+        for (String noise : List.of("帮我", "请", "一下", "系统中的", "系统中", "系统", "信息", "数据", "情况", "列表", "明细", "进行", "处理", "操作", "做", "一下", "分析", "洞察", "诊断", "趋势", "查询", "查看", "统计", "汇总", "数量", "总计", "了解", "新增", "创建", "写入", "修改", "提交", "删除", "作废", "填写", "一共", "总共", "共有", "中的", "的", "吗", "呢", "嘛")) {
             value = value.replace(noise, " ");
         }
-        String[] parts = value.split("[\\s,，。；;：:、]+");
+        String[] parts = value.split("[\\s,，。；;：:、?？!！]+");
         List<String> terms = new ArrayList<>();
         for (String part : parts) {
             String term = part.trim();
