@@ -48,12 +48,15 @@ public class CloudPivotRuntimeService {
             settings.getCloudPivotUsername(),
             password,
             match.code(),
-            isCountQuestion(userQuestion) ? 1 : 10
+            queryPageSize(userQuestion)
         );
         return new CloudPivotQueryAnswer(match.name(), match.code(), result.total(), result.records().size(), summarize(match, result, userQuestion, modelConfigId, thinkingEnabled));
     }
 
     private String summarize(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, String userQuestion, String modelConfigId, boolean thinkingEnabled) {
+        if (isYearlyDistributionQuestion(userQuestion)) {
+            return yearlyDistributionAnalysis(match, result);
+        }
         if (isCountQuestion(userQuestion)) {
             return "已在云枢中查询到“" + match.name() + "”对应数据，总计 **" + result.total() + "** 条。";
         }
@@ -71,6 +74,105 @@ public class CloudPivotRuntimeService {
             }
         }
         return answer.toString();
+    }
+
+    private String yearlyDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+        Map<String, Long> yearlyCounts = result.records().stream()
+            .map(this::recordData)
+            .map(this::recordYear)
+            .filter(java.util.Optional::isPresent)
+            .map(java.util.Optional::get)
+            .collect(java.util.stream.Collectors.groupingBy(String::valueOf, java.util.TreeMap::new, java.util.stream.Collectors.counting()));
+
+        StringBuilder answer = new StringBuilder();
+        answer.append("已在云枢中查询到“").append(match.name()).append("”对应数据，总计 **").append(result.total()).append("** 条。\n\n");
+        String objectLabel = objectLabel(match);
+        String metricLabel = objectLabel + "量";
+        String unitLabel = unitLabel(objectLabel);
+        answer.append("### 按年").append(metricLabel).append("分析\n");
+        if (yearlyCounts.isEmpty()) {
+            answer.append("- 当前返回记录中没有可识别的年份字段，建议确认").append(objectLabel).append("表是否存在创建时间、登记时间或年份字段。\n");
+            if (!result.records().isEmpty()) {
+                answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
+            }
+            return answer.toString();
+        }
+        yearlyCounts.forEach((year, count) -> answer.append("- ").append(year).append(" 年：").append(count).append(" ").append(unitLabel).append("\n"));
+        answer.append("\n### 判断\n");
+        answer.append("- 年份覆盖：").append(String.join("、", yearlyCounts.keySet())).append("。\n");
+        answer.append("- 峰值年份：").append(peakYear(yearlyCounts, unitLabel)).append("。\n");
+        trendSummary(yearlyCounts, metricLabel).ifPresent(summary -> answer.append("- 趋势判断：").append(summary).append("。\n"));
+        if (result.records().size() < result.total()) {
+            answer.append("- 当前运行态接口本次返回 ").append(result.records().size()).append(" 条样本，少于总数 ").append(result.total()).append(" 条；生产环境需要分页拉取全量后再做最终年度分布。\n");
+        }
+        answer.append("\n### 下一步建议\n");
+        answer.append("- 可以继续按负责人、行业、等级或来源渠道下钻，判断").append(metricLabel).append("变化来自哪个团队或客群。\n");
+        return answer.toString();
+    }
+
+    private String objectLabel(MetadataSearchResult match) {
+        String value = match == null || match.name() == null ? "记录" : match.name().trim();
+        if (value.startsWith("系统") && value.length() > 2) {
+            value = value.substring(2);
+        }
+        return value.isBlank() ? "记录" : value;
+    }
+
+    private String unitLabel(String objectLabel) {
+        if (objectLabel.contains("客户")) {
+            return "个客户";
+        }
+        if (objectLabel.contains("商机")) {
+            return "条商机";
+        }
+        return "条";
+    }
+
+    private String peakYear(Map<String, Long> yearlyCounts, String unitLabel) {
+        return yearlyCounts.entrySet().stream()
+            .max(Map.Entry.comparingByValue())
+            .map(entry -> entry.getKey() + " 年（" + entry.getValue() + " " + unitLabel + "）")
+            .orElse("暂无可判断年份");
+    }
+
+    private java.util.Optional<String> trendSummary(Map<String, Long> yearlyCounts, String metricLabel) {
+        if (yearlyCounts.size() < 2) {
+            return java.util.Optional.empty();
+        }
+        List<Long> values = yearlyCounts.values().stream().toList();
+        long first = values.getFirst();
+        long last = values.getLast();
+        if (last > first) {
+            return java.util.Optional.of("最近年份" + metricLabel + "高于最早年份，整体呈增长信号");
+        }
+        if (last < first) {
+            return java.util.Optional.of("最近年份" + metricLabel + "低于最早年份，需要关注增长放缓风险");
+        }
+        return java.util.Optional.of("首末年份" + metricLabel + "持平，需要结合中间年份波动继续观察");
+    }
+
+    private java.util.Optional<String> recordYear(Map<?, ?> data) {
+        for (String key : List.of("createdAt", "createTime", "createdTime", "createdDate", "registerDate", "signupDate", "year")) {
+            Object value = data.get(key);
+            java.util.Optional<String> year = extractYear(value);
+            if (year.isPresent()) {
+                return year;
+            }
+        }
+        return data.values().stream()
+            .map(this::extractYear)
+            .filter(java.util.Optional::isPresent)
+            .map(java.util.Optional::get)
+            .findFirst();
+    }
+
+    private java.util.Optional<String> extractYear(Object value) {
+        if (value == null) {
+            return java.util.Optional.empty();
+        }
+        String text = String.valueOf(value);
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(20\\d{2}|19\\d{2})").matcher(text);
+        return matcher.find() ? java.util.Optional.of(matcher.group(1)) : java.util.Optional.empty();
     }
 
     private String fallbackAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
@@ -168,7 +270,19 @@ public class CloudPivotRuntimeService {
 
     private boolean isAnalysisQuestion(String content) {
         String value = content == null ? "" : content;
-        return value.contains("分析") || value.contains("洞察") || value.contains("诊断") || value.contains("趋势") || value.contains("建议") || value.contains("怎么看");
+        return value.contains("分析") || value.contains("洞察") || value.contains("诊断") || value.contains("趋势") || value.contains("建议") || value.contains("怎么看") || value.contains("怎么样") || value.contains("按年") || value.contains("每年") || value.contains("年度");
+    }
+
+    private boolean isYearlyDistributionQuestion(String content) {
+        String value = content == null ? "" : content;
+        return value.contains("每年") || value.contains("按年") || value.contains("年度") || value.contains("年份") || (value.contains("年") && (value.contains("数量") || value.contains("量") || value.contains("情况") || value.contains("趋势")));
+    }
+
+    private int queryPageSize(String content) {
+        if (isYearlyDistributionQuestion(content)) {
+            return 50;
+        }
+        return isCountQuestion(content) ? 1 : 10;
     }
 
     private boolean hasText(String value) {

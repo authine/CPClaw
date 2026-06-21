@@ -35,6 +35,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private static final Logger log = LoggerFactory.getLogger(MvpCloudPivotConnector.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
+    private static final int MAX_RUNTIME_ANALYSIS_RECORDS = 1000;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
@@ -194,34 +195,55 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize) {
+        RuntimeException lastFailure = null;
+        for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
+            try {
+                RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0);
+                if (pageSize <= 1 || firstPage.records().size() >= firstPage.total()) {
+                    return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), firstPage.records(), endpoint);
+                }
+                List<Map<String, Object>> records = new ArrayList<>(firstPage.records());
+                int page = 1;
+                while (records.size() < firstPage.total() && records.size() < MAX_RUNTIME_ANALYSIS_RECORDS) {
+                    RuntimePage nextPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, page);
+                    if (nextPage.records().isEmpty()) {
+                        break;
+                    }
+                    records.addAll(nextPage.records());
+                    page++;
+                }
+                if (records.size() > MAX_RUNTIME_ANALYSIS_RECORDS) {
+                    records = records.subList(0, MAX_RUNTIME_ANALYSIS_RECORDS);
+                }
+                return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), records, endpoint);
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("CloudPivot runtime query failed") : lastFailure;
+    }
+
+    private RuntimePage queryRemotePage(String host, AuthSession session, String schemaCode, String endpoint, int pageSize, int page) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("queryCode", "");
         body.put("schemaCode", schemaCode);
         body.put("options", Map.of());
         body.put("orderByFields", List.of());
         body.put("orderType", "");
-        body.put("page", 0);
+        body.put("page", page);
         body.put("size", pageSize);
         body.put("filtersNewCondition", List.of());
         body.put("queryCondition", List.of());
 
-        RuntimeException lastFailure = null;
-        for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
-            try {
-                JsonNode response = postJson(host, endpoint, session, body);
-                ensureBusinessSuccess(response, endpoint);
-                JsonNode data = response.has("data") && response.get("data").isObject() ? response.get("data") : response;
-                long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
-                List<Map<String, Object>> records = extractRecordItems(data).stream()
-                    .map(this::toMap)
-                    .map(record -> enrichRecordDetail(host, session, schemaCode, record))
-                    .toList();
-                return new CloudPivotRuntimeQueryResult(schemaCode, total, records, endpoint);
-            } catch (RuntimeException exception) {
-                lastFailure = exception;
-            }
-        }
-        throw lastFailure == null ? new IllegalStateException("CloudPivot runtime query failed") : lastFailure;
+        JsonNode response = postJson(host, endpoint, session, body);
+        ensureBusinessSuccess(response, endpoint);
+        JsonNode data = response.has("data") && response.get("data").isObject() ? response.get("data") : response;
+        long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
+        List<Map<String, Object>> records = extractRecordItems(data).stream()
+            .map(this::toMap)
+            .map(record -> enrichRecordDetail(host, session, schemaCode, record))
+            .toList();
+        return new RuntimePage(total, records);
     }
 
     private Map<String, Object> enrichRecordDetail(String host, AuthSession session, String schemaCode, Map<String, Object> record) {
@@ -743,6 +765,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_detail", "元数据明细", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_relation", "元数据关联", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "system_opportunity", "系统商机", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "system_customer", "系统客户", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_form", "元数据表单", "data", "medium"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_attachment", "元数据附件", "attachment", "medium")
             )
@@ -788,6 +811,51 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             );
             return new CloudPivotRuntimeQueryResult(schemaCode, records.size(), records.stream().limit(Math.max(1, pageSize)).toList(), "local-fallback");
         }
+        if ("system_customer".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(
+                Map.of(
+                    "id", "cus-001",
+                    "data", Map.of(
+                        "name", "华东制造集团",
+                        "industry", "制造业",
+                        "owner", "销售一部",
+                        "createdAt", "2022-03-18",
+                        "level", "重点客户"
+                    )
+                ),
+                Map.of(
+                    "id", "cus-002",
+                    "data", Map.of(
+                        "name", "西南零售连锁",
+                        "industry", "零售",
+                        "owner", "销售二部",
+                        "createdAt", "2023-07-09",
+                        "level", "成长客户"
+                    )
+                ),
+                Map.of(
+                    "id", "cus-003",
+                    "data", Map.of(
+                        "name", "总部存量客户",
+                        "industry", "集团总部",
+                        "owner", "客户成功部",
+                        "createdAt", "2023-11-26",
+                        "level", "存量客户"
+                    )
+                ),
+                Map.of(
+                    "id", "cus-004",
+                    "data", Map.of(
+                        "name", "华南新能源科技",
+                        "industry", "新能源",
+                        "owner", "销售三部",
+                        "createdAt", "2024-05-14",
+                        "level", "重点客户"
+                    )
+                )
+            );
+            return new CloudPivotRuntimeQueryResult(schemaCode, records.size(), records.stream().limit(Math.max(1, pageSize)).toList(), "local-fallback");
+        }
         return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "local-fallback");
     }
 
@@ -802,6 +870,9 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private record AuthSession(String accessToken, String refreshToken, String corpId, String engineCode) {
+    }
+
+    private record RuntimePage(long total, List<Map<String, Object>> records) {
     }
 
     private record Endpoint(String method, String path, Map<String, String> params) {

@@ -87,7 +87,7 @@ class CpClawApiTests {
         mockMvc.perform(post("/api/metadata/sync"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("cloudpivot-metadata-initialized"))
-            .andExpect(jsonPath("$.data.entityCount").value(6));
+            .andExpect(jsonPath("$.data.entityCount").value(7));
 
         mockMvc.perform(get("/api/metadata/apps"))
             .andExpect(status().isOk())
@@ -167,6 +167,47 @@ class CpClawApiTests {
             .andReturn();
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **3** 条"));
+
+        MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"系统有多少个客户？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("系统客户"))
+            .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andReturn();
+        String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(countCustomerBody.contains("总计 **4** 条"));
+
+        MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"每年的客户量情况怎么样？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("系统客户"))
+            .andExpect(jsonPath("$.data.steps[0].title").value("Observe 观察上下文"))
+            .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andReturn();
+        String yearlyCustomerBody = yearlyCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(yearlyCustomerBody.contains("按年客户量分析"));
+        assertTrue(yearlyCustomerBody.contains("2023 年：2 个客户"));
+        assertTrue(yearlyCustomerBody.contains("趋势判断"));
 
         MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
