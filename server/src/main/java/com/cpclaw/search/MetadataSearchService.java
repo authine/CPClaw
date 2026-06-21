@@ -5,7 +5,9 @@ import com.cpclaw.metadata.entity.MetadataSearchDocument;
 import com.cpclaw.metadata.repository.MetadataSearchDocumentRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -19,31 +21,18 @@ public class MetadataSearchService {
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {
         String safeQuery = query == null ? "" : query.trim();
-        List<MetadataSearchResult> directResults = searchDocumentRepository.searchByText(safeQuery).stream()
-            .sorted(Comparator.comparingInt(document -> relevanceBoost(safeQuery, document.getGraphPath(), document.getCode(), document.getSearchText())))
-            .map(document -> new MetadataSearchResult(
-                document.getObjectType(),
-                document.getObjectId(),
-                document.getName(),
-                document.getCode(),
-                document.getGraphPath(),
-                document.getRiskLevel(),
-                "命中本地 Metadata Index"
-            ))
-            .toList();
-        if (!directResults.isEmpty()) {
-            return directResults;
-        }
-        return searchByBusinessTerms(safeQuery);
-    }
-
-    private List<MetadataSearchResult> searchByBusinessTerms(String query) {
         List<String> terms = businessTerms(query);
-        if (terms.isEmpty()) {
-            return List.of();
+
+        Map<String, MetadataSearchDocument> candidates = new LinkedHashMap<>();
+        searchDocumentRepository.searchByText(safeQuery).forEach(document -> candidates.put(document.getId(), document));
+        if (!terms.isEmpty()) {
+            searchDocumentRepository.findAll().stream()
+                .filter(document -> businessTermScore(terms, document) > 0)
+                .forEach(document -> candidates.put(document.getId(), document));
         }
-        return searchDocumentRepository.findAll().stream()
-            .map(document -> new ScoredDocument(document, businessTermScore(terms, document)))
+
+        return candidates.values().stream()
+            .map(document -> new ScoredDocument(document, businessTermScore(terms, document) + rankingScore(safeQuery, document)))
             .filter(item -> item.score() > 0)
             .sorted(Comparator.comparingInt(ScoredDocument::score).reversed())
             .limit(10)
@@ -54,7 +43,7 @@ public class MetadataSearchService {
                 item.document().getCode(),
                 item.document().getGraphPath(),
                 item.document().getRiskLevel(),
-                "按业务关键词命中本地 Metadata Index：" + String.join("、", terms)
+                matchReason(terms, item)
             ))
             .toList();
     }
@@ -88,12 +77,58 @@ public class MetadataSearchService {
         return score;
     }
 
-    private int relevanceBoost(String query, String graphPath, String code, String searchText) {
-        if (!query.toLowerCase().contains("crm")) {
-            return 0;
+    private int rankingScore(String query, MetadataSearchDocument document) {
+        List<String> terms = businessTerms(query);
+        String name = safe(document.getName());
+        String code = safe(document.getCode());
+        String graphPath = safe(document.getGraphPath());
+        String searchText = safe(document.getSearchText());
+        String haystack = String.join(" ", graphPath, code, searchText).toLowerCase();
+
+        int score = "entity".equals(document.getObjectType()) ? 50 : 0;
+        for (String term : terms) {
+            if (name.equals(term)) {
+                score += 120;
+            } else if (name.contains(term)) {
+                score += 60;
+            }
         }
-        String haystack = String.join(" ", safe(graphPath), safe(code), safe(searchText)).toLowerCase();
-        return haystack.contains("crm") ? 0 : 1;
+
+        if (isCrmCoreQuery(query, terms)) {
+            if (graphPath.toLowerCase().startsWith("zlcsstcrm /")) {
+                score += 120;
+            }
+            if (haystack.contains("zlcsstcrm") || code.toLowerCase().contains("crm")) {
+                score += 80;
+            }
+        } else if (query.toLowerCase().contains("crm") && haystack.contains("crm")) {
+            score += 80;
+        }
+
+        if (terms.contains("商机") && "int_bu_oppor".equalsIgnoreCase(code)) {
+            score += 140;
+        }
+        if (terms.contains("客户") && "crm_customer".equalsIgnoreCase(code)) {
+            score += 140;
+        }
+
+        for (String secondary : List.of("管理", "分配", "变更", "转移", "统计", "报表", "滚动", "持续", "查询", "修正", "基础信息", "test", "测试")) {
+            if (name.toLowerCase().contains(secondary.toLowerCase()) || code.toLowerCase().contains(secondary.toLowerCase())) {
+                score -= 45;
+            }
+        }
+        return score;
+    }
+
+    private boolean isCrmCoreQuery(String query, List<String> terms) {
+        String value = query == null ? "" : query.toLowerCase();
+        return value.contains("crm") || terms.stream().anyMatch(term -> List.of("商机", "客户", "线索", "联系人", "销售订单", "合同").contains(term));
+    }
+
+    private String matchReason(List<String> terms, ScoredDocument item) {
+        String termText = terms.isEmpty() ? "原始查询" : String.join("、", terms);
+        return "按真实云枢 Metadata Index 匹配；业务关键词=" + termText + "；graphPath="
+            + safe(item.document().getGraphPath()) + "；score=" + item.score();
     }
 
     private String safe(String value) {

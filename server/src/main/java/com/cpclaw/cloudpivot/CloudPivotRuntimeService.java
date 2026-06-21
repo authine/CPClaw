@@ -50,6 +50,9 @@ public class CloudPivotRuntimeService {
             match.code(),
             queryPageSize(userQuestion)
         );
+        if (isFallbackResult(result)) {
+            throw new IllegalStateException("当前连接返回的是本地演示数据源 local-fallback，不能用于回答真实云枢业务数据。请配置真实云枢地址、账号并重新同步元数据。");
+        }
         RuntimeAnswerDetail detail = summarize(match, result, userQuestion, modelConfigId, thinkingEnabled);
         return new CloudPivotQueryAnswer(
             match.name(),
@@ -133,7 +136,6 @@ public class CloudPivotRuntimeService {
             + "- 意图理解：识别为数据读取任务，动作是“" + actionSummary + "”。\n"
             + "- 对象匹配：命中" + schemaSourceLabel(result) + "“" + match.name() + "”，" + schemaCodeLabel(result) + "=`" + match.code() + "`。\n"
             + "- 数据动作：调用云枢运行态查询，来源=`" + result.sourceEndpoint() + "`，总数=" + result.total() + "，本次返回=" + result.records().size() + "。\n"
-            + fallbackNotice(result)
             + "- 原始数据摘要：" + rawDataSummary(result) + "。\n"
             + "- 结论生成：" + conclusionSummary + "。\n\n"
             + answer;
@@ -145,13 +147,6 @@ public class CloudPivotRuntimeService {
 
     private String schemaCodeLabel(CloudPivotRuntimeQueryResult result) {
         return isFallbackResult(result) ? "演示编码" : "schemaCode";
-    }
-
-    private String fallbackNotice(CloudPivotRuntimeQueryResult result) {
-        if (!isFallbackResult(result)) {
-            return "";
-        }
-        return "- 编码说明：当前来源为 `local-fallback`，上面的编码仅用于本地演示，不是真实云枢 schemaCode；连接真实云枢并同步元数据后才会显示真实对象编码。\n";
     }
 
     private boolean isFallbackResult(CloudPivotRuntimeQueryResult result) {
@@ -346,7 +341,7 @@ public class CloudPivotRuntimeService {
 
     private int queryPageSize(String content) {
         if (isYearlyDistributionQuestion(content)) {
-            return 50;
+            return 200;
         }
         return isCountQuestion(content) ? 1 : 10;
     }

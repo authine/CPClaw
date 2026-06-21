@@ -2,17 +2,26 @@ package com.cpclaw;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.cpclaw.cloudpivot.CloudPivotConnector;
+import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
+import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -32,8 +41,13 @@ class CpClawApiTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockBean
+    private CloudPivotConnector cloudPivotConnector;
+
     @Test
     void mvpApiFlowWorks() throws Exception {
+        configureCloudPivotMock();
+
         mockMvc.perform(post("/api/settings/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -87,11 +101,11 @@ class CpClawApiTests {
         mockMvc.perform(post("/api/metadata/sync"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("cloudpivot-metadata-initialized"))
-            .andExpect(jsonPath("$.data.entityCount").value(7));
+            .andExpect(jsonPath("$.data.entityCount").value(5));
 
         mockMvc.perform(get("/api/metadata/apps"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.length()").value(2));
+            .andExpect(jsonPath("$.data.length()").value(4));
 
         mockMvc.perform(get("/api/metadata/search").param("query", "元数据对象"))
             .andExpect(status().isOk())
@@ -159,19 +173,20 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andExpect(jsonPath("$.data.steps[0].title").value("Observe 观察上下文"))
             .andExpect(jsonPath("$.data.steps[1].title").value("Think 理解意图"))
             .andExpect(jsonPath("$.data.steps[2].title").value("Act 执行动作"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
             .andReturn();
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(countOpportunityBody.contains("总计 **3** 条"));
+        assertTrue(countOpportunityBody.contains("总计 **237** 条"));
         assertTrue(countOpportunityBody.contains("### 执行过程"));
-        assertTrue(countOpportunityBody.contains("演示编码=`system_opportunity`"));
-        assertTrue(countOpportunityBody.contains("不是真实云枢 schemaCode"));
-        assertTrue(countOpportunityBody.contains("华东制造业数字化项目"));
-        assertFalse(countOpportunityBody.contains("总计 **4** 条"));
+        assertTrue(countOpportunityBody.contains("schemaCode=`int_bu_oppor`"));
+        assertTrue(countOpportunityBody.contains("北京菲斯曼供热"));
+        assertFalse(countOpportunityBody.contains("system_opportunity"));
+        assertFalse(countOpportunityBody.contains("local-fallback"));
+        assertFalse(countOpportunityBody.contains("演示编码"));
 
         MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -186,16 +201,17 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.candidates[0].name").value("系统客户"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
             .andReturn();
         String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(countCustomerBody.contains("总计 **4** 条"));
+        assertTrue(countCustomerBody.contains("总计 **58** 条"));
         assertTrue(countCustomerBody.contains("### 执行过程"));
-        assertTrue(countCustomerBody.contains("演示编码=`system_customer`"));
-        assertTrue(countCustomerBody.contains("不是真实云枢 schemaCode"));
+        assertTrue(countCustomerBody.contains("schemaCode=`crm_customer`"));
         assertTrue(countCustomerBody.contains("华东制造集团"));
-        assertFalse(countCustomerBody.contains("总计 **3** 条"));
+        assertFalse(countCustomerBody.contains("system_customer"));
+        assertFalse(countCustomerBody.contains("local-fallback"));
+        assertFalse(countCustomerBody.contains("总计 **237** 条"));
 
         MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -210,7 +226,7 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.candidates[0].name").value("系统客户"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
             .andExpect(jsonPath("$.data.steps[0].title").value("Observe 观察上下文"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
             .andReturn();
@@ -218,7 +234,7 @@ class CpClawApiTests {
         assertTrue(yearlyCustomerBody.contains("按年客户量分析"));
         assertTrue(yearlyCustomerBody.contains("2023 年：2 个客户"));
         assertTrue(yearlyCustomerBody.contains("趋势判断"));
-        assertTrue(yearlyCustomerBody.contains("演示编码=`system_customer`"));
+        assertTrue(yearlyCustomerBody.contains("schemaCode=`crm_customer`"));
         assertTrue(yearlyCustomerBody.contains("原始数据摘要"));
 
         MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
@@ -234,11 +250,11 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andReturn();
         String analysisBody = analysisResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(analysisBody.contains("结论摘要"));
-        assertTrue(analysisBody.contains("系统商机"));
+        assertTrue(analysisBody.contains("商机"));
 
         MvcResult clarificationResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -338,11 +354,64 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
             .andReturn();
         String followUpBody = followUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(followUpBody.contains("跟进内容"));
         assertTrue(followUpBody.contains("Observe 观察上下文"));
+    }
+
+    private void configureCloudPivotMock() {
+        when(cloudPivotConnector.testConnection(anyString(), anyString(), anyString())).thenReturn(true);
+        when(cloudPivotConnector.fetchMetadata(anyString(), anyString(), anyString())).thenReturn(new CloudPivotMetadataSnapshot(
+            List.of(
+                new CloudPivotMetadataSnapshot.AppMetadata("zlcsstcrm", "CRM", "真实云枢 CRM 应用"),
+                new CloudPivotMetadataSnapshot.AppMetadata("customer_management", "项目基础数据", "用于验证同名商机候选排序"),
+                new CloudPivotMetadataSnapshot.AppMetadata("project_management", "项目管理", "用于验证同名客户候选排序"),
+                new CloudPivotMetadataSnapshot.AppMetadata("metadata_app", "元数据应用", "真实云枢元数据应用")
+            ),
+            List.of(
+                new CloudPivotMetadataSnapshot.EntityMetadata("zlcsstcrm", "int_bu_oppor", "商机", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("zlcsstcrm", "crm_customer", "客户", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("customer_management", "business_opportunity", "商机", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("project_management", "Test009", "客户", "data", "low"),
+                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low")
+            )
+        ));
+        when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt()))
+            .thenAnswer(invocation -> runtimeResult(invocation.getArgument(3), invocation.getArgument(4)));
+    }
+
+    private CloudPivotRuntimeQueryResult runtimeResult(String schemaCode, int pageSize) {
+        if ("int_bu_oppor".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(
+                Map.of("id", "opp-001", "data", Map.of("instanceName", "北京菲斯曼供热", "stage", "方案确认", "amount", 860000, "owner", "销售一部", "createdAt", "2024-01-12")),
+                Map.of("id", "opp-002", "data", Map.of("instanceName", "云南交投经营管理系统升级", "stage", "需求沟通", "amount", 420000, "owner", "销售二部", "createdAt", "2024-03-08")),
+                Map.of("id", "opp-003", "data", Map.of("instanceName", "国能--低代码平台项目", "stage", "合同审批", "amount", 260000, "owner", "客户成功部", "createdAt", "2023-11-20"))
+            );
+            return new CloudPivotRuntimeQueryResult(schemaCode, 237, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
+        }
+        if ("crm_customer".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(
+                Map.of("id", "cus-001", "data", Map.of("name", "华东制造集团", "industry", "制造业", "owner", "销售一部", "createdAt", "2022-03-18")),
+                Map.of("id", "cus-002", "data", Map.of("name", "西南零售连锁", "industry", "零售", "owner", "销售二部", "createdAt", "2023-07-09")),
+                Map.of("id", "cus-003", "data", Map.of("name", "总部存量客户", "industry", "集团总部", "owner", "客户成功部", "createdAt", "2023-11-26")),
+                Map.of("id", "cus-004", "data", Map.of("name", "华南新能源科技", "industry", "新能源", "owner", "销售三部", "createdAt", "2024-05-14"))
+            );
+            return new CloudPivotRuntimeQueryResult(schemaCode, 58, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
+        }
+        if ("metadata_object".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(Map.of("id", "meta-001", "data", Map.of("name", "业务模型", "type", "元数据")));
+            return new CloudPivotRuntimeQueryResult(schemaCode, 1, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
+        }
+        if ("business_opportunity".equals(schemaCode) || "Test009".equals(schemaCode)) {
+            throw new AssertionError("Generic business questions should prefer CRM core schema, not secondary schema " + schemaCode);
+        }
+        return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "/api/runtime/query/listSkipQueryListV2");
+    }
+
+    private List<Map<String, Object>> limit(List<Map<String, Object>> records, int pageSize) {
+        return records.stream().limit(Math.max(1, pageSize)).toList();
     }
 }
