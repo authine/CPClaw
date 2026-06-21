@@ -360,9 +360,13 @@ public class AgentOrchestrator {
     private String actStepSummary(ActResult actResult) {
         if (actResult.runtimeAnswer() != null) {
             CloudPivotQueryAnswer answer = actResult.runtimeAnswer();
-            return "工具=cloudpivot_runtime_query；schemaCode=" + answer.schemaCode() + "；total=" + answer.total() + "；returned=" + answer.returnedRecords() + "；原始摘要=" + shortText(answer.rawDataSummary(), 120);
+            return "工具=cloudpivot_runtime_query；" + schemaCodeLabel(answer) + "=" + answer.schemaCode() + "；来源=" + answer.sourceEndpoint() + "；total=" + answer.total() + "；returned=" + answer.returnedRecords() + "；原始摘要=" + shortText(answer.rawDataSummary(), 120);
         }
         return "状态=" + actResult.status();
+    }
+
+    private String schemaCodeLabel(CloudPivotQueryAnswer answer) {
+        return answer != null && "local-fallback".equals(answer.sourceEndpoint()) ? "演示编码" : "schemaCode";
     }
 
     private String reflectStepSummary(AgentReflection reflection) {
