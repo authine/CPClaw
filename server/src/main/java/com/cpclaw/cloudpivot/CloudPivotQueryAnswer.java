@@ -5,6 +5,10 @@ public record CloudPivotQueryAnswer(
     String schemaCode,
     long total,
     int returnedRecords,
-    String answer
+    String answer,
+    String sourceEndpoint,
+    String actionSummary,
+    String rawDataSummary,
+    String conclusionSummary
 ) {
 }

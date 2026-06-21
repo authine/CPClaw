@@ -50,20 +50,35 @@ public class CloudPivotRuntimeService {
             match.code(),
             queryPageSize(userQuestion)
         );
-        return new CloudPivotQueryAnswer(match.name(), match.code(), result.total(), result.records().size(), summarize(match, result, userQuestion, modelConfigId, thinkingEnabled));
+        RuntimeAnswerDetail detail = summarize(match, result, userQuestion, modelConfigId, thinkingEnabled);
+        return new CloudPivotQueryAnswer(
+            match.name(),
+            match.code(),
+            result.total(),
+            result.records().size(),
+            detail.answer(),
+            result.sourceEndpoint(),
+            detail.actionSummary(),
+            rawDataSummary(result),
+            detail.conclusionSummary()
+        );
     }
 
-    private String summarize(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, String userQuestion, String modelConfigId, boolean thinkingEnabled) {
+    private RuntimeAnswerDetail summarize(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, String userQuestion, String modelConfigId, boolean thinkingEnabled) {
         if (isYearlyDistributionQuestion(userQuestion)) {
             return yearlyDistributionAnalysis(match, result);
         }
         if (isCountQuestion(userQuestion)) {
-            return "已在云枢中查询到“" + match.name() + "”对应数据，总计 **" + result.total() + "** 条。";
+            String conclusion = "统计“" + match.name() + "”总数为 " + result.total() + " 条";
+            String answer = withTrace(match, result, "计数查询：查询运行态总数", conclusion, "已在云枢中查询到“" + match.name() + "”对应数据，总计 **" + result.total() + "** 条。");
+            return new RuntimeAnswerDetail(answer, "计数查询：查询运行态总数", conclusion);
         }
         if (isAnalysisQuestion(userQuestion)) {
-            return modelGateway.analyzeRecords(modelConfigId, userQuestion, match.name(), result.total(), result.records(), thinkingEnabled)
-                .map(answer -> "已查询“" + match.name() + "”数据，并基于返回结果完成分析：\n\n" + answer)
+            String conclusion = "基于“" + match.name() + "”返回数据生成业务分析";
+            String answer = modelGateway.analyzeRecords(modelConfigId, userQuestion, match.name(), result.total(), result.records(), thinkingEnabled)
+                .map(modelAnswer -> "已查询“" + match.name() + "”数据，并基于返回结果完成分析：\n\n" + modelAnswer)
                 .orElseGet(() -> fallbackAnalysis(match, result));
+            return new RuntimeAnswerDetail(withTrace(match, result, "分析查询：查询运行态数据并生成分析", conclusion, answer), "分析查询：查询运行态数据并生成分析", conclusion);
         }
         StringBuilder answer = new StringBuilder();
         answer.append("已在云枢中查询到“").append(match.name()).append("”对应数据，总计 **").append(result.total()).append("** 条。");
@@ -73,10 +88,11 @@ public class CloudPivotRuntimeService {
                 answer.append("\n").append(i + 1).append(". ").append(recordSummary(result.records().get(i)));
             }
         }
-        return answer.toString();
+        String conclusion = "查询“" + match.name() + "”并返回前 " + result.records().size() + " 条摘要";
+        return new RuntimeAnswerDetail(withTrace(match, result, "列表查询：查询运行态记录摘要", conclusion, answer.toString()), "列表查询：查询运行态记录摘要", conclusion);
     }
 
-    private String yearlyDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private RuntimeAnswerDetail yearlyDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
         Map<String, Long> yearlyCounts = result.records().stream()
             .map(this::recordData)
             .map(this::recordYear)
@@ -95,7 +111,8 @@ public class CloudPivotRuntimeService {
             if (!result.records().isEmpty()) {
                 answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
             }
-            return answer.toString();
+            String conclusion = "未能从返回记录识别年份字段，不能生成年度分布";
+            return new RuntimeAnswerDetail(withTrace(match, result, "按年分析：查询运行态数据并按年份聚合", conclusion, answer.toString()), "按年分析：查询运行态数据并按年份聚合", conclusion);
         }
         yearlyCounts.forEach((year, count) -> answer.append("- ").append(year).append(" 年：").append(count).append(" ").append(unitLabel).append("\n"));
         answer.append("\n### 判断\n");
@@ -107,7 +124,36 @@ public class CloudPivotRuntimeService {
         }
         answer.append("\n### 下一步建议\n");
         answer.append("- 可以继续按负责人、行业、等级或来源渠道下钻，判断").append(metricLabel).append("变化来自哪个团队或客群。\n");
-        return answer.toString();
+        String conclusion = "按年份聚合“" + match.name() + "”，年度分布为 " + yearlyDistributionSummary(yearlyCounts, unitLabel);
+        return new RuntimeAnswerDetail(withTrace(match, result, "按年分析：查询运行态数据并按年份聚合", conclusion, answer.toString()), "按年分析：查询运行态数据并按年份聚合", conclusion);
+    }
+
+    private String withTrace(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, String actionSummary, String conclusionSummary, String answer) {
+        return "### 执行过程\n"
+            + "- 意图理解：识别为数据读取任务，动作是“" + actionSummary + "”。\n"
+            + "- 对象匹配：命中云枢对象“" + match.name() + "”，schemaCode=`" + match.code() + "`。\n"
+            + "- 数据动作：调用云枢运行态查询，来源=`" + result.sourceEndpoint() + "`，总数=" + result.total() + "，本次返回=" + result.records().size() + "。\n"
+            + "- 原始数据摘要：" + rawDataSummary(result) + "。\n"
+            + "- 结论生成：" + conclusionSummary + "。\n\n"
+            + answer;
+    }
+
+    private String rawDataSummary(CloudPivotRuntimeQueryResult result) {
+        if (result.records().isEmpty()) {
+            return "未返回记录明细";
+        }
+        return result.records().stream()
+            .limit(3)
+            .map(this::recordSummary)
+            .reduce((left, right) -> left + "；" + right)
+            .orElse("未返回记录明细");
+    }
+
+    private String yearlyDistributionSummary(Map<String, Long> yearlyCounts, String unitLabel) {
+        return yearlyCounts.entrySet().stream()
+            .map(entry -> entry.getKey() + " 年 " + entry.getValue() + " " + unitLabel)
+            .reduce((left, right) -> left + "、" + right)
+            .orElse("无年度分布");
     }
 
     private String objectLabel(MetadataSearchResult match) {
@@ -287,5 +333,8 @@ public class CloudPivotRuntimeService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private record RuntimeAnswerDetail(String answer, String actionSummary, String conclusionSummary) {
     }
 }

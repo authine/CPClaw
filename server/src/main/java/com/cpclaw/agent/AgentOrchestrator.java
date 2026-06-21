@@ -73,8 +73,14 @@ public class AgentOrchestrator {
                 auditService.recordToolCall(
                     run.getId(),
                     "cloudpivot_runtime_query",
-                    toJson(Map.of("schemaCode", runtimeAnswer.schemaCode())),
-                    toJson(Map.of("total", runtimeAnswer.total(), "returnedRecords", runtimeAnswer.returnedRecords()))
+                    toJson(Map.of("schemaCode", runtimeAnswer.schemaCode(), "action", runtimeAnswer.actionSummary())),
+                    toJson(Map.of(
+                        "total", runtimeAnswer.total(),
+                        "returnedRecords", runtimeAnswer.returnedRecords(),
+                        "sourceEndpoint", runtimeAnswer.sourceEndpoint(),
+                        "rawDataSummary", runtimeAnswer.rawDataSummary(),
+                        "conclusionSummary", runtimeAnswer.conclusionSummary()
+                    ))
                 );
                 assistantMessage = withContent(assistantMessage, runtimeAnswer.answer());
                 planSummary = "analyze_data".equals(intent)
@@ -335,11 +341,36 @@ public class AgentOrchestrator {
 
     private List<ExecutionStepDto> reactSteps(AgentObservation observation, AgentThought thought, ActResult actResult, AgentReflection reflection) {
         return List.of(
-            new ExecutionStepDto("Observe 观察上下文", "messages=" + observation.recentMessages().size()),
-            new ExecutionStepDto("Think 理解意图", thought.intent() + " confidence=" + thought.confidence()),
-            new ExecutionStepDto("Act 执行动作", actResult.status()),
-            new ExecutionStepDto("Reflect 反思检查", reflection.status())
+            new ExecutionStepDto("Observe 观察上下文", observeStepSummary(observation)),
+            new ExecutionStepDto("Think 理解意图", thinkStepSummary(thought)),
+            new ExecutionStepDto("Act 执行动作", actStepSummary(actResult)),
+            new ExecutionStepDto("Reflect 反思检查", reflectStepSummary(reflection))
         );
+    }
+
+    private String observeStepSummary(AgentObservation observation) {
+        return "用户目标=“" + shortText(observation.normalizedUserGoal(), 40) + "”；最近上下文=" + observation.recentMessages().size() + " 条；引用上一轮=" + yesNo(observation.referencesPreviousResult());
+    }
+
+    private String thinkStepSummary(AgentThought thought) {
+        String slots = thought.missingSlots().isEmpty() ? "无" : String.join("、", thought.missingSlots());
+        return "原始意图=" + thought.detectedIntent() + "；最终意图=" + thought.intent() + "；对象=" + thought.match().name() + "；编码=" + thought.match().code() + "；缺失槽位=" + slots + "；置信度=" + thought.confidence();
+    }
+
+    private String actStepSummary(ActResult actResult) {
+        if (actResult.runtimeAnswer() != null) {
+            CloudPivotQueryAnswer answer = actResult.runtimeAnswer();
+            return "工具=cloudpivot_runtime_query；schemaCode=" + answer.schemaCode() + "；total=" + answer.total() + "；returned=" + answer.returnedRecords() + "；原始摘要=" + shortText(answer.rawDataSummary(), 120);
+        }
+        return "状态=" + actResult.status();
+    }
+
+    private String reflectStepSummary(AgentReflection reflection) {
+        return "状态=" + reflection.status() + "；通过=" + yesNo(reflection.passed()) + "；需要用户补充=" + yesNo(reflection.needsUserInput()) + "；" + reflection.summary();
+    }
+
+    private String yesNo(boolean value) {
+        return value ? "是" : "否";
     }
 
     private Map<String, Object> planAuditMap(AgentObservation observation, AgentThought thought, AgentPlan plan) {

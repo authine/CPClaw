@@ -167,6 +167,10 @@ class CpClawApiTests {
             .andReturn();
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **3** 条"));
+        assertTrue(countOpportunityBody.contains("### 执行过程"));
+        assertTrue(countOpportunityBody.contains("schemaCode=`system_opportunity`"));
+        assertTrue(countOpportunityBody.contains("华东制造业数字化项目"));
+        assertFalse(countOpportunityBody.contains("总计 **4** 条"));
 
         MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -186,6 +190,10 @@ class CpClawApiTests {
             .andReturn();
         String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countCustomerBody.contains("总计 **4** 条"));
+        assertTrue(countCustomerBody.contains("### 执行过程"));
+        assertTrue(countCustomerBody.contains("schemaCode=`system_customer`"));
+        assertTrue(countCustomerBody.contains("华东制造集团"));
+        assertFalse(countCustomerBody.contains("总计 **3** 条"));
 
         MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -208,6 +216,8 @@ class CpClawApiTests {
         assertTrue(yearlyCustomerBody.contains("按年客户量分析"));
         assertTrue(yearlyCustomerBody.contains("2023 年：2 个客户"));
         assertTrue(yearlyCustomerBody.contains("趋势判断"));
+        assertTrue(yearlyCustomerBody.contains("schemaCode=`system_customer`"));
+        assertTrue(yearlyCustomerBody.contains("原始数据摘要"));
 
         MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
