@@ -215,6 +215,8 @@ MVP 核心要求：
 - 2026-06-21：本轮最终验证执行 `server/` 下 `mvn test`，结果通过：Tests run: 3, Failures: 0, Errors: 0, Skipped: 0；覆盖 ReAct 步骤、审计反思、写操作确认和跟进内容缺失澄清断言。
 - 2026-06-21：本轮最终验证执行 `web/` 下 `npm run build`，结果通过；仅保留 Vite/Rollup 既有 chunk 体积和第三方 PURE 注释警告。
 - 2026-06-21：同步维护文档和 MVP 测试用例：`docs/CLAUDE.md` 更新 Agent 架构说明，`docs/test-cases/08-mvp-test-cases.md` 新增 ReAct + Reflection 执行链与审计用例。
+- 2026-06-21：启动最新 H2 临时后端用于用户验证，后端监听 `http://127.0.0.1:8080/`，前端 Vite 继续监听 `http://127.0.0.1:5173/`。
+- 2026-06-21：通过最新后端完成冒烟验证：设置保存、管理员环境保存、元数据同步实体数 6、发送“系统有多少商机？”返回 `query_data`、候选对象“系统商机”、执行步骤 Observe/Think/Act/Reflect、答案包含“总计 **3** 条”；审计 `reflection_json` 包含 `react-reflection-mvp`；同会话发送“给第一条商机写一条跟进记录”返回 `clarify_intent`、候选对象“系统商机”、缺失“跟进内容”、步骤包含 `Reflect 反思检查`。
 
 ## 当前阻塞与风险
 
