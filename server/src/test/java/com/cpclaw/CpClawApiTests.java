@@ -160,6 +160,10 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andExpect(jsonPath("$.data.steps[0].title").value("Observe 观察上下文"))
+            .andExpect(jsonPath("$.data.steps[1].title").value("Think 理解意图"))
+            .andExpect(jsonPath("$.data.steps[2].title").value("Act 执行动作"))
+            .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
             .andReturn();
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **3** 条"));
@@ -228,6 +232,8 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.tools[1].toolName").value("cloudpivot_runtime_query"))
             .andReturn();
         String queryAuditBody = queryAuditResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(queryAuditBody.contains("react-reflection-mvp"));
+        assertTrue(queryAuditBody.contains("reflectionJson"));
         assertFalse(queryAuditBody.contains("plain-text-secret"));
         assertFalse(queryAuditBody.contains("\\\"json-secret\\\""));
 
@@ -258,9 +264,32 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("confirmed"));
 
-        mockMvc.perform(get("/api/audit/agent-runs/" + agentRunId))
+        MvcResult writeAuditResult = mockMvc.perform(get("/api/audit/agent-runs/" + agentRunId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("completed"))
-            .andExpect(jsonPath("$.data.tools.length()").value(1));
+            .andExpect(jsonPath("$.data.tools.length()").value(1))
+            .andReturn();
+        String writeAuditBody = writeAuditResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(writeAuditBody.contains("pending_confirmation"));
+
+        MvcResult followUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"给第一条商机写一条跟进记录",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("系统商机"))
+            .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andReturn();
+        String followUpBody = followUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(followUpBody.contains("跟进内容"));
+        assertTrue(followUpBody.contains("Observe 观察上下文"));
     }
 }

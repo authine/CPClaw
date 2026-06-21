@@ -71,8 +71,9 @@ CPC_CLOUDPIVOT_CORP_ID=dingbb40ac2a2529cb14
   - `audit`: agent run/tool-call inspection and confirmation actions.
   - `attachment`: file upload/storage metadata.
 - `ConversationService.sendMessage` persists the user message, creates an assistant message placeholder, then delegates to `AgentOrchestrator` and saves the returned assistant content.
-- `AgentOrchestrator` is the MVP agent path. It performs simple Chinese keyword intent detection, uses `MetadataSearchService.bestMatch`, creates audit records, and:
-  - for query intent, calls `CloudPivotRuntimeService` to execute a CloudPivot runtime query and returns real query output;
+- `AgentOrchestrator` is the current ReAct + Reflection MVP path. Each message is processed through Observe, Think, Plan, Act, and Reflect stages. It uses `MetadataSearchService.bestMatch`, records structured `plan_json` and `reflection_json`, and:
+  - for query or analysis intent, calls `CloudPivotRuntimeService` to execute a CloudPivot runtime query and returns query or analysis output;
+  - for unclear requests, returns `clarify_intent` with missing slots and does not call CloudPivot write tools;
   - for write-risk intents, creates a confirmation and does not execute the operation until confirmed.
 - `CloudPivotConnector` abstracts CloudPivot access. `MvpCloudPivotConnector` handles connection testing, metadata discovery, runtime `/api/runtime/query/list` querying, password/RSA login variants, auth headers, and local fallback metadata for test URLs when fallback is enabled.
 - `MetadataService.initializeCloudPivotMetadata` replaces local app/entity/search-document metadata from a CloudPivot snapshot. Search documents are what the agent uses for local metadata matching.

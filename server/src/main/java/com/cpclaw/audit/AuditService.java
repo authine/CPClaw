@@ -49,6 +49,14 @@ public class AuditService {
         return agentRunRepository.save(run);
     }
 
+    public AgentRun updateReflection(String agentRunId, String reflectionJson) {
+        AgentRun run = agentRunRepository.findById(agentRunId)
+            .orElseThrow(() -> new IllegalArgumentException("Agent run not found"));
+        run.setReflectionJson(masker.mask(reflectionJson));
+        run.setCompletedAt(Instant.now());
+        return agentRunRepository.save(run);
+    }
+
     public ToolCall recordToolCall(String agentRunId, String toolName, String inputJson, String outputJson) {
         Instant now = Instant.now();
         ToolCall toolCall = new ToolCall();
@@ -114,6 +122,7 @@ public class AuditService {
             "riskLevel", run.getRiskLevel() == null ? "low" : run.getRiskLevel(),
             "status", run.getStatus(),
             "planJson", run.getPlanJson() == null ? "{}" : run.getPlanJson(),
+            "reflectionJson", run.getReflectionJson() == null ? "{}" : run.getReflectionJson(),
             "tools", tools
         );
     }

@@ -73,13 +73,17 @@ public class ConversationService {
         messageRepository.save(userMessage);
 
         Message assistantMessage = createMessage(conversation.getId(), "assistant", "", request.modelConfigId(), request.thinkingEnabled(), "{\"source\":\"runtime-agent\"}", now.plusMillis(1));
+        List<MessageItem> conversationContext = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()).stream()
+            .map(this::toMessageItem)
+            .toList();
         AgentResponse response = agentOrchestrator.handleMessage(
             conversation.getId(),
             userMessage.getId(),
             content,
             request.modelConfigId(),
             request.thinkingEnabled(),
-            toMessageItem(assistantMessage)
+            toMessageItem(assistantMessage),
+            conversationContext
         );
         assistantMessage.setContent(response.assistantMessage().content());
         messageRepository.save(assistantMessage);
