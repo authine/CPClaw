@@ -188,6 +188,27 @@ class CpClawApiTests {
         assertFalse(countOpportunityBody.contains("local-fallback"));
         assertFalse(countOpportunityBody.contains("演示编码"));
 
+        MvcResult colloquialOpportunityResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"CRM下面有哪些机会",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
+            .andExpect(jsonPath("$.data.candidates[0].type").value("entity"))
+            .andReturn();
+        String colloquialOpportunityBody = colloquialOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(colloquialOpportunityBody.contains("总计 **237** 条"));
+        assertTrue(colloquialOpportunityBody.contains("schemaCode=`int_bu_oppor`"));
+        assertTrue(colloquialOpportunityBody.contains("北京菲斯曼供热"));
+
         MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""

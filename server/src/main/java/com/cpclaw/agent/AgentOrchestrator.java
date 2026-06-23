@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -208,23 +209,45 @@ public class AgentOrchestrator {
     }
 
     private String detectIntent(String content) {
-        String value = content == null ? "" : content;
-        if (value.contains("填写")) {
+        String value = compact(content);
+        if (containsAny(value, "填写", "填报", "填一下", "补全", "根据附件", "从附件", "识别发票")) {
             return "fill_form_from_attachment";
         }
-        if (value.contains("删除") || value.contains("作废")) {
+        if (containsAny(value, "删除", "删掉", "移除", "作废", "取消")) {
             return "delete_data";
         }
-        if (value.contains("新增") || value.contains("创建") || value.contains("写入") || value.contains("修改") || value.contains("提交") || value.contains("跟进记录") || value.contains("写一条跟进")) {
+        if (containsAny(value, "新增", "新建", "创建", "录入", "登记", "写入", "修改", "更新", "调整", "变更", "编辑", "保存", "提交", "发起", "分配", "转移", "关闭", "推进")
+            || value.contains("写一条跟进")
+            || (value.contains("跟进记录") && containsAny(value, "新增", "新建", "创建", "写", "记录一条", "补一条", "提交"))) {
             return "update_data";
         }
-        if (value.contains("分析") || value.contains("洞察") || value.contains("诊断") || value.contains("趋势") || value.contains("建议") || value.contains("怎么看") || value.contains("情况怎么样") || value.contains("怎么样") || value.contains("按年") || value.contains("每年") || value.contains("年度")) {
+        if (containsAny(value, "分析", "洞察", "诊断", "趋势", "建议", "怎么看", "情况怎么样", "怎么样", "按年", "每年", "年度")) {
             return "analyze_data";
         }
-        if (value.contains("查询") || value.contains("查") || value.contains("找") || value.contains("汇总") || value.contains("统计") || value.contains("数量") || value.contains("总计") || value.contains("多少") || value.contains("几条") || value.contains("几个") || value.contains("几项") || value.contains("几笔") || value.contains("几份") || value.contains("几单") || value.contains("一共") || value.contains("总共") || value.contains("共有") || value.contains("了解") || value.contains("看一下")) {
+        if (containsAny(value, "查询", "查", "查看", "找", "搜索", "检索", "看看", "看一下", "帮我看", "列出", "展示", "打开", "给我看", "有哪些", "有没有", "多少", "几条", "几个", "几项", "几笔", "几份", "几单", "一共", "总共", "共有", "总计", "数量", "统计", "汇总", "明细", "列表", "清单", "情况", "数据", "了解")) {
+            return "query_data";
+        }
+        if (containsBusinessObject(value)) {
             return "query_data";
         }
         return "unknown";
+    }
+
+    private boolean containsBusinessObject(String value) {
+        return containsAny(value, "crm", "客户关系", "销售管理", "客户", "联系人", "商机", "机会", "销售机会", "客户机会", "线索", "合同", "订单", "项目", "报价", "回款", "收款", "发票", "待办", "任务", "流程", "审批");
+    }
+
+    private boolean containsAny(String value, String... keywords) {
+        for (String keyword : keywords) {
+            if (value.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String compact(String content) {
+        return content == null ? "" : content.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
     }
 
     private boolean isWriteIntent(String intent) {

@@ -6,8 +6,11 @@ import com.cpclaw.metadata.repository.MetadataSearchDocumentRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,115 +23,164 @@ public class MetadataSearchService {
     }
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {
-        String safeQuery = query == null ? "" : query.trim();
-        List<String> terms = businessTerms(query);
-
+        SemanticQuery semanticQuery = analyze(query);
         Map<String, MetadataSearchDocument> candidates = new LinkedHashMap<>();
-        searchDocumentRepository.searchByText(safeQuery).forEach(document -> candidates.put(document.getId(), document));
-        if (!terms.isEmpty()) {
+        for (String searchQuery : semanticQuery.searchQueries()) {
+            searchDocumentRepository.searchByText(searchQuery).forEach(document -> candidates.putIfAbsent(document.getId(), document));
+        }
+        if (candidates.isEmpty() && !semanticQuery.terms().isEmpty()) {
             searchDocumentRepository.findAll().stream()
-                .filter(document -> businessTermScore(terms, document) > 0)
-                .forEach(document -> candidates.put(document.getId(), document));
+                .filter(document -> relevanceScore(semanticQuery, document) > 0)
+                .forEach(document -> candidates.putIfAbsent(document.getId(), document));
         }
 
         return candidates.values().stream()
-            .map(document -> new ScoredDocument(document, businessTermScore(terms, document) + rankingScore(safeQuery, document)))
-            .filter(item -> item.score() > 0)
-            .sorted(Comparator.comparingInt(ScoredDocument::score).reversed())
+            .filter(document -> semanticQuery.terms().isEmpty() || matchesSemanticTerms(semanticQuery, document))
+            .sorted(Comparator.comparingInt((MetadataSearchDocument document) -> relevanceScore(semanticQuery, document)).reversed())
             .limit(10)
-            .map(item -> new MetadataSearchResult(
-                item.document().getObjectType(),
-                item.document().getObjectId(),
-                item.document().getName(),
-                item.document().getCode(),
-                item.document().getGraphPath(),
-                item.document().getRiskLevel(),
-                matchReason(terms, item)
+            .map(document -> new MetadataSearchResult(
+                document.getObjectType(),
+                document.getObjectId(),
+                document.getName(),
+                document.getCode(),
+                document.getGraphPath(),
+                document.getRiskLevel(),
+                "命中本地 Metadata Index"
             ))
             .toList();
     }
 
-    private List<String> businessTerms(String query) {
-        String value = query == null ? "" : query.trim();
-        value = value.replaceAll("(一共|总共|共有)?有?多少[条个项笔份单]?", " ");
-        value = value.replaceAll("(一共|总共|共有)?有?几[条个项笔份单]?", " ");
-        for (String noise : List.of("帮我", "请", "一下", "系统中的", "系统中", "系统", "信息", "数据", "情况", "怎么样", "怎么", "如何", "列表", "明细", "进行", "处理", "操作", "做", "一下", "分析", "洞察", "诊断", "趋势", "查询", "查看", "统计", "汇总", "数量", "量", "总计", "了解", "新增", "创建", "写入", "修改", "提交", "删除", "作废", "填写", "给", "第一条", "第二条", "第三条", "上一条", "刚才", "这个", "它", "写一条", "跟进记录", "跟进", "记录", "每年", "按年", "年度", "年份", "年", "一共", "总共", "共有", "中的", "的", "吗", "呢", "嘛")) {
-            value = value.replace(noise, " ");
+    private SemanticQuery analyze(String query) {
+        String original = query == null ? "" : query.trim();
+        String normalized = original.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        Set<String> terms = new LinkedHashSet<>();
+        Set<String> appHints = new LinkedHashSet<>();
+
+        if (containsAny(normalized, "crm", "客户关系", "销售管理")) {
+            appHints.add("crm");
         }
-        String[] parts = value.split("[\\s,，。；;：:、?？!！]+");
-        List<String> terms = new ArrayList<>();
-        for (String part : parts) {
-            String term = part.trim();
-            if (term.length() >= 2 && !terms.contains(term)) {
-                terms.add(term);
+        if (containsAny(normalized, "商机", "机会", "销售机会", "客户机会", "项目机会")) {
+            terms.add("商机");
+            appHints.add("crm");
+        }
+        if (containsAny(normalized, "线索", "销售线索", "客户线索")) {
+            terms.add("线索");
+            appHints.add("crm");
+        }
+        addTermIfPresent(normalized, terms, "客户");
+        addTermIfPresent(normalized, terms, "联系人");
+        addTermIfPresent(normalized, terms, "合同");
+        addTermIfPresent(normalized, terms, "订单");
+        addTermIfPresent(normalized, terms, "项目");
+        addTermIfPresent(normalized, terms, "报价");
+        if (containsAny(normalized, "回款", "收款")) {
+            terms.add("回款");
+        }
+        addTermIfPresent(normalized, terms, "发票");
+        addTermIfPresent(normalized, terms, "待办");
+        addTermIfPresent(normalized, terms, "任务");
+        addTermIfPresent(normalized, terms, "流程");
+        addTermIfPresent(normalized, terms, "审批");
+
+        List<String> searchQueries = new ArrayList<>();
+        addSearchQuery(searchQueries, original);
+        for (String term : terms) {
+            addSearchQuery(searchQueries, term);
+            for (String appHint : appHints) {
+                addSearchQuery(searchQueries, appHint + " " + term);
             }
         }
-        return terms;
+        return new SemanticQuery(original, normalized, terms, appHints, searchQueries);
     }
 
-    private int businessTermScore(List<String> terms, MetadataSearchDocument document) {
-        String haystack = String.join(" ", safe(document.getName()), safe(document.getCode()), safe(document.getGraphPath()), safe(document.getSearchText())).toLowerCase();
-        int score = 0;
-        for (String term : terms) {
-            if (haystack.contains(term.toLowerCase())) {
-                score += 10;
+    private int relevanceScore(SemanticQuery query, MetadataSearchDocument document) {
+        String name = safe(document.getName()).toLowerCase(Locale.ROOT);
+        String code = safe(document.getCode()).toLowerCase(Locale.ROOT);
+        String graphPath = safe(document.getGraphPath()).toLowerCase(Locale.ROOT);
+        String searchText = safe(document.getSearchText()).toLowerCase(Locale.ROOT);
+        String haystack = String.join(" ", name, code, graphPath, searchText);
+        int score = "entity".equals(document.getObjectType()) ? 10 : 0;
+
+        for (String term : query.terms()) {
+            String normalizedTerm = term.toLowerCase(Locale.ROOT);
+            if (name.equals(normalizedTerm)) {
+                score += 140;
+            } else if (name.contains(normalizedTerm)) {
+                score += 90;
             }
-        }
-        return score;
-    }
-
-    private int rankingScore(String query, MetadataSearchDocument document) {
-        List<String> terms = businessTerms(query);
-        String name = safe(document.getName());
-        String code = safe(document.getCode());
-        String graphPath = safe(document.getGraphPath());
-        String searchText = safe(document.getSearchText());
-        String haystack = String.join(" ", graphPath, code, searchText).toLowerCase();
-
-        int score = "entity".equals(document.getObjectType()) ? 50 : 0;
-        for (String term : terms) {
-            if (name.equals(term)) {
-                score += 120;
-            } else if (name.contains(term)) {
+            if (query.normalized().contains(normalizedTerm)) {
                 score += 60;
             }
-        }
-
-        if (isCrmCoreQuery(query, terms)) {
-            if (graphPath.toLowerCase().startsWith("zlcsstcrm /")) {
-                score += 120;
+            if (code.contains(normalizedTerm)) {
+                score += 40;
             }
-            if (haystack.contains("zlcsstcrm") || code.toLowerCase().contains("crm")) {
-                score += 80;
+            if (graphPath.contains(normalizedTerm)) {
+                score += 35;
             }
-        } else if (query.toLowerCase().contains("crm") && haystack.contains("crm")) {
-            score += 80;
+            if (searchText.contains(normalizedTerm)) {
+                score += 25;
+            }
         }
 
-        if (terms.contains("商机") && "int_bu_oppor".equalsIgnoreCase(code)) {
-            score += 140;
-        }
-        if (terms.contains("客户") && "crm_customer".equalsIgnoreCase(code)) {
-            score += 140;
+        for (String appHint : query.appHints()) {
+            if ("crm".equals(appHint)) {
+                if (graphPath.contains("zlcsstcrm")) {
+                    score += 90;
+                }
+                if (haystack.contains("crm")) {
+                    score += 60;
+                }
+            } else if (haystack.contains(appHint)) {
+                score += 35;
+            }
         }
 
-        for (String secondary : List.of("管理", "分配", "变更", "转移", "统计", "报表", "滚动", "持续", "查询", "修正", "基础信息", "test", "测试")) {
-            if (name.toLowerCase().contains(secondary.toLowerCase()) || code.toLowerCase().contains(secondary.toLowerCase())) {
-                score -= 45;
+        if (!query.original().isBlank()) {
+            String lowerOriginal = query.original().toLowerCase(Locale.ROOT);
+            if (!name.isBlank() && lowerOriginal.contains(name)) {
+                score += 90;
+            }
+            if (!code.isBlank() && lowerOriginal.contains(code)) {
+                score += 70;
             }
         }
         return score;
     }
 
-    private boolean isCrmCoreQuery(String query, List<String> terms) {
-        String value = query == null ? "" : query.toLowerCase();
-        return value.contains("crm") || terms.stream().anyMatch(term -> List.of("商机", "客户", "线索", "联系人", "销售订单", "合同").contains(term));
+    private boolean matchesSemanticTerms(SemanticQuery query, MetadataSearchDocument document) {
+        String name = safe(document.getName()).toLowerCase(Locale.ROOT);
+        String code = safe(document.getCode()).toLowerCase(Locale.ROOT);
+        String graphPath = safe(document.getGraphPath()).toLowerCase(Locale.ROOT);
+        String searchText = safe(document.getSearchText()).toLowerCase(Locale.ROOT);
+        String haystack = String.join(" ", name, code, graphPath, searchText);
+        for (String term : query.terms()) {
+            if (haystack.contains(term.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private String matchReason(List<String> terms, ScoredDocument item) {
-        String termText = terms.isEmpty() ? "原始查询" : String.join("、", terms);
-        return "按真实云枢 Metadata Index 匹配；业务关键词=" + termText + "；graphPath="
-            + safe(item.document().getGraphPath()) + "；score=" + item.score();
+    private void addTermIfPresent(String value, Set<String> terms, String term) {
+        if (value.contains(term)) {
+            terms.add(term);
+        }
+    }
+
+    private void addSearchQuery(List<String> searchQueries, String query) {
+        String value = query == null ? "" : query.trim();
+        if (!value.isBlank() && !searchQueries.contains(value)) {
+            searchQueries.add(value);
+        }
+    }
+
+    private boolean containsAny(String value, String... keywords) {
+        for (String keyword : keywords) {
+            if (value.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String safe(String value) {
@@ -161,6 +213,6 @@ public class MetadataSearchService {
             .toList();
     }
 
-    private record ScoredDocument(MetadataSearchDocument document, int score) {
+    private record SemanticQuery(String original, String normalized, Set<String> terms, Set<String> appHints, List<String> searchQueries) {
     }
 }
