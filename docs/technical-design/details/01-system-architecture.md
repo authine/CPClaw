@@ -30,7 +30,7 @@
 ### 1.3 中间件
 
 - MySQL：会话、设置、凭据密文、云枢元数据、应用级知识图谱、审计、记忆。
-- Elasticsearch/OpenSearch：全文检索、中文分词、向量检索和融合召回。
+- Elasticsearch/OpenSearch：后续用于全文检索、中文分词和混合召回增强；当前阶段核心匹配先使用 MySQL Metadata Index 的非向量检索。
 - 本地文件存储或 MinIO：附件存储。
 - 可选 Milvus：大规模向量检索。
 - 可选 Redis：短期状态、锁、任务进度。

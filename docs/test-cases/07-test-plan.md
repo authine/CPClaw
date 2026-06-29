@@ -11,7 +11,7 @@
 - 意图识别。
 - 槽位抽取。
 - 本地元数据能力匹配。
-- 混合检索候选排序。
+- 非向量多路召回与候选排序。
 - 多轮上下文指代解析。
 - DAG 执行计划生成。
 - Reflection 判断。
@@ -63,7 +63,8 @@
 - 云枢连接测试。
 - 云枢架构同步。
 - MySQL 元数据图谱写入。
-- Elasticsearch/OpenSearch 索引写入和检索。
+- MySQL Metadata Index 写入和非向量检索。
+- 后续 Elasticsearch/OpenSearch 索引写入和检索。
 - 附件上传、解析和字段映射。
 - 审计记录写入。
 

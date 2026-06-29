@@ -111,6 +111,31 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].name").value("元数据对象"));
 
+        mockMvc.perform(get("/api/metadata/search").param("query", "销售机会有多少？"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "int_bu_oppor"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "分析客户下面的商机"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "项目基础数据里的商机"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("business_opportunity"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "CRM客户数量"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("客户"))
+            .andExpect(jsonPath("$.data[0].code").value("crm_customer"));
+
         MvcResult conversation = mockMvc.perform(post("/api/conversations")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"title\":\"MVP 测试会话\",\"thinkingEnabled\":false}"))

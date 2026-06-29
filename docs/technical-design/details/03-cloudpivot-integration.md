@@ -78,17 +78,17 @@ CloudPivot Metadata Sync
   -> 标准化为应用/实体/字段/关系/表单/按钮
   -> 构建应用级知识图谱
   -> 生成 search documents
-  -> 生成 embedding text
-  -> 写入 Elasticsearch/OpenSearch
-  -> 可选写入 Milvus
+  -> 写入 MySQL Metadata Index
+  -> 后续可选写入 Elasticsearch/OpenSearch
+  -> 后续可选生成 embedding text 并写入 Milvus
   -> 标记 indexed_at / synced_at
 ```
 
 要求：
 
 - MySQL 是权威主库。
-- Elasticsearch/OpenSearch 是可重建索引。
-- Milvus 是可选向量库，可从 MySQL 和检索文档重建。
+- Elasticsearch/OpenSearch 是后续可重建索引，当前阶段不作为核心依赖。
+- Milvus 是后续可选向量库，可从 MySQL 和检索文档重建；当前阶段不做向量化语义检索。
 - 同步失败不能污染已生效索引，应使用批次号或版本号切换。
 
 ## 7. 运行态数据操作

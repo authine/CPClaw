@@ -24,6 +24,7 @@ docs/
       03-cloudpivot-integration.md
       04-data-model.md
       05-security.md
+      06-key-technical-strategy.md
   test-cases/
     07-test-plan.md
     08-mvp-test-cases.md
@@ -56,12 +57,13 @@ docs/
 
 位于 `technical-design/`。
 
-- `00-technical-blueprint.md`：技术设计蓝图，从整体上说明技术目标、总体架构、组件边界、元数据知识图谱、混合检索、Agent、模型调用、附件和安全路径。
+- `00-technical-blueprint.md`：技术设计蓝图，从整体上说明技术目标、总体架构、组件边界、元数据知识图谱、当前非向量检索、Agent、模型调用、附件和安全路径。
 - `details/01-system-architecture.md`：系统架构详细设计，描述 Vue 3 前端、Spring Boot 后端、MySQL、Agent、模型网关、元数据服务和云枢连接器的整体结构。
 - `details/02-agent-design.md`：Agent 详细设计，描述 ReAct + Reflection、意图类型、工具集、执行计划和高风险操作策略。
 - `details/03-cloudpivot-integration.md`：云枢集成详细设计，描述登录、Token、设计态元数据同步、运行态操作、附件上传和浏览器兜底策略。
 - `details/04-data-model.md`：数据模型详细设计，描述 MySQL 表结构、应用级知识图谱、检索索引、附件、记忆和审计。
 - `details/05-security.md`：安全详细设计，描述凭据存储、环境变量、日志脱敏、Prompt 安全、操作确认、附件安全和 GitHub 安全要求。
+- `details/06-key-technical-strategy.md`：关键技术策略，固化配置持久化、云枢元数据驱动意图匹配、非向量检索、澄清收敛、流式输出和真实数据原则。
 
 阅读方式：先读技术设计蓝图，理解项目整体技术路径；再按组件或专项进入详细设计。
 
@@ -84,11 +86,12 @@ docs/
 7. `technical-design/details/03-cloudpivot-integration.md`
 8. `technical-design/details/04-data-model.md`
 9. `technical-design/details/05-security.md`
-10. `test-cases/07-test-plan.md`
-11. `test-cases/08-mvp-test-cases.md`
-12. `project-management/00-project-restart-plan.md`
-13. `project-management/01-team-work-plan.md`
-14. `project-management/02-progress-dashboard.md`
+10. `technical-design/details/06-key-technical-strategy.md`
+11. `test-cases/07-test-plan.md`
+12. `test-cases/08-mvp-test-cases.md`
+13. `project-management/00-project-restart-plan.md`
+14. `project-management/01-team-work-plan.md`
+15. `project-management/02-progress-dashboard.md`
 
 ## 提交规则
 
