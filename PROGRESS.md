@@ -62,6 +62,7 @@ MVP 核心要求：
 | 客户计数查询 | 已通过真实云枢验证，待用户验证 | “系统有多少个客户？”识别为客户计数查询，在真实云枢 Metadata Index 中命中 `客户 / crm_customer`，运行态 total=8694；fallback 环境不再返回 `system_customer` 或假总数。 |
 | 按年客户量分析 | 已通过真实云枢验证，待用户验证 | “每年的客户量情况怎么样？”识别对象=客户、维度=年份；真实云枢查询命中 `crm_customer`，total=8694、returned=8694 后按年聚合分析。 |
 | 多轮对象级上下文继承 | 已完成本轮并通过自动化与真实代理验证，待用户验证 | 同一会话中“系统有多少商机？”后追问“分别在什么阶段？”会继承上一轮真实商机对象和 `schemaCode`，重新查询运行态并返回阶段分布；真实验证命中 `int_bu_oppor`，total=237，阶段分布为未签约 135、暂停 13、已签约 65、停止 20、丢单 4；同名对象场景会继承上一轮真实 `schemaCode`，避免跳回默认对象。 |
+| 消息长文本持久化 | 已完成本轮修复并通过真实复测 | 修复第二轮追问时 `messages.content` 超过 MySQL `TEXT` 上限导致 `Data too long for column 'content'` 的问题；`messages.content`、`messages.metadata_json`、Agent 审计与工具调用长文本字段已扩为 `LONGTEXT`，Flyway `V2` 已应用到本机 MySQL `CPClaw`。 |
 | 向量语义检索增强 | 已完成本轮实现并通过后端测试，待真实环境启用验证 | 已新增 OpenAI-compatible Embedding 客户端、PostgreSQL pgvector 元数据向量索引、同步时容错写入、查询时向量召回和混合排序；向量候选必须回到真实 MySQL Metadata Index，不能生成或猜测 `schemaCode`；向量不可用时自动降级为确定性检索。 |
 | 执行过程与回答展示 | 已完成并通过本地验证 | 普通对话正文不再展示 `### 执行过程`、真实 `schemaCode`、原始数据摘要和接口细节；这些信息保留在 Agent 步骤、审计和工具调用记录中。 |
 | Markdown 消息渲染 | 已完成并通过构建验证 | `MarkdownMessage` 已改为解析并安全渲染 Markdown，支持标题、列表、加粗、代码和表格；历史消息中旧版 `### 执行过程` 前置块会在展示层隐藏。 |
@@ -311,6 +312,11 @@ MVP 核心要求：
 - 2026-06-29：根据用户新的布局调整要求，已在 `design/cpclaw-figma/figma-plugin/code.js` 新增 Figma 原型页“05 布局调整提案”，展示顶部导航替代左侧全局菜单、左侧仅保留历史会话、中央扩大对话主窗口、右侧展示并关联每轮助手回复的后端处理流程。当前仅完成原型，等待用户确认后再执行前端代码改造；已执行 `node --check design/cpclaw-figma/figma-plugin/code.js` 通过。
 - 2026-06-29：根据用户反馈“前面更新的 UI 交互界面没有看到”，确认此前只生成了 Figma 原型，未落到运行中的前端页面；本轮已将布局调整实现到 `web/src/layouts/MainLayout.vue` 和 `web/src/views/ChatView.vue`：全局菜单移至顶部导航，对话页改为左侧历史会话、中间对话主窗口、右侧关联当前回复的后端处理流程；`web/` 下 `npm run build` 通过。
 - 2026-06-29：根据用户提供的向量数据库和 Embedding 模型配置，完成混合元数据检索增强：文档新增 PostgreSQL pgvector + OpenAI-compatible Embedding 设计方案；后端新增向量配置、Embedding 客户端、pgvector 元数据索引和向量候选融合排序；元数据同步和检索均支持向量不可用时降级到确定性检索；新增测试覆盖语义召回和编码精确优先；`server/` 下 `mvn test` 通过，结果为 Tests run: 4, Failures: 0, Errors: 0, Skipped: 0。
+- 2026-06-29：根据用户反馈“第二个问题抛出 Data too long for column 'content'”，完成缺陷定位与修复：根因为第二轮助手回答可能超过 MySQL `TEXT` 64KB 上限，导致 `messages.content` 入库失败；新增 Flyway `V2__expand_message_and_audit_text_columns.sql`，将 `messages.content`、`messages.metadata_json`、`agent_runs.plan_json`、`agent_runs.reflection_json`、`tool_calls.*_json_masked` 和确认单长文本字段扩为 `LONGTEXT`，并同步 JPA 实体注解。
+- 2026-06-29：QA 测试工程师补充系统性回归：新增 `MessageStorageTests` 验证超过 64KB 的助手正文和 metadata 可完整入库，并检查迁移脚本覆盖消息与审计长文本字段；`server/` 下执行 `mvn test` 通过，结果为 Tests run: 6, Failures: 0, Errors: 0, Skipped: 0。
+- 2026-06-29：完成真实 MySQL 迁移和复测：重新打包并启动后端，Flyway 日志显示 schema `cpclaw` 从版本 1 迁移到版本 2，之后服务启动于 `http://127.0.0.1:8080/`；经真实接口连续发送“系统有多少商机？”和“都处于什么阶段？”，第二轮不再出现 `content` 截断异常。
+- 2026-06-29：QA 继续发现并修复口语化阶段追问误走明细列表的问题：将“处于/什么阶段/什么状态”纳入阶段分布识别，并把自动化用例从“分别在什么阶段？”调整为更贴近用户截图的“都处于什么阶段？”；重新执行 `server/` 下 `mvn test` 通过，结果为 Tests run: 6, Failures: 0, Errors: 0, Skipped: 0。
+- 2026-06-29：完成真实云枢回归验证：同一会话先问“系统有多少商机？”返回 total=237，再追问“都处于什么阶段？”时 `Observe` 继承 `int_bu_oppor 商机`，第二轮返回“按阶段分布”：未签约 135、暂停 13、已签约 65、停止 20、丢单 4；助手正文长度约 215，不再返回 237 条明细列表，也不再触发数据库长文本错误。
 
 ## 当前阻塞与风险
 
