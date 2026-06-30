@@ -12,10 +12,10 @@ public class ToolCall {
     @Id private String id;
     @Column(name = "agent_run_id", nullable = false) private String agentRunId;
     @Column(name = "tool_name", nullable = false) private String toolName;
-    @Column(name = "input_json_masked", columnDefinition = "TEXT") private String inputJsonMasked;
-    @Column(name = "output_json_masked", columnDefinition = "TEXT") private String outputJsonMasked;
+    @Column(name = "input_json_masked", columnDefinition = "LONGTEXT") private String inputJsonMasked;
+    @Column(name = "output_json_masked", columnDefinition = "LONGTEXT") private String outputJsonMasked;
     @Column(nullable = false) private String status;
-    @Column(name = "error_message_masked", columnDefinition = "TEXT") private String errorMessageMasked;
+    @Column(name = "error_message_masked", columnDefinition = "LONGTEXT") private String errorMessageMasked;
     @Column(name = "created_at") private Instant createdAt;
     @Column(name = "completed_at") private Instant completedAt;
     public String getId() { return id; }

@@ -1,6 +1,8 @@
 package com.cpclaw;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -16,7 +18,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
+import com.cpclaw.metadata.entity.CloudPivotDataItem;
+import com.cpclaw.metadata.entity.CloudPivotEntityRelation;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
+import com.cpclaw.metadata.repository.CloudPivotDataItemRepository;
+import com.cpclaw.metadata.repository.CloudPivotEntityRelationRepository;
 import com.cpclaw.vector.MetadataVectorSearch;
 import com.cpclaw.vector.VectorSearchCandidate;
 import java.nio.charset.StandardCharsets;
@@ -55,6 +61,12 @@ class CpClawApiTests {
 
     @Autowired
     private FakeMetadataVectorSearch fakeMetadataVectorSearch;
+
+    @Autowired
+    private CloudPivotDataItemRepository dataItemRepository;
+
+    @Autowired
+    private CloudPivotEntityRelationRepository relationRepository;
 
     @Test
     void mvpApiFlowWorks() throws Exception {
@@ -113,7 +125,16 @@ class CpClawApiTests {
         mockMvc.perform(post("/api/metadata/sync"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("cloudpivot-metadata-initialized"))
-            .andExpect(jsonPath("$.data.entityCount").value(5));
+            .andExpect(jsonPath("$.data.entityCount").value(5))
+            .andExpect(jsonPath("$.data.dataItemCount").value(7))
+            .andExpect(jsonPath("$.data.relationCount").value(1));
+
+        assertEquals(7, dataItemRepository.count());
+        assertEquals(1, relationRepository.count());
+        CloudPivotEntityRelation relation = relationRepository.findAll().getFirst();
+        assertNotNull(relation.getSourceDataItemId());
+        CloudPivotDataItem relationDataItem = dataItemRepository.findById(relation.getSourceDataItemId()).orElseThrow();
+        assertEquals("opportunityCustomer", relationDataItem.getDataItemCode());
 
         mockMvc.perform(get("/api/metadata/apps"))
             .andExpect(status().isOk())
@@ -163,6 +184,16 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].name").value("商机"))
             .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "customerType"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].objectType").value("data_item"))
+            .andExpect(jsonPath("$.data[0].code").value("customerType"));
+
+        mockMvc.perform(get("/api/metadata/search").param("query", "opportunityCustomer"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].objectType").value("data_item"))
+            .andExpect(jsonPath("$.data[0].code").value("opportunityCustomer"));
         fakeMetadataVectorSearch.reset();
 
         MvcResult conversation = mockMvc.perform(post("/api/conversations")
@@ -631,12 +662,38 @@ class CpClawApiTests {
                 new CloudPivotMetadataSnapshot.EntityMetadata("customer_management", "business_opportunity", "商机", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("project_management", "Test009", "客户", "data", "low"),
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low")
-            )
+            ),
+            mockDataItems(),
+            mockRelations()
         ));
         when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt(), anyBoolean()))
             .thenAnswer(invocation -> runtimeResult(invocation.getArgument(3), invocation.getArgument(4)));
         when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt(), anyBoolean(), anyInt()))
             .thenAnswer(invocation -> runtimeResult(invocation.getArgument(3), Math.min(invocation.getArgument(4), invocation.getArgument(6))));
+    }
+
+    private List<CloudPivotMetadataSnapshot.DataItemMetadata> mockDataItems() {
+        return List.of(
+            new CloudPivotMetadataSnapshot.DataItemMetadata("zlcsstcrm", "int_bu_oppor", "opportunityCustomer", "客户", "关联表单", true, true, "crm_customer", "商机关联客户", "{\"targetSchemaCode\":\"crm_customer\"}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("zlcsstcrm", "int_bu_oppor", "stage", "阶段", "TEXT", false, false, "", "商机阶段", "{}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("zlcsstcrm", "int_bu_oppor", "amount", "金额", "NUMBER", false, false, "", "商机金额", "{}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("zlcsstcrm", "crm_customer", "customerType", "客户类型", "TEXT", false, false, "", "新老客户分类", "{}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("zlcsstcrm", "crm_customer", "province", "省份", "TEXT", false, false, "", "客户所在省份", "{}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("customer_management", "business_opportunity", "stage", "阶段", "TEXT", false, false, "", "项目基础数据商机阶段", "{}"),
+            new CloudPivotMetadataSnapshot.DataItemMetadata("metadata_app", "metadata_object", "name", "名称", "TEXT", true, false, "", "元数据对象名称", "{}")
+        );
+    }
+
+    private List<CloudPivotMetadataSnapshot.EntityRelationMetadata> mockRelations() {
+        return List.of(new CloudPivotMetadataSnapshot.EntityRelationMetadata(
+            "zlcsstcrm",
+            "int_bu_oppor",
+            "opportunityCustomer",
+            "crm_customer",
+            "relevance_form",
+            "商机关联客户",
+            "{\"targetSchemaCode\":\"crm_customer\"}"
+        ));
     }
 
     private CloudPivotRuntimeQueryResult runtimeResult(String schemaCode, int pageSize) {

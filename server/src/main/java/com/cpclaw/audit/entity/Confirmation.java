@@ -14,10 +14,10 @@ public class Confirmation {
     @Column(name = "agent_run_id") private String agentRunId;
     @Column(name = "plan_id") private String planId;
     @Column(name = "risk_level", nullable = false) private String riskLevel;
-    @Column(nullable = false, columnDefinition = "TEXT") private String summary;
-    @Column(name = "affected_objects_json", columnDefinition = "TEXT") private String affectedObjectsJson;
-    @Column(name = "changes_json_masked", columnDefinition = "TEXT") private String changesJsonMasked;
-    @Column(name = "attachments_json", columnDefinition = "TEXT") private String attachmentsJson;
+    @Column(nullable = false, columnDefinition = "LONGTEXT") private String summary;
+    @Column(name = "affected_objects_json", columnDefinition = "LONGTEXT") private String affectedObjectsJson;
+    @Column(name = "changes_json_masked", columnDefinition = "LONGTEXT") private String changesJsonMasked;
+    @Column(name = "attachments_json", columnDefinition = "LONGTEXT") private String attachmentsJson;
     @Column(nullable = false) private String status;
     @Column(name = "expires_at") private Instant expiresAt;
     @Column(name = "created_at") private Instant createdAt;

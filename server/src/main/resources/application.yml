@@ -20,3 +20,14 @@ cpclaw:
   storage-root: ${CPC_STORAGE_ROOT:./storage}
   cloudpivot:
     corp-id: ${CPC_CLOUDPIVOT_CORP_ID:dingbb40ac2a2529cb14}
+  vector:
+    enabled: ${CPCLAW_VECTOR_ENABLED:false}
+    jdbc-url: ${CPCLAW_VECTOR_JDBC_URL:jdbc:postgresql://localhost:5432/CPClaw}
+    username: ${CPCLAW_VECTOR_USERNAME:postgres}
+    password: ${CPCLAW_VECTOR_PASSWORD:}
+    top-k: ${CPCLAW_VECTOR_TOP_K:20}
+    min-similarity: ${CPCLAW_VECTOR_MIN_SIMILARITY:0.62}
+  embedding:
+    base-url: ${CPCLAW_EMBEDDING_BASE_URL:}
+    api-key: ${CPCLAW_EMBEDDING_API_KEY:}
+    model: ${CPCLAW_EMBEDDING_MODEL:text-embedding-v4}

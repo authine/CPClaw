@@ -6,7 +6,7 @@
 
 数据库使用 MySQL。MySQL 是 CPClaw 的权威主库，用于保存系统设置、加密凭据、会话、消息、云枢应用级知识图谱、审计、附件和记忆。
 
-当前阶段优先使用 MySQL 中的 `metadata_search_documents` 作为 Metadata Index，先实现非向量确定性检索。Elasticsearch/OpenSearch 是后续检索索引增强，可从 MySQL 重建；Milvus 是后续可选向量库，也应能从 MySQL 和检索文档重建。
+当前阶段使用 MySQL 中的 `metadata_search_documents` 作为权威 Metadata Index，并使用 PostgreSQL pgvector 中的 `metadata_vector_documents` 作为可重建语义向量增强索引。Elasticsearch/OpenSearch 是后续检索索引增强，可从 MySQL 重建；Milvus 是后续大规模向量检索替换或扩展方案。
 
 ## 2. 系统设置与凭据
 
@@ -93,6 +93,12 @@
 - `metadata_json`
 - `created_at`
 
+存储约束：
+
+- `content` 使用 MySQL `LONGTEXT`，用于保存完整助手回答。阶段分布、运行态分析、大模型总结等回答可能超过 MySQL `TEXT` 的 64KB 上限，不能在入库前静默截断业务结论。
+- `metadata_json` 使用 MySQL `LONGTEXT`，用于保存最近运行态对象、真实 `schemaCode`、total、returned、sourceEndpoint 等上下文信息，支撑同一会话内的对象级追问。
+- 与消息强相关的审计长文本字段也使用 `LONGTEXT`，包括 `agent_runs.plan_json`、`agent_runs.reflection_json`、`tool_calls.input_json_masked`、`tool_calls.output_json_masked`、`tool_calls.error_message_masked` 以及确认单中的长文本字段，避免右侧“后端处理流程”和审计追踪因工具输出较长而写入失败。
+
 ### 3.3 conversation_contexts
 
 保存会话级上下文和可引用对象。
@@ -176,7 +182,7 @@
 - `raw_json`
 - `synced_at`
 
-### 5.3 cloudpivot_entity_fields
+### 5.3 cloudpivot_data_items
 
 对应业务模型数据项。
 
@@ -184,7 +190,7 @@
 
 - `id`
 - `entity_id`
-- `field_code`
+- `data_item_code`
 - `name`
 - `data_type`
 - `required`
@@ -194,16 +200,18 @@
 - `raw_json`
 - `synced_at`
 
+说明：历史版本曾使用 `cloudpivot_entity_fields` 和 `field_code` 命名保存同类信息。当前业务语义统一为云枢“数据项”，新同步链路写入 `cloudpivot_data_items`。
+
 ### 5.4 cloudpivot_entity_relations
 
-通过关联表单字段建立实体间关系。
+通过关联表单数据项建立实体间关系。
 
 字段：
 
 - `id`
 - `app_id`
 - `source_entity_id`
-- `source_field_id`
+- `source_data_item_id`
 - `target_entity_id`
 - `relation_type`
 - `relation_name`
@@ -277,7 +285,34 @@
 - `indexed_at`
 - `created_at`
 
-### 6.2 后续 Elasticsearch/OpenSearch 索引
+### 6.2 metadata_vector_documents
+
+存储位置：PostgreSQL + pgvector。该表不是权威元数据来源，只能由 MySQL `metadata_search_documents` 重建。
+
+字段：
+
+- `document_id`：对应 `metadata_search_documents.id`。
+- `object_type`
+- `object_id`
+- `name`
+- `code`
+- `graph_path`
+- `risk_level`
+- `embedding_text`
+- `embedding_model`
+- `embedding_dimension`
+- `sync_batch_id`
+- `embedding vector(N)`
+- `indexed_at`
+- `updated_at`
+
+配套表：`metadata_vector_schema`，保存当前向量维度、Embedding 模型和更新时间。若模型返回维度变化，系统可清空并重建 `metadata_vector_documents`。
+
+安全要求：向量库连接、Embedding Base URL、模型名和开关通过环境变量配置；数据库密码和 Embedding API Key 不得写入文档、代码、日志或 Git。
+
+降级要求：pgvector 不可用、Embedding 服务不可用或向量表重建失败时，不影响 MySQL Metadata Index 写入和确定性检索。
+
+### 6.3 后续 Elasticsearch/OpenSearch 索引
 
 建议索引名：`cpclaw_metadata_v1`。
 
@@ -395,7 +430,7 @@
 - `attachments.conversation_id`
 - `cloudpivot_apps.app_code`
 - `cloudpivot_entities.app_id, entity_code`
-- `cloudpivot_entity_fields.entity_id, field_code`
+- `cloudpivot_data_items.entity_id, data_item_code`
 - `cloudpivot_entity_relations.source_entity_id, target_entity_id`
 - `metadata_search_documents.app_id, object_type`
 - `agent_runs.conversation_id`

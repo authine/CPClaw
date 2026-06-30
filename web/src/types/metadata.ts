@@ -11,6 +11,8 @@ export interface MetadataSyncResponse {
   status: string
   appCount: number
   entityCount: number
+  dataItemCount: number
+  relationCount: number
   searchDocumentCount: number
   createdAt: string
 }

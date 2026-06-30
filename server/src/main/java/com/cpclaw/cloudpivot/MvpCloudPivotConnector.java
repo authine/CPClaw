@@ -21,6 +21,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -129,6 +130,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
         Map<String, CloudPivotMetadataSnapshot.AppMetadata> apps = new LinkedHashMap<>();
         Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities = new LinkedHashMap<>();
+        List<CloudPivotMetadataSnapshot.DataItemMetadata> dataItems = new ArrayList<>();
+        List<CloudPivotMetadataSnapshot.EntityRelationMetadata> relations = new ArrayList<>();
         for (JsonNode appNode : appNodes) {
             String appCode = firstText(appNode, "code", "appCode", "codePath", "id").orElse(null);
             if (!hasText(appCode)) {
@@ -148,7 +151,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             }
         }
 
-        return new CloudPivotMetadataSnapshot(new ArrayList<>(apps.values()), new ArrayList<>(entities.values()));
+        fetchDataItemsForEntities(host, session, entities, dataItems, relations);
+        return new CloudPivotMetadataSnapshot(new ArrayList<>(apps.values()), new ArrayList<>(entities.values()), dataItems, relations);
     }
 
     private void fetchEntitiesForApp(
@@ -192,6 +196,192 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         String entityName = firstText(entityNode, "name", "schemaName", "displayName", "name_i18n").orElse(entityCode);
         String entityType = firstText(entityNode, "type", "modelType", "entityType").orElse("data");
         entities.putIfAbsent(appCode + ":" + entityCode, new CloudPivotMetadataSnapshot.EntityMetadata(appCode, entityCode, entityName, entityType, "low"));
+    }
+
+    private void fetchDataItemsForEntities(
+        String host,
+        AuthSession session,
+        Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities,
+        List<CloudPivotMetadataSnapshot.DataItemMetadata> dataItems,
+        List<CloudPivotMetadataSnapshot.EntityRelationMetadata> relations
+    ) {
+        Set<String> entityCodes = new LinkedHashSet<>();
+        entities.values().forEach(entity -> entityCodes.add(entity.code()));
+        Set<String> dataItemKeys = new LinkedHashSet<>();
+        Set<String> relationKeys = new LinkedHashSet<>();
+        for (CloudPivotMetadataSnapshot.EntityMetadata entity : entities.values()) {
+            List<JsonNode> itemNodes = fetchDataItemNodes(host, session, entity.appCode(), entity.code());
+            for (JsonNode itemNode : itemNodes) {
+                addDataItem(entity, itemNode, entityCodes, dataItems, relations, dataItemKeys, relationKeys);
+            }
+        }
+    }
+
+    private List<JsonNode> fetchDataItemNodes(String host, AuthSession session, String appCode, String entityCode) {
+        List<Endpoint> endpoints = new ArrayList<>();
+        for (String path : List.of(
+            "/api/app/bizmodels/get",
+            "/api/app/bizmodels/get_by_code",
+            "/api/app/bizmodels/get_detail",
+            "/api/runtime/app/get_bizmodel",
+            "/api/app/bizmodels/load"
+        )) {
+            endpoints.add(new Endpoint("GET", path, Map.of("schemaCode", entityCode, "appCode", appCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("bizModelCode", entityCode, "appCode", appCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("modelCode", entityCode, "appCode", appCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("code", entityCode, "appCode", appCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("schemaCode", entityCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("bizModelCode", entityCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("modelCode", entityCode)));
+            endpoints.add(new Endpoint("GET", path, Map.of("code", entityCode)));
+        }
+        for (Endpoint endpoint : endpoints) {
+            try {
+                JsonNode body = requestJson(host, endpoint, session);
+                List<JsonNode> items = extractDataItemNodes(body);
+                log.info("CloudPivot data item endpoint {} returned {} item(s), schemaCode={}, shape={}", endpoint.path(), items.size(), entityCode, describeShape(body, 0));
+                if (!items.isEmpty()) {
+                    return items;
+                }
+            } catch (RuntimeException exception) {
+                log.info("CloudPivot data item endpoint {} failed(schemaCode={}): {}", endpoint.path(), entityCode, exception.getMessage());
+            }
+        }
+        return List.of();
+    }
+
+    private List<JsonNode> extractDataItemNodes(JsonNode body) {
+        JsonNode source = body != null && body.has("data") && body.get("data").isObject() ? body.get("data") : body;
+        return extractDataItemNodes(source, 0);
+    }
+
+    private List<JsonNode> extractDataItemNodes(JsonNode node, int depth) {
+        if (node == null || node.isNull() || depth > 5) {
+            return List.of();
+        }
+        if (node.isArray()) {
+            List<JsonNode> result = new ArrayList<>();
+            node.forEach(item -> {
+                if (isDataItemNode(item)) {
+                    result.add(item);
+                } else {
+                    result.addAll(extractDataItemNodes(item, depth + 1));
+                }
+            });
+            return result;
+        }
+        if (!node.isObject()) {
+            return List.of();
+        }
+        for (String key : List.of("dataItems", "properties", "fields", "bizProperties", "schemaProperties", "items", "columns")) {
+            if (node.has(key)) {
+                List<JsonNode> items = extractDataItemNodes(node.get(key), depth + 1);
+                if (!items.isEmpty()) {
+                    return items;
+                }
+            }
+        }
+        return List.of();
+    }
+
+    private boolean isDataItemNode(JsonNode node) {
+        return node != null && node.isObject()
+            && firstText(node, "code", "propertyCode", "fieldCode", "dataItemCode", "name").isPresent()
+            && (firstText(node, "type", "dataType", "propertyType", "fieldType", "controlType").isPresent()
+                || firstText(node, "displayName", "propertyName", "fieldName", "label", "name_i18n").isPresent());
+    }
+
+    private void addDataItem(
+        CloudPivotMetadataSnapshot.EntityMetadata entity,
+        JsonNode itemNode,
+        Set<String> entityCodes,
+        List<CloudPivotMetadataSnapshot.DataItemMetadata> dataItems,
+        List<CloudPivotMetadataSnapshot.EntityRelationMetadata> relations,
+        Set<String> dataItemKeys,
+        Set<String> relationKeys
+    ) {
+        String code = firstText(itemNode, "code", "propertyCode", "fieldCode", "dataItemCode", "name").orElse(null);
+        if (!hasText(code)) {
+            return;
+        }
+        String key = entity.appCode() + ":" + entity.code() + ":" + code;
+        if (!dataItemKeys.add(key)) {
+            return;
+        }
+        String name = firstText(itemNode, "name", "displayName", "propertyName", "fieldName", "label", "name_i18n").orElse(code);
+        String dataType = firstText(itemNode, "type", "dataType", "propertyType", "fieldType", "controlType").orElse("");
+        boolean required = firstBoolean(itemNode, "required", "isRequired", "mustInput", "requiredFlag").orElse(false);
+        String referenceEntityCode = referenceEntityCode(itemNode, entityCodes, entity.code()).orElse("");
+        boolean reference = isReferenceDataItem(itemNode, dataType) || hasText(referenceEntityCode);
+        dataItems.add(new CloudPivotMetadataSnapshot.DataItemMetadata(
+            entity.appCode(),
+            entity.code(),
+            code,
+            name,
+            dataType,
+            required,
+            reference,
+            referenceEntityCode,
+            firstText(itemNode, "description", "remark", "helpText", "tips").orElse(""),
+            textValue(itemNode)
+        ));
+        if (reference && hasText(referenceEntityCode)) {
+            String relationKey = entity.appCode() + ":" + entity.code() + ":" + code + ":" + referenceEntityCode;
+            if (relationKeys.add(relationKey)) {
+                relations.add(new CloudPivotMetadataSnapshot.EntityRelationMetadata(
+                    entity.appCode(),
+                    entity.code(),
+                    code,
+                    referenceEntityCode,
+                    "relevance_form",
+                    name,
+                    textValue(itemNode)
+                ));
+            }
+        }
+    }
+
+    private Optional<String> referenceEntityCode(JsonNode node, Set<String> entityCodes, String sourceEntityCode) {
+        Optional<String> direct = firstText(node,
+            "refSchemaCode", "referenceSchemaCode", "relativeCode", "targetSchemaCode",
+            "targetBizModelCode", "targetModelCode", "refCode", "associationSchemaCode", "associationCode",
+            "schemaCode"
+        );
+        Optional<String> normalized = direct.map(this::stripQuotes)
+            .filter(entityCodes::contains)
+            .filter(value -> !value.equals(sourceEntityCode));
+        if (normalized.isPresent()) {
+            return normalized;
+        }
+        for (String key : List.of("options", "option", "setting", "settings", "config", "control", "component", "relevance", "reference", "target")) {
+            Optional<JsonNode> child = firstObject(node, key);
+            if (child.isPresent()) {
+                Optional<String> childValue = referenceEntityCode(child.get(), entityCodes, sourceEntityCode);
+                if (childValue.isPresent()) {
+                    return childValue;
+                }
+            }
+        }
+        String raw = textValue(node);
+        for (String entityCode : entityCodes) {
+            if (hasText(entityCode) && !entityCode.equals(sourceEntityCode) && raw.contains(entityCode)) {
+                return Optional.of(entityCode);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean isReferenceDataItem(JsonNode itemNode, String dataType) {
+        String value = (dataType + " " + textValue(itemNode)).toLowerCase(Locale.ROOT);
+        return value.contains("关联表单")
+            || value.contains("relevance_form")
+            || value.contains("relevanceform")
+            || value.contains("relevance")
+            || value.contains("association")
+            || value.contains("bizobject")
+            || value.contains("biz_object")
+            || value.contains("reference")
+            || value.contains("object");
     }
 
     private List<JsonNode> firstSuccessfulList(String host, AuthSession session, List<Endpoint> endpoints) {
@@ -677,6 +867,30 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return Optional.empty();
     }
 
+    private Optional<Boolean> firstBoolean(JsonNode node, String... keys) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        for (String key : keys) {
+            if (node.has(key) && !node.get(key).isNull()) {
+                JsonNode value = node.get(key);
+                if (value.isBoolean()) {
+                    return Optional.of(value.asBoolean());
+                }
+                if (value.isNumber()) {
+                    return Optional.of(value.asInt() != 0);
+                }
+                if (value.isTextual()) {
+                    String text = value.asText().trim();
+                    if (hasText(text)) {
+                        return Optional.of("true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     private List<JsonNode> extractItems(JsonNode node, int depth) {
         if (node == null || node.isNull() || depth > 4) {
             return List.of();
@@ -777,6 +991,17 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private String textValue(JsonNode node) {
         return node == null ? "" : node.toString();
+    }
+
+    private String stripQuotes(String value) {
+        if (value == null) {
+            return "";
+        }
+        String result = value.trim();
+        while ((result.startsWith("\"") && result.endsWith("\"")) || (result.startsWith("'") && result.endsWith("'"))) {
+            result = result.substring(1, result.length() - 1).trim();
+        }
+        return result;
     }
 
     private HttpRequest.Builder baseRequest(String url) {

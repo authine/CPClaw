@@ -19,7 +19,7 @@ public class Message {
     @Column(nullable = false)
     private String role;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String content;
 
     @Column(name = "model_config_id")
@@ -28,7 +28,7 @@ public class Message {
     @Column(name = "thinking_enabled", nullable = false)
     private boolean thinkingEnabled;
 
-    @Column(name = "metadata_json", columnDefinition = "TEXT")
+    @Column(name = "metadata_json", columnDefinition = "LONGTEXT")
     private String metadataJson;
 
     @Column(name = "created_at")

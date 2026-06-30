@@ -86,6 +86,7 @@ public class ConversationService {
             conversationContext
         );
         assistantMessage.setContent(response.assistantMessage().content());
+        assistantMessage.setMetadataJson(response.assistantMessage().metadataJson());
         messageRepository.save(assistantMessage);
 
         conversation.setTitle(buildConversationTitle(conversation.getTitle(), content));

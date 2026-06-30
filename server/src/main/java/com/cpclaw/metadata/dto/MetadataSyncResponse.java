@@ -5,6 +5,8 @@ public record MetadataSyncResponse(
     String status,
     int appCount,
     int entityCount,
+    int dataItemCount,
+    int relationCount,
     int searchDocumentCount,
     String createdAt
 ) {

@@ -84,6 +84,18 @@ MVP 核心要求：
 
 ## 最近工程进展
 
+### 云枢实体模型、数据项与关联表单关系同步增强
+
+- 状态：已完成本轮代码实现、文档同步和自动化验证，待用户在真实云枢环境重新执行元数据初始化并核对实际数量。
+- 产品口径：不再把云枢模型下的信息泛化为“字段拆分”。CPClaw 当前同步的核心对象明确为云枢实体模型、云枢数据项，以及由“关联表单”数据项推导出的实体关联关系。
+- 后端实现：`CloudPivotMetadataSnapshot` 已扩展 `dataItems` 与 `relations`；云枢连接器会在实体模型同步后探测业务模型详情接口，从 `dataItems`、`properties`、`fields`、`bizProperties`、`schemaProperties`、`items`、`columns` 等结构抽取数据项。
+- 持久化实现：新增 `cloudpivot_data_items` 作为新的数据项表；历史 `cloudpivot_entity_fields` 仅作为兼容表保留。新增 Flyway `V3__cloudpivot_data_items_and_relations.sql`，用于创建数据项表、迁移历史数据，并在 `cloudpivot_entity_relations` 中补充 `source_data_item_id`。
+- 关系约束：实体关联关系只允许由可解析目标实体的“关联表单”数据项生成；关系必须通过 `source_data_item_id` 回查到来源数据项，无法解析来源数据项或目标实体时跳过关系，不凭空推断。
+- 检索增强：`metadata_search_documents` 新增 `data_item` 和 `relation` 类型文档；当用户输入精确数据项编码，例如 `customerType`、`opportunityCustomer` 时，编码精确命中的数据项优先于泛化业务词命中。
+- 文档同步：新增并更新 `docs/technical-design/details/07-cloudpivot-metadata-sync.md` 与 `docs/technical-design/details/04-data-model.md`，明确实体模型、数据项、关联表单关系、同步响应计数和验收标准。
+- QA 验证：定向执行 `CpClawApiTests,MessageStorageTests` 通过，结果为 Tests run: 4, Failures: 0, Errors: 0, Skipped: 0；完整执行 `server/` 下 `mvn test` 通过，结果为 Tests run: 9, Failures: 0, Errors: 0, Skipped: 0；`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 既有第三方 PURE 注释和 chunk 体积提示。
+- 后续验证：真实云枢环境需要重新点击元数据初始化，重点核对 `dataItemCount`、`relationCount` 是否大于 0，并抽查商机、客户等实体的数据项和关联关系是否来自真实云枢配置。
+
 ### 连续多轮追问性能稳定化
 
 - 状态：已完成本轮代码实现、自动化测试和真实服务双 QA 连续追问压测，待用户在前端继续验证。

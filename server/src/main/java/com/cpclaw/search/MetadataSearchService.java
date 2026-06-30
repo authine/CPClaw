@@ -3,15 +3,22 @@ package com.cpclaw.search;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
 import com.cpclaw.metadata.repository.MetadataSearchDocumentRepository;
+import com.cpclaw.vector.MetadataVectorSearch;
+import com.cpclaw.vector.VectorSearchCandidate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MetadataSearchService {
+
+    private static final Logger log = LoggerFactory.getLogger(MetadataSearchService.class);
 
     private static final List<String> CORE_BUSINESS_TERMS = List.of("商机", "客户", "线索", "联系人", "销售订单", "订单", "合同", "跟进记录", "回款", "项目", "报价", "发票", "待办", "任务", "流程", "审批");
     private static final Map<String, List<String>> BUSINESS_ALIASES = Map.ofEntries(
@@ -44,9 +51,11 @@ public class MetadataSearchService {
     );
 
     private final MetadataSearchDocumentRepository searchDocumentRepository;
+    private final MetadataVectorSearch metadataVectorSearch;
 
-    public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository) {
+    public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository, MetadataVectorSearch metadataVectorSearch) {
         this.searchDocumentRepository = searchDocumentRepository;
+        this.metadataVectorSearch = metadataVectorSearch;
     }
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {
@@ -56,9 +65,10 @@ public class MetadataSearchService {
             .map(MetadataSearchDocument::getId)
             .distinct()
             .toList();
+        Map<String, VectorSearchCandidate> vectorCandidates = vectorCandidates(searchQuery);
 
         return searchDocumentRepository.findAll().stream()
-            .map(document -> scoreDocument(searchQuery, document, directIds.contains(document.getId())))
+            .map(document -> scoreDocument(searchQuery, document, directIds.contains(document.getId()), vectorCandidates.get(document.getId())))
             .filter(item -> item.score() > 0)
             .sorted(Comparator.comparingInt(ScoredDocument::score).reversed())
             .limit(10)
@@ -72,6 +82,34 @@ public class MetadataSearchService {
                 matchReason(searchQuery, item)
             ))
             .toList();
+    }
+
+    private Map<String, VectorSearchCandidate> vectorCandidates(SearchQuery query) {
+        if (!metadataVectorSearch.enabled()) {
+            return Map.of();
+        }
+        Map<String, VectorSearchCandidate> candidates = new HashMap<>();
+        List<VectorSearchCandidate> results;
+        try {
+            results = metadataVectorSearch.search(vectorQueryText(query));
+        } catch (RuntimeException exception) {
+            log.info("metadata vector search skipped: {}", exception.getMessage());
+            return Map.of();
+        }
+        for (VectorSearchCandidate candidate : results) {
+            candidates.putIfAbsent(candidate.documentId(), candidate);
+        }
+        return candidates;
+    }
+
+    private String vectorQueryText(SearchQuery query) {
+        List<String> values = new ArrayList<>();
+        addDistinct(values, query.raw());
+        query.terms().forEach(term -> addDistinct(values, term));
+        query.expandedTerms().forEach(term -> addDistinct(values, term));
+        query.appHints().forEach(hint -> addDistinct(values, hint));
+        addDistinct(values, query.targetTerm());
+        return String.join(" ", values);
     }
 
     private SearchQuery analyzeQuery(String query) {
@@ -189,14 +227,24 @@ public class MetadataSearchService {
         return terms.isEmpty() ? "" : canonicalTerm(terms.getLast());
     }
 
-    private ScoredDocument scoreDocument(SearchQuery query, MetadataSearchDocument document, boolean directHit) {
+    private ScoredDocument scoreDocument(SearchQuery query, MetadataSearchDocument document, boolean directHit, VectorSearchCandidate vectorCandidate) {
         List<String> reasons = new ArrayList<>();
         int recallScore = recallScore(query, document, directHit, reasons);
-        if (recallScore <= 0) {
+        int vectorScore = vectorScore(vectorCandidate, reasons);
+        if (recallScore <= 0 && vectorScore <= 0) {
             return new ScoredDocument(document, 0, reasons);
         }
-        int score = recallScore + rankingScore(query, document, reasons);
+        int score = recallScore + vectorScore + rankingScore(query, document, reasons);
         return new ScoredDocument(document, score, reasons);
+    }
+
+    private int vectorScore(VectorSearchCandidate candidate, List<String> reasons) {
+        if (candidate == null || candidate.similarity() <= 0) {
+            return 0;
+        }
+        int score = Math.max(10, Math.min(95, (int) Math.round(candidate.similarity() * 90)));
+        reasons.add(candidate.reason());
+        return score;
     }
 
     private int recallScore(SearchQuery query, MetadataSearchDocument document, boolean directHit, List<String> reasons) {
@@ -281,6 +329,11 @@ public class MetadataSearchService {
         if (hasText(query.targetTerm()) && name.equals(query.targetTerm())) {
             score += 120;
             reasons.add("目标业务对象精确匹配:" + query.targetTerm());
+        }
+
+        if (hasText(code) && query.raw().trim().equalsIgnoreCase(code)) {
+            score += 520;
+            reasons.add("code exact input match:" + code);
         }
 
         score += explicitAppPathScore(query, graphPath, reasons);
@@ -398,7 +451,10 @@ public class MetadataSearchService {
     private String matchReason(SearchQuery query, ScoredDocument item) {
         String termText = query.terms().isEmpty() ? "原始查询" : String.join("、", query.terms());
         String reasonText = item.reasons().stream().distinct().limit(6).reduce((left, right) -> left + "；" + right).orElse("无显式召回原因");
-        return "按真实云枢 Metadata Index 非向量检索匹配；业务关键词=" + termText
+        String retrievalMode = item.reasons().stream().anyMatch(reason -> reason.startsWith("向量语义召回"))
+            ? "混合检索匹配"
+            : "确定性检索匹配";
+        return "按真实云枢 Metadata Index " + retrievalMode + "；业务关键词=" + termText
             + "；目标对象=" + (query.targetTerm().isBlank() ? "未识别" : query.targetTerm())
             + "；graphPath=" + safe(item.document().getGraphPath())
             + "；score=" + item.score()

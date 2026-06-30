@@ -14,8 +14,8 @@ public class AgentRun {
     @Column(name = "user_message_id") private String userMessageId;
     @Column(name = "intent_summary") private String intentSummary;
     @Column(nullable = false) private String status;
-    @Column(name = "plan_json", columnDefinition = "TEXT") private String planJson;
-    @Column(name = "reflection_json", columnDefinition = "TEXT") private String reflectionJson;
+    @Column(name = "plan_json", columnDefinition = "LONGTEXT") private String planJson;
+    @Column(name = "reflection_json", columnDefinition = "LONGTEXT") private String reflectionJson;
     @Column(name = "risk_level") private String riskLevel;
     @Column(name = "created_at") private Instant createdAt;
     @Column(name = "completed_at") private Instant completedAt;
