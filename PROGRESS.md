@@ -14,12 +14,12 @@
 
 ## 当前快照
 
-- 日期：2026-06-29
+- 日期：2026-06-30
 - 分支：`main`
 - 远程仓库：`origin` -> `ssh://git@github.com/authine/CPClaw.git`
 - 当前阶段：MVP 稳定化、混合检索增强与联调回归
 - 当前主目标：交付一个可用的云枢超级智能体对话式工作台，覆盖设置、元数据初始化、历史会话、附件、确认和审计入口。
-- Git 状态：本轮“向量语义检索增强 + 混合元数据排序”代码调整、文档同步和后端测试已完成；最新已把布局原型落到真实前端页面，顶部导航、三栏对话工作台和右侧处理流程已可在 `5173` 查看；当前仍有前端工作台和此前上下文增强等其它本地未提交改动，提交时需避免混入无关文件。
+- Git 状态：本轮已修复点击 CPClaw 助手回复后右侧“后端处理流程”不展示的问题；后端已把 `agentRunId` 持久化到助手消息 metadata，前端可在刷新/打开历史会话后按消息懒加载审计流程；`web/` 下 `npm run build` 通过，`server/` 下 `mvn test` 通过。当前仍有多处本地未提交功能改动，提交时需避免混入无关文件。
 
 ## 原始需求基线
 
@@ -66,6 +66,7 @@ MVP 核心要求：
 | 向量语义检索增强 | 已完成本轮实现并通过后端测试，待真实环境启用验证 | 已新增 OpenAI-compatible Embedding 客户端、PostgreSQL pgvector 元数据向量索引、同步时容错写入、查询时向量召回和混合排序；向量候选必须回到真实 MySQL Metadata Index，不能生成或猜测 `schemaCode`；向量不可用时自动降级为确定性检索。 |
 | 执行过程与回答展示 | 已完成并通过本地验证 | 普通对话正文不再展示 `### 执行过程`、真实 `schemaCode`、原始数据摘要和接口细节；这些信息保留在 Agent 步骤、审计和工具调用记录中。 |
 | 长耗时任务等待态 | 已完成本轮前端修复并通过构建验证 | 第二轮阶段分布等真实云枢查询可能耗时较长；前端已在发送后立即插入 CPClaw 处理中占位回复，并在右侧处理流程显示临时 Observe、Think、Act、Reflect，后端返回后替换为真实回答和真实步骤。 |
+| 右侧处理流程点击恢复 | 已完成本轮修复并通过构建/测试验证 | 新助手消息会在 `metadataJson` 中持久化 `agentRunId`；点击当前或历史 CPClaw 回复时，前端先使用内存 trace，若不存在则读取 `agentRunId` 调用 `/api/audit/agent-runs/{id}` 恢复 Observe、Think、Act、Reflect；旧运行态 metadata 可展示有限摘要，完全无 metadata 的历史消息会提示无法恢复。 |
 | Markdown 消息渲染 | 已完成并通过构建验证 | `MarkdownMessage` 已改为解析并安全渲染 Markdown，支持标题、列表、加粗、代码和表格；历史消息中旧版 `### 执行过程` 前置块会在展示层隐藏。 |
 | 设计文档同步规则 | 已完成本轮更新 | 已在 `docs/README.md` 明确所有产品、交互、Agent、接口、数据、测试和流程变更必须同步文档；并更新产品需求、产品规划、Agent 设计和 MVP 测试用例。 |
 | 关键技术策略文档 | 已完成本轮更新 | 已继续补充 `docs/technical-design/details/06-key-technical-strategy.md`，固化配置持久化、元数据驱动意图匹配、确定性检索 + 向量语义召回混合方案、澄清收敛、流式输出和真实数据原则。 |
@@ -77,6 +78,16 @@ MVP 核心要求：
 
 ## 最近工程进展
 
+
+### 右侧处理流程点击恢复
+
+- 状态：已完成本轮修复并通过验证，待用户浏览器侧确认。
+- 用户反馈：点击 CPClaw 系统输出后，右侧“后端处理流程”仍显示“还没有可查看的流程”。
+- 根因判断：新发送消息时右侧流程只保存在前端内存中；刷新页面或打开历史会话后只恢复消息列表，没有从助手消息找到对应 Agent Run，也没有按需查询审计记录，所以点击历史 CPClaw 回复不会更新右侧面板。
+- 已处理：后端在每条助手消息 `metadataJson` 中写入 `agentRunId`；运行态查询回复继续保留 `source=runtime-query`、`entityName`、真实 `schemaCode`、total、returned 和 sourceEndpoint，不破坏多轮对象继承。
+- 已处理：前端点击 CPClaw 回复时先查内存 trace；没有内存 trace 时解析消息 metadata 并调用 `/api/audit/agent-runs/{id}`，用 `planJson`、`reflectionJson` 和工具调用记录恢复 Observe、Think、Act、Reflect；旧消息只有运行态 metadata 时展示有限摘要，完全没有可恢复 metadata 时给出中文提示。
+- 已同步：更新 Agent 设计文档、MVP 测试用例和 SubAgent 协作看板，新增“点击历史回复恢复右侧处理流程”验收口径。
+- 已验证：`web/` 下 `npm run build` 通过；`server/` 下使用 Maven 3.9.11 执行 `mvn test` 通过，结果为 Tests run: 6, Failures: 0, Errors: 0, Skipped: 0；后端测试新增断言覆盖助手消息 metadata 持久化 `agentRunId`。
 ### 团队测试轮
 
 - 状态：已完成本轮
@@ -319,6 +330,8 @@ MVP 核心要求：
 - 2026-06-29：QA 继续发现并修复口语化阶段追问误走明细列表的问题：将“处于/什么阶段/什么状态”纳入阶段分布识别，并把自动化用例从“分别在什么阶段？”调整为更贴近用户截图的“都处于什么阶段？”；重新执行 `server/` 下 `mvn test` 通过，结果为 Tests run: 6, Failures: 0, Errors: 0, Skipped: 0。
 - 2026-06-29：完成真实云枢回归验证：同一会话先问“系统有多少商机？”返回 total=237，再追问“都处于什么阶段？”时 `Observe` 继承 `int_bu_oppor 商机`，第二轮返回“按阶段分布”：未签约 135、暂停 13、已签约 65、停止 20、丢单 4；助手正文长度约 215，不再返回 237 条明细列表，也不再触发数据库长文本错误。
 - 2026-06-29：根据用户截图反馈“第二个问题输入很长时间没有响应，也没有思考输出”，完成前端等待态修复：接口复现显示“商机在什么阶段？”真实云枢查询最终成功但耗时约 69 秒；`ChatView` 已在发送后立即插入不落库的 CPClaw 处理中占位回复，并在右侧处理流程显示临时 Observe、Think、Act、Reflect，后端返回后替换为真实回答和真实步骤；`web/` 下 `npm run build` 通过。
+
+- 2026-06-30：根据用户反馈“点击系统输出，没有在右侧展示思考过程”，修复右侧处理流程恢复链路：助手消息 metadata 持久化 `agentRunId`，历史会话点击 CPClaw 回复会懒加载 `/api/audit/agent-runs/{id}` 并重建 Observe、Think、Act、Reflect；旧运行态 metadata 可展示有限摘要；`web/` 下 `npm run build` 通过，`server/` 下 `mvn test` 通过，结果为 Tests run: 6, Failures: 0, Errors: 0, Skipped: 0。
 
 ## 当前阻塞与风险
 
