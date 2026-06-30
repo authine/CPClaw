@@ -16,7 +16,7 @@
 
 本轮针对用户反馈“第二轮对话不应这么慢”完成客户省份追问快路径优化：当同一会话中上一轮已查询到真实运行态对象，例如 `客户 / crm_customer`，用户再追问“这些客户都属于哪些省份？”时，`Observe` 会继承上一轮真实 `schemaCode`，`Think` 阶段跳过重复元数据召回，直接进入省份/区域维度分析；运行态服务新增省份、地区、区域、城市、地址等字段识别和聚合分支，明确统计类追问不再走大模型长分析；云枢批量查询在非全量详情模式下不再默认每页补详情，减少大批量列表查询的多余网络请求。测试专家已补充自动化用例覆盖“系统有多少个客户？ -> 这些客户都属于哪些省份？”同会话追问，验证继承对象为是、命中 `crm_customer`、输出按省份分布且不跳到 `system_customer` 或 `Test009`；`server/` 下定向 `CpClawApiTests` 与完整 `mvn test` 均通过，完整结果为 Tests run: 8, Failures: 0, Errors: 0, Skipped: 0。真实服务复测显示：第一轮客户计数约 1.9 秒，第二轮省份追问约 0.66 秒，`Act` 命中 `schemaCode=crm_customer` 且 `returned=200`，由于当前云枢客户列表样本未返回可识别省份/区域字段，系统快速返回缺字段说明，不再全量翻页等待。
 
-本轮根据用户要求“重新初始化云枢数据模型”，完成实体模型、数据项和关联表单关系同步链路修复并在真实云枢环境初始化成功。关键修复包括：连接器优先调用真实云枢设计态数据项接口 `/api/app/bizproperty/list`，兼容分页/搜索式数据项接口和运行态 `get_biz_schema`；云枢元数据原始配置 `raw_json` 扩展为 `LONGTEXT`，避免真实数据项配置超过 MySQL `TEXT` 上限；关联关系识别删除“全文扫描实体编码”的宽松兜底，只允许从明确目标模型配置的关联表单/关联引用数据项生成关系。最终 `/api/metadata/sync` 返回 `appCount=29`、`entityCount=940`、`dataItemCount=16868`、`relationCount=936`、`searchDocumentCount=18773`；数据库复核显示 `metadata_search_documents` 分布为 `app=29`、`entity=940`、`data_item=16868`、`relation=936`，关系样例可通过 `source_data_item_id` 回查来源数据项并指向真实目标实体。验证已执行 `server/` 下 `-Dtest=CpClawApiTests,MessageStorageTests test`，结果为 Tests run: 5, Failures: 0, Errors: 0, Skipped: 0；新版后端已重新打包并启动于 `http://127.0.0.1:8080/`。
+本轮根据用户要求“重新初始化云枢数据模型”，完成实体模型、数据项和关联表单关系同步链路修复，并已在真实云枢环境连续完成初始化验证。关键修复包括：连接器优先调用真实云枢设计态数据项接口 `/api/app/bizproperty/list`，兼容分页/搜索式数据项接口和运行态 `get_biz_schema`；云枢元数据原始配置 `raw_json` 扩展为 `LONGTEXT`，避免真实数据项配置超过 MySQL `TEXT` 上限；关联关系识别删除“全文扫描实体编码”的宽松兜底，只允许从明确目标模型配置的关联表单/关联引用数据项生成关系。最新一次按用户要求重新触发 `/api/metadata/sync` 成功，返回 `syncId=588cb907-997a-4b33-bb8b-d18674743956`、`appCount=29`、`entityCount=940`、`dataItemCount=16868`、`relationCount=936`、`searchDocumentCount=18773`；搜索文档分布包含 `app=29`、`entity=940`、`data_item=16868`、`relation=936`，关系样例可通过 `source_data_item_id` 回查来源数据项并指向真实目标实体。验证已执行 `server/` 下 `-Dtest=CpClawApiTests,MessageStorageTests test`，结果为 Tests run: 5, Failures: 0, Errors: 0, Skipped: 0；当前后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200，前端 `http://127.0.0.1:5173/` 返回 200。
 
 ## 当前快照
 
@@ -25,7 +25,7 @@
 - 远程仓库：`origin` -> `ssh://git@github.com/authine/CPClaw.git`
 - 当前阶段：MVP 稳定化、真实云枢元数据模型同步增强与联调回归
 - 当前主目标：交付一个可用的云枢超级智能体对话式工作台，覆盖设置、元数据初始化、历史会话、附件、确认和审计入口。
-- Git 状态：本轮已完成真实云枢数据模型重新初始化和同步链路修复：真实库中已有 `cloudpivot_data_items=16868`、`cloudpivot_entity_relations=936`，搜索文档包含 `data_item=16868` 和 `relation=936`；后端定向测试通过，结果为 Tests run: 5, Failures: 0, Errors: 0, Skipped: 0。当前仍有多处前序任务本地未提交改动，提交时需继续避免混入无关文件；本次至少需要更新并推送 `PROGRESS.md`。
+- Git 状态：本轮已完成真实云枢数据模型重新初始化和同步链路修复；最新一次 `/api/metadata/sync` 返回 `appCount=29`、`entityCount=940`、`dataItemCount=16868`、`relationCount=936`、`searchDocumentCount=18773`，说明真实库中已有云枢数据项和关联表单关系，搜索文档包含 `data_item=16868` 和 `relation=936`；后端定向测试通过，结果为 Tests run: 5, Failures: 0, Errors: 0, Skipped: 0。当前仍有多处前序任务本地未提交改动，提交时需继续避免混入无关文件；本次只更新并推送 `PROGRESS.md`。
 
 ## 原始需求基线
 
@@ -56,7 +56,7 @@ MVP 核心要求：
 | 对话主界面 | 本地已实现，待提交 | 已补历史会话、新建会话、模型选择、思考模式、附件入口和确认入口；普通对话默认只展示业务结果。 |
 | 设置页 | 本地已实现，保存链路已通过临时后端联调 | 已补普通用户云枢账号、管理员元数据环境、模型配置和连接测试入口；后端未启动时保存会提示后端服务不可用；后端启动后设置保存经 `5173` 前端代理返回 200。 |
 | 元数据页 | 本地已实现，待提交 | 已恢复路由入口，并补同步、搜索、加载、错误和结果摘要。 |
-| 云枢实体模型/数据项/关联关系同步 | 已完成本轮真实初始化 | 已从真实云枢同步 29 个应用、940 个实体模型、16868 个数据项和 936 条关联表单关系；`metadata_search_documents` 已生成 `data_item=16868`、`relation=936`，不再只有应用和实体两层。 |
+| 云枢实体模型/数据项/关联关系同步 | 已完成本轮真实初始化 | 已从真实云枢同步 29 个应用、940 个实体模型、16868 个数据项和 936 条关联表单关系；最新一次同步 `syncId=588cb907-997a-4b33-bb8b-d18674743956`；`metadata_search_documents` 已生成 `data_item=16868`、`relation=936`，不再只有应用和实体两层。 |
 | 审计页 | 本地已实现，待提交 | 已恢复路由入口，并补 Agent Run 查询、空态、未找到态、加载态和脱敏工具调用表格。 |
 | 前端构建 | 已通过 | `npm run build` 已通过。 |
 | 前端路由检查 | 已通过 | `/`、`/settings`、`/metadata`、`/audit` 均返回 200。 |
@@ -97,7 +97,7 @@ MVP 核心要求：
 
 ### 云枢实体模型、数据项与关联表单关系同步增强
 
-- 状态：已完成本轮代码实现、文档同步和自动化验证，待用户在真实云枢环境重新执行元数据初始化并核对实际数量。
+- 状态：已完成本轮代码实现、文档同步、自动化验证和真实云枢重新初始化；当前真实同步结果为 29 个应用、940 个实体模型、16868 个数据项和 936 条关联表单关系。
 - 产品口径：不再把云枢模型下的信息泛化为“字段拆分”。CPClaw 当前同步的核心对象明确为云枢实体模型、云枢数据项，以及由“关联表单”数据项推导出的实体关联关系。
 - 后端实现：`CloudPivotMetadataSnapshot` 已扩展 `dataItems` 与 `relations`；云枢连接器会在实体模型同步后探测业务模型详情接口，从 `dataItems`、`properties`、`fields`、`bizProperties`、`schemaProperties`、`items`、`columns` 等结构抽取数据项。
 - 持久化实现：新增 `cloudpivot_data_items` 作为新的数据项表；历史 `cloudpivot_entity_fields` 仅作为兼容表保留。新增 Flyway `V3__cloudpivot_data_items_and_relations.sql`，用于创建数据项表、迁移历史数据，并在 `cloudpivot_entity_relations` 中补充 `source_data_item_id`。
@@ -105,7 +105,7 @@ MVP 核心要求：
 - 检索增强：`metadata_search_documents` 新增 `data_item` 和 `relation` 类型文档；当用户输入精确数据项编码，例如 `customerType`、`opportunityCustomer` 时，编码精确命中的数据项优先于泛化业务词命中。
 - 文档同步：新增并更新 `docs/technical-design/details/07-cloudpivot-metadata-sync.md` 与 `docs/technical-design/details/04-data-model.md`，明确实体模型、数据项、关联表单关系、同步响应计数和验收标准。
 - QA 验证：定向执行 `CpClawApiTests,MessageStorageTests` 通过，结果为 Tests run: 4, Failures: 0, Errors: 0, Skipped: 0；完整执行 `server/` 下 `mvn test` 通过，结果为 Tests run: 9, Failures: 0, Errors: 0, Skipped: 0；`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 既有第三方 PURE 注释和 chunk 体积提示。
-- 后续验证：真实云枢环境需要重新点击元数据初始化，重点核对 `dataItemCount`、`relationCount` 是否大于 0，并抽查商机、客户等实体的数据项和关联关系是否来自真实云枢配置。
+- 最新验证：已按用户要求重新触发 `/api/metadata/sync`，返回 `appCount=29`、`entityCount=940`、`dataItemCount=16868`、`relationCount=936`、`searchDocumentCount=18773`；当前可继续抽查商机、客户等实体的数据项和关联关系是否来自真实云枢配置。
 
 ### 连续多轮追问性能稳定化
 
