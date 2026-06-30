@@ -71,4 +71,15 @@ class MessageStorageTests {
         assertTrue(migration.contains("source_data_item_id VARCHAR(36) NULL"));
         assertTrue(migration.contains("SET source_data_item_id = source_field_id"));
     }
+
+    @Test
+    void migrationExpandsCloudPivotMetadataRawJsonColumnsToLongText() throws Exception {
+        String migration = new ClassPathResource("db/migration/V4__expand_cloudpivot_metadata_raw_json.sql")
+            .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(migration.contains("ALTER TABLE cloudpivot_apps MODIFY COLUMN raw_json LONGTEXT;"));
+        assertTrue(migration.contains("ALTER TABLE cloudpivot_entities MODIFY COLUMN raw_json LONGTEXT;"));
+        assertTrue(migration.contains("ALTER TABLE cloudpivot_data_items MODIFY COLUMN raw_json LONGTEXT;"));
+        assertTrue(migration.contains("ALTER TABLE cloudpivot_entity_relations MODIFY COLUMN raw_json LONGTEXT;"));
+    }
 }

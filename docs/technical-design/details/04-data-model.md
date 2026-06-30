@@ -202,6 +202,8 @@
 
 说明：历史版本曾使用 `cloudpivot_entity_fields` 和 `field_code` 命名保存同类信息。当前业务语义统一为云枢“数据项”，新同步链路写入 `cloudpivot_data_items`。
 
+存储约束：云枢设计态返回的数据项、实体和关联配置可能包含较长的控件配置、选项集、关联表单映射和子表结构。`cloudpivot_apps.raw_json`、`cloudpivot_entities.raw_json`、`cloudpivot_data_items.raw_json`、`cloudpivot_entity_relations.raw_json` 均使用 MySQL `LONGTEXT`，避免真实元数据初始化时因 `TEXT` 64KB 上限导致 `Data too long for column 'raw_json'`。
+
 ### 5.4 cloudpivot_entity_relations
 
 通过关联表单数据项建立实体间关系。
@@ -217,6 +219,8 @@
 - `relation_name`
 - `raw_json`
 - `synced_at`
+
+关系生成约束：`source_data_item_id` 必须能回查到真实云枢数据项；目标实体必须来自已同步的真实实体模型；只能从明确配置了目标模型的关联表单/关联引用数据项生成关系，不能通过原始 JSON 全文碰撞实体编码来推断关系。
 
 ### 5.5 cloudpivot_forms
 

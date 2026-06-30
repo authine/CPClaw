@@ -43,6 +43,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     private static final int MAX_RUNTIME_PAGE_SIZE = 200;
     private static final int MAX_RUNTIME_DETAIL_ENRICH_RECORDS = 500;
     private static final int DETAIL_ENRICH_PARALLELISM = 16;
+    private static final int DATA_ITEM_PROBE_PARALLELISM = 8;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
@@ -209,55 +210,72 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         entities.values().forEach(entity -> entityCodes.add(entity.code()));
         Set<String> dataItemKeys = new LinkedHashSet<>();
         Set<String> relationKeys = new LinkedHashSet<>();
-        for (CloudPivotMetadataSnapshot.EntityMetadata entity : entities.values()) {
-            List<JsonNode> itemNodes = fetchDataItemNodes(host, session, entity.appCode(), entity.code());
-            for (JsonNode itemNode : itemNodes) {
-                addDataItem(entity, itemNode, entityCodes, dataItems, relations, dataItemKeys, relationKeys);
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(DATA_ITEM_PROBE_PARALLELISM, Math.max(1, entities.size())));
+        try {
+            List<CompletableFuture<EntityDataItemNodes>> futures = entities.values().stream()
+                .map(entity -> CompletableFuture.supplyAsync(
+                    () -> new EntityDataItemNodes(entity, fetchDataItemNodes(host, session, entity.appCode(), entity.code())),
+                    executor
+                ))
+                .toList();
+            for (CompletableFuture<EntityDataItemNodes> future : futures) {
+                EntityDataItemNodes result = future.join();
+                for (JsonNode itemNode : result.nodes()) {
+                    addDataItem(result.entity(), itemNode, entityCodes, dataItems, relations, dataItemKeys, relationKeys);
+                }
             }
+        } finally {
+            executor.shutdownNow();
         }
+    }
+
+    private record EntityDataItemNodes(CloudPivotMetadataSnapshot.EntityMetadata entity, List<JsonNode> nodes) {
     }
 
     private List<JsonNode> fetchDataItemNodes(String host, AuthSession session, String appCode, String entityCode) {
         List<Endpoint> endpoints = new ArrayList<>();
+        endpoints.add(new Endpoint("GET", "/api/app/bizproperty/list", Map.of("schemaCode", entityCode, "isPublish", "true")));
+        endpoints.add(new Endpoint("GET", "/api/app/bizproperty/list", Map.of("schemaCode", entityCode)));
+        endpoints.add(new Endpoint("GET", "/api/app/bizproperty/list_page", Map.of("schemaCode", entityCode, "page", "0", "size", "500", "isPublish", "true")));
+        endpoints.add(new Endpoint("GET", "/api/app/bizproperty/list_find", Map.of("schemaCode", entityCode, "page", "0", "size", "500", "isPublish", "true", "wd", "")));
+        endpoints.add(new Endpoint("GET", "/api/runtime/form/get_biz_schema", Map.of("schemaCode", entityCode)));
         for (String path : List.of(
             "/api/app/bizmodels/get",
-            "/api/app/bizmodels/get_by_code",
-            "/api/app/bizmodels/get_detail",
-            "/api/runtime/app/get_bizmodel",
-            "/api/app/bizmodels/load"
+            "/api/runtime/app/get_bizmodel"
         )) {
             endpoints.add(new Endpoint("GET", path, Map.of("schemaCode", entityCode, "appCode", appCode)));
-            endpoints.add(new Endpoint("GET", path, Map.of("bizModelCode", entityCode, "appCode", appCode)));
-            endpoints.add(new Endpoint("GET", path, Map.of("modelCode", entityCode, "appCode", appCode)));
             endpoints.add(new Endpoint("GET", path, Map.of("code", entityCode, "appCode", appCode)));
             endpoints.add(new Endpoint("GET", path, Map.of("schemaCode", entityCode)));
-            endpoints.add(new Endpoint("GET", path, Map.of("bizModelCode", entityCode)));
-            endpoints.add(new Endpoint("GET", path, Map.of("modelCode", entityCode)));
             endpoints.add(new Endpoint("GET", path, Map.of("code", entityCode)));
         }
         for (Endpoint endpoint : endpoints) {
             try {
                 JsonNode body = requestJson(host, endpoint, session);
                 List<JsonNode> items = extractDataItemNodes(body);
-                log.info("CloudPivot data item endpoint {} returned {} item(s), schemaCode={}, shape={}", endpoint.path(), items.size(), entityCode, describeShape(body, 0));
                 if (!items.isEmpty()) {
+                    log.info("CloudPivot data item endpoint {} returned {} item(s), schemaCode={}, shape={}", endpoint.path(), items.size(), entityCode, describeShape(body, 0));
                     return items;
                 }
             } catch (RuntimeException exception) {
-                log.info("CloudPivot data item endpoint {} failed(schemaCode={}): {}", endpoint.path(), entityCode, exception.getMessage());
+                log.debug("CloudPivot data item endpoint {} failed(schemaCode={}): {}", endpoint.path(), entityCode, exception.getMessage());
             }
         }
         return List.of();
     }
 
     private List<JsonNode> extractDataItemNodes(JsonNode body) {
-        JsonNode source = body != null && body.has("data") && body.get("data").isObject() ? body.get("data") : body;
+        JsonNode source = body != null && body.has("data") ? parseJsonStringNode(body.get("data")).orElse(body.get("data")) : body;
         return extractDataItemNodes(source, 0);
     }
 
     private List<JsonNode> extractDataItemNodes(JsonNode node, int depth) {
         if (node == null || node.isNull() || depth > 5) {
             return List.of();
+        }
+        if (node.isTextual()) {
+            return parseJsonStringNode(node)
+                .map(parsed -> extractDataItemNodes(parsed, depth + 1))
+                .orElse(List.of());
         }
         if (node.isArray()) {
             List<JsonNode> result = new ArrayList<>();
@@ -273,7 +291,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         if (!node.isObject()) {
             return List.of();
         }
-        for (String key : List.of("dataItems", "properties", "fields", "bizProperties", "schemaProperties", "items", "columns")) {
+        if (isDataItemNode(node)) {
+            return List.of(node);
+        }
+        for (String key : List.of("dataItems", "properties", "fields", "bizProperties", "schemaProperties", "items", "columns", "content", "records", "rows", "list", "result")) {
             if (node.has(key)) {
                 List<JsonNode> items = extractDataItemNodes(node.get(key), depth + 1);
                 if (!items.isEmpty()) {
@@ -282,6 +303,21 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             }
         }
         return List.of();
+    }
+
+    private Optional<JsonNode> parseJsonStringNode(JsonNode node) {
+        if (node == null || !node.isTextual()) {
+            return Optional.empty();
+        }
+        String text = node.asText().trim();
+        if (!(text.startsWith("{") || text.startsWith("["))) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readTree(text));
+        } catch (IOException exception) {
+            return Optional.empty();
+        }
     }
 
     private boolean isDataItemNode(JsonNode node) {
@@ -353,8 +389,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         if (normalized.isPresent()) {
             return normalized;
         }
-        for (String key : List.of("options", "option", "setting", "settings", "config", "control", "component", "relevance", "reference", "target")) {
-            Optional<JsonNode> child = firstObject(node, key);
+        for (String key : List.of("options", "option", "setting", "settings", "config", "control", "component", "relevance", "reference", "target", "originalOptions")) {
+            Optional<JsonNode> child = firstConfigNode(node, key);
             if (child.isPresent()) {
                 Optional<String> childValue = referenceEntityCode(child.get(), entityCodes, sourceEntityCode);
                 if (childValue.isPresent()) {
@@ -362,13 +398,18 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 }
             }
         }
-        String raw = textValue(node);
-        for (String entityCode : entityCodes) {
-            if (hasText(entityCode) && !entityCode.equals(sourceEntityCode) && raw.contains(entityCode)) {
-                return Optional.of(entityCode);
-            }
-        }
         return Optional.empty();
+    }
+
+    private Optional<JsonNode> firstConfigNode(JsonNode node, String key) {
+        if (node == null || !node.has(key) || node.get(key).isNull()) {
+            return Optional.empty();
+        }
+        JsonNode child = node.get(key);
+        if (child.isObject() || child.isArray()) {
+            return Optional.of(child);
+        }
+        return parseJsonStringNode(child);
     }
 
     private boolean isReferenceDataItem(JsonNode itemNode, String dataType) {
@@ -376,10 +417,14 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return value.contains("关联表单")
             || value.contains("relevance_form")
             || value.contains("relevanceform")
+            || value.contains("relevance_form_ex")
+            || value.contains("relevanceformex")
             || value.contains("relevance")
+            || value.contains("related")
             || value.contains("association")
             || value.contains("bizobject")
             || value.contains("biz_object")
+            || value.contains("bizproperty")
             || value.contains("reference")
             || value.contains("object");
     }
@@ -939,7 +984,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private String responseStatus(JsonNode node) {
         Optional<String> code = firstText(node, "errcode", "code", "status");
-        Optional<String> message = firstText(node, "data", "errmsg", "message", "msg");
+        Optional<String> message = firstText(node, "errmsg", "message", "msg");
         return code.orElse("ok") + ":" + message.orElse("");
     }
 

@@ -16,7 +16,7 @@ public class CloudPivotEntityRelation {
     @Column(name = "target_entity_id", nullable = false) private String targetEntityId;
     @Column(name = "relation_type") private String relationType;
     @Column(name = "relation_name") private String relationName;
-    @Column(name = "raw_json", columnDefinition = "TEXT") private String rawJson;
+    @Column(name = "raw_json", columnDefinition = "LONGTEXT") private String rawJson;
     @Column(name = "synced_at") private Instant syncedAt;
 
     public String getId() { return id; }

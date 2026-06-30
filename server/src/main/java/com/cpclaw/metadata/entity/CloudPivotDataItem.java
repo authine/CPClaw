@@ -18,7 +18,7 @@ public class CloudPivotDataItem {
     @Column(name = "is_reference", nullable = false) private boolean reference;
     @Column(name = "reference_entity_id") private String referenceEntityId;
     @Column(columnDefinition = "TEXT") private String description;
-    @Column(name = "raw_json", columnDefinition = "TEXT") private String rawJson;
+    @Column(name = "raw_json", columnDefinition = "LONGTEXT") private String rawJson;
     @Column(name = "synced_at") private Instant syncedAt;
 
     public String getId() { return id; }

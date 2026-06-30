@@ -13,7 +13,7 @@ public class CloudPivotApp {
     @Column(name = "app_code", nullable = false) private String appCode;
     @Column(nullable = false) private String name;
     @Column(columnDefinition = "TEXT") private String description;
-    @Column(name = "raw_json", columnDefinition = "TEXT") private String rawJson;
+    @Column(name = "raw_json", columnDefinition = "LONGTEXT") private String rawJson;
     @Column(name = "sync_batch_id") private String syncBatchId;
     @Column(name = "synced_at") private Instant syncedAt;
     public String getId() { return id; }

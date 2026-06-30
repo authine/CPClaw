@@ -12,15 +12,15 @@
 
 ## 3. 采集策略
 
-实体模型同步成功后，连接器会逐个实体探测业务模型详情接口，当前优先尝试以下路径：
+实体模型同步成功后，连接器会逐个实体探测数据项接口。当前真实云枢环境已经确认，数据项主要来自设计态 `bizproperty` 接口，因此同步优先级调整为：
 
-- `/api/app/bizmodels/get`
-- `/api/app/bizmodels/get_by_code`
-- `/api/app/bizmodels/get_detail`
-- `/api/runtime/app/get_bizmodel`
-- `/api/app/bizmodels/load`
+- `/api/app/bizproperty/list`，参数优先使用 `schemaCode`，可附带 `isPublish=true`。
+- `/api/app/bizproperty/list_page`，用于兼容分页返回结构，解析 `data.content`、`records`、`rows` 等数组。
+- `/api/app/bizproperty/list_find`，用于兼容搜索式数据项接口。
+- `/api/runtime/form/get_biz_schema`，用于兼容运行态表单模型结构。
+- `/api/app/bizmodels/get` 与 `/api/runtime/app/get_bizmodel`，作为旧版模型详情兜底。
 
-参数会按 `schemaCode`、`bizModelCode`、`modelCode`、`code` 以及可选 `appCode` 组合尝试。单个实体的数据项详情接口失败时只记录日志并继续同步其他实体，不能让一个模型详情失败污染整个元数据批次。
+同步器会并发探测实体数据项，单个实体的数据项接口失败时只记录调试日志并继续同步其他实体，不能让一个模型详情失败污染整个元数据批次。真实接口响应中的 `data` 若是 JSON 字符串，也需要继续解析。
 
 ## 4. 数据项识别
 
@@ -49,7 +49,7 @@
 - `fieldType`
 - `controlType`
 
-原始 JSON 需要写入 `raw_json`，方便后续根据真实云枢接口结构继续扩展数据项、表单、视图、Action 和流程能力。
+原始 JSON 需要写入 `raw_json`，方便后续根据真实云枢接口结构继续扩展数据项、表单、视图、Action 和流程能力。真实云枢数据项配置可能超过 MySQL `TEXT` 64KB 上限，因此云枢应用、实体、数据项和关系表中的 `raw_json` 必须使用 `LONGTEXT`。
 
 ## 5. 关联关系识别
 
@@ -57,8 +57,10 @@
 
 - 类型或配置中包含 `关联表单`、`relevance_form`、`relevance`、`association`、`bizObject`、`reference` 等语义。
 - 数据项配置中包含 `refSchemaCode`、`referenceSchemaCode`、`relativeCode`、`targetSchemaCode`、`targetBizModelCode`、`targetModelCode`、`associationSchemaCode` 等目标模型编码。
+- `options`、`settings`、`config`、`relevance`、`reference`、`target`、`originalOptions` 等配置节点如果是 JSON 字符串，需要先解析后再查找明确目标模型编码。
 - 目标模型编码必须能解析到当前已同步的真实实体模型；无法解析时只保存数据项，不生成关系。
 - 解析时需要避免把当前实体自己的 `schemaCode` 误判为目标实体。
+- 不允许通过全文扫描原始 JSON 中是否碰巧包含某个实体编码来生成关系；否则普通文本、数值、人员、部门、下拉等数据项会被误判为关联表单关系。
 
 ## 6. 搜索索引
 
@@ -94,3 +96,18 @@
 5. 实体模型仍是运行态查询的主执行对象，不允许数据项或关系替代真实 `schemaCode`。
 6. 关联关系表中的 `source_data_item_id` 能回查到来源关联表单数据项。
 7. 后端完整测试和前端构建通过。
+
+## 9. 当前真实初始化结果
+
+2026-06-30 在真实云枢环境重新初始化后，接口返回并经数据库抽样确认：
+
+- 应用：`appCount=29`
+- 实体模型：`entityCount=940`
+- 数据项：`dataItemCount=16868`
+- 关联表单关系：`relationCount=936`
+- 搜索文档：`searchDocumentCount=18773`，其中 `app=29`、`entity=940`、`data_item=16868`、`relation=936`
+
+本轮曾出现两类问题并已修正：
+
+- 仅探测 `bizmodels/get` 时无法同步真实数据项，已改为优先使用真实云枢 `bizproperty` 数据项接口。
+- 关系识别过宽时会把普通数据项误判为关系，已删除原始 JSON 全文扫实体编码的兜底，只保留明确目标模型配置生成关系。

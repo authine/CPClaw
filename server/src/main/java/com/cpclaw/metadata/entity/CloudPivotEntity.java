@@ -14,7 +14,7 @@ public class CloudPivotEntity {
     @Column(name = "entity_code", nullable = false) private String entityCode;
     @Column(nullable = false) private String name;
     @Column(name = "entity_type") private String entityType;
-    @Column(name = "raw_json", columnDefinition = "TEXT") private String rawJson;
+    @Column(name = "raw_json", columnDefinition = "LONGTEXT") private String rawJson;
     @Column(name = "synced_at") private Instant syncedAt;
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
