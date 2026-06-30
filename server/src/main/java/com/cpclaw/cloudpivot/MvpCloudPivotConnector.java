@@ -24,6 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.crypto.Cipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +40,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_RUNTIME_ANALYSIS_RECORDS = 20_000;
     private static final int MAX_RUNTIME_PAGE_SIZE = 200;
+    private static final int MAX_RUNTIME_DETAIL_ENRICH_RECORDS = 500;
+    private static final int DETAIL_ENRICH_PARALLELISM = 16;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
@@ -88,6 +93,16 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     @Override
     public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize) {
+        return queryRecords(baseUrl, username, password, schemaCode, pageSize, false);
+    }
+
+    @Override
+    public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails) {
+        return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, MAX_RUNTIME_ANALYSIS_RECORDS);
+    }
+
+    @Override
+    public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords) {
         if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
             throw new IllegalArgumentException("请先在设置中绑定云枢访问地址、账号和密码");
         }
@@ -95,12 +110,12 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             throw new IllegalArgumentException("未匹配到可查询的云枢模型编码");
         }
         if (allowFallbackMetadata && isLocalTestUrl(baseUrl)) {
-            return fallbackRuntimeQueryResult(schemaCode, pageSize);
+            return fallbackRuntimeQueryResult(schemaCode, Math.min(pageSize, Math.max(1, maxRecords)));
         }
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
             .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询业务数据"));
-        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, MAX_RUNTIME_PAGE_SIZE)));
+        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, MAX_RUNTIME_PAGE_SIZE)), enrichAllDetails, Math.max(1, maxRecords));
     }
 
     private CloudPivotMetadataSnapshot fetchRemoteMetadata(String host, AuthSession session) {
@@ -195,27 +210,34 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return List.of();
     }
 
-    private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize) {
+    private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords) {
         RuntimeException lastFailure = null;
         for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
             try {
                 boolean bulkQuery = pageSize >= 50;
-                RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, bulkQuery ? 3 : pageSize);
-                if (pageSize <= 1 || firstPage.records().size() >= firstPage.total()) {
-                    return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), firstPage.records(), endpoint);
+                int recordLimit = Math.max(1, Math.min(maxRecords, MAX_RUNTIME_ANALYSIS_RECORDS));
+                int remainingDetailBudget = enrichAllDetails ? MAX_RUNTIME_DETAIL_ENRICH_RECORDS : Integer.MAX_VALUE;
+                int firstDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
+                RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, firstDetailLimit);
+                remainingDetailBudget = remainingDetailBudget(remainingDetailBudget, firstPage.records().size(), firstDetailLimit);
+                if (pageSize <= 1 || firstPage.records().size() >= firstPage.total() || firstPage.records().size() >= recordLimit) {
+                    List<Map<String, Object>> limitedRecords = firstPage.records().size() > recordLimit ? firstPage.records().subList(0, recordLimit) : firstPage.records();
+                    return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), limitedRecords, endpoint);
                 }
                 List<Map<String, Object>> records = new ArrayList<>(firstPage.records());
                 int page = 1;
-                while (records.size() < firstPage.total() && records.size() < MAX_RUNTIME_ANALYSIS_RECORDS) {
-                    RuntimePage nextPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, page, bulkQuery ? 0 : pageSize);
+                while (records.size() < firstPage.total() && records.size() < recordLimit) {
+                    int pageDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
+                    RuntimePage nextPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, page, pageDetailLimit);
                     if (nextPage.records().isEmpty()) {
                         break;
                     }
                     records.addAll(nextPage.records());
+                    remainingDetailBudget = remainingDetailBudget(remainingDetailBudget, nextPage.records().size(), pageDetailLimit);
                     page++;
                 }
-                if (records.size() > MAX_RUNTIME_ANALYSIS_RECORDS) {
-                    records = records.subList(0, MAX_RUNTIME_ANALYSIS_RECORDS);
+                if (records.size() > recordLimit) {
+                    records = records.subList(0, recordLimit);
                 }
                 return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), records, endpoint);
             } catch (RuntimeException exception) {
@@ -223,6 +245,18 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             }
         }
         throw lastFailure == null ? new IllegalStateException("CloudPivot runtime query failed") : lastFailure;
+    }
+
+    private int remainingDetailBudget(int currentBudget, int returnedRecords, int detailLimit) {
+        if (currentBudget == Integer.MAX_VALUE) {
+            return currentBudget;
+        }
+        return Math.max(0, currentBudget - Math.min(returnedRecords, detailLimit));
+    }
+
+    private int detailEnrichLimit(int pageSize, boolean bulkQuery, boolean enrichAllDetails, int remainingDetailBudget) {
+        int requestedLimit = enrichAllDetails ? pageSize : 0;
+        return Math.max(0, Math.min(requestedLimit, remainingDetailBudget));
     }
 
     private RuntimePage queryRemotePage(String host, AuthSession session, String schemaCode, String endpoint, int pageSize, int page, int detailEnrichLimit) {
@@ -243,11 +277,38 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         long total = firstLong(data, "totalElements", "total", "totalCount", "count").orElseGet(() -> (long) extractRecordItems(data).size());
         List<JsonNode> items = extractRecordItems(data);
         List<Map<String, Object>> records = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            Map<String, Object> record = toMap(items.get(i));
-            records.add(i < detailEnrichLimit ? enrichRecordDetail(host, session, schemaCode, record) : record);
+        for (JsonNode item : items) {
+            records.add(toMap(item));
         }
-        return new RuntimePage(total, records);
+        return new RuntimePage(total, enrichRecordDetails(host, session, schemaCode, records, detailEnrichLimit));
+    }
+
+    private List<Map<String, Object>> enrichRecordDetails(String host, AuthSession session, String schemaCode, List<Map<String, Object>> records, int detailEnrichLimit) {
+        int enrichLimit = Math.min(Math.max(0, detailEnrichLimit), records.size());
+        if (enrichLimit == 0) {
+            return records;
+        }
+        if (enrichLimit == 1) {
+            List<Map<String, Object>> enriched = new ArrayList<>(records);
+            enriched.set(0, enrichRecordDetail(host, session, schemaCode, records.getFirst()));
+            return enriched;
+        }
+
+        List<Map<String, Object>> enriched = new ArrayList<>(records);
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(enrichLimit, DETAIL_ENRICH_PARALLELISM));
+        try {
+            List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
+            for (int i = 0; i < enrichLimit; i++) {
+                Map<String, Object> record = records.get(i);
+                futures.add(CompletableFuture.supplyAsync(() -> enrichRecordDetail(host, session, schemaCode, record), executor));
+            }
+            for (int i = 0; i < futures.size(); i++) {
+                enriched.set(i, futures.get(i).join());
+            }
+            return enriched;
+        } finally {
+            executor.shutdown();
+        }
     }
 
     private Map<String, Object> enrichRecordDetail(String host, AuthSession session, String schemaCode, Map<String, Object> record) {

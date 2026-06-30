@@ -12,6 +12,7 @@ import com.cpclaw.conversation.dto.MessageItem;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.search.MetadataSearchService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -55,7 +56,10 @@ public class AgentOrchestrator {
         auditService.recordToolCall(
             run.getId(),
             "metadata_search",
-            toJson(Map.of("query", content == null ? "" : content)),
+            toJson(Map.of(
+                "query", content == null ? "" : content,
+                "effectiveQuery", observation.effectiveUserGoal()
+            )),
             toJson(Map.of("match", match.name(), "code", match.code(), "objectType", match.objectType()))
         );
 
@@ -71,7 +75,7 @@ public class AgentOrchestrator {
         } else if (isDataReadIntent(intent)) {
             if (canQueryRuntime(match)) {
                 try {
-                    CloudPivotQueryAnswer runtimeAnswer = cloudPivotRuntimeService.query(match, content, modelConfigId, thinkingEnabled);
+                    CloudPivotQueryAnswer runtimeAnswer = cloudPivotRuntimeService.query(match, observation.effectiveUserGoal(), modelConfigId, thinkingEnabled);
                     auditService.recordToolCall(
                         run.getId(),
                         "cloudpivot_runtime_query",
@@ -84,7 +88,7 @@ public class AgentOrchestrator {
                             "conclusionSummary", runtimeAnswer.conclusionSummary()
                         ))
                     );
-                    assistantMessage = withContent(assistantMessage, runtimeAnswer.answer());
+                    assistantMessage = withContent(assistantMessage, runtimeAnswer.answer(), runtimeMetadataJson(runtimeAnswer));
                     planSummary = "analyze_data".equals(intent)
                         ? "已根据真实云枢元数据匹配到“" + runtimeAnswer.entityName() + "”，并调用云枢运行态接口查询数据，再生成业务分析。"
                         : "已根据真实云枢元数据匹配到“" + runtimeAnswer.entityName() + "”，并调用云枢运行态接口查询到真实数据。";
@@ -111,6 +115,7 @@ public class AgentOrchestrator {
         }
         AgentReflection reflection = reflect(thought, plan, actResult);
         auditService.updateReflection(run.getId(), toJson(reflectionAuditMap(reflection)));
+        MessageItem responseAssistantMessage = withAgentRunMetadata(actResult.assistantMessage(), run.getId(), defaultMetadataSource(actResult));
 
         return new AgentResponse(
             run.getId(),
@@ -122,7 +127,7 @@ public class AgentOrchestrator {
             List.of(new CandidateDto(match.name(), match.objectType(), match.reason())),
             reactSteps(observation, thought, actResult, reflection),
             actResult.confirmation() == null ? null : actResult.confirmation().getId(),
-            actResult.assistantMessage()
+            responseAssistantMessage
         );
     }
 
@@ -137,6 +142,10 @@ public class AgentOrchestrator {
 
     private AgentObservation observe(String content, List<MessageItem> conversationContext) {
         List<MessageItem> safeContext = conversationContext == null ? List.of() : conversationContext;
+        RuntimeContextObject runtimeContext = lastRuntimeContext(safeContext);
+        String normalizedGoal = content == null ? "" : content.trim();
+        boolean inheritedRuntimeObject = shouldInheritRuntimeObject(normalizedGoal, runtimeContext);
+        String effectiveGoal = inheritedRuntimeObject ? inheritedEffectiveGoal(runtimeContext, normalizedGoal) : normalizedGoal;
         List<String> recentMessages = safeContext.stream()
             .filter(message -> message.content() != null && !message.content().isBlank())
             .skip(Math.max(0, safeContext.size() - 6))
@@ -145,14 +154,17 @@ public class AgentOrchestrator {
         boolean hasPreviousAssistantResult = safeContext.stream()
             .filter(message -> "assistant".equals(message.role()))
             .anyMatch(message -> message.content() != null && (message.content().contains("前 ") || message.content().contains("总计")));
-        boolean referencesPreviousResult = containsAny(content, List.of("第一条", "第二条", "上一条", "刚才", "这个", "它"));
-        return new AgentObservation(content == null ? "" : content.trim(), recentMessages, hasPreviousAssistantResult, referencesPreviousResult);
+        boolean referencesPreviousResult = containsAny(content, List.of("第一条", "第二条", "上一条", "刚才", "这些", "这个", "它", "它们", "他们", "上述"));
+        return new AgentObservation(normalizedGoal, effectiveGoal, recentMessages, hasPreviousAssistantResult, referencesPreviousResult, runtimeContext, inheritedRuntimeObject);
     }
 
     private AgentThought think(String content, AgentObservation observation) {
-        String detectedIntent = detectIntent(content);
-        MetadataSearchResult match = metadataSearchService.bestMatch(content);
-        IntentSlots slots = extractIntentSlots(content, detectedIntent);
+        String query = observation.effectiveUserGoal();
+        String detectedIntent = detectIntent(query);
+        MetadataSearchResult match = observation.inheritedRuntimeObject()
+            ? inheritedMetadataMatch(observation.runtimeContext())
+            : metadataSearchService.bestMatch(query);
+        IntentSlots slots = extractIntentSlots(query, detectedIntent);
         List<String> missingSlots = missingSlots(detectedIntent, match, observation);
         String intent = missingSlots.isEmpty() ? detectedIntent : "clarify_intent";
         if (needsClarification(intent, match)) {
@@ -216,12 +228,15 @@ public class AgentOrchestrator {
         if (containsAny(value, "删除", "删掉", "移除", "作废", "取消")) {
             return "delete_data";
         }
+        if (isNewOldCustomerComparisonIntent(value)) {
+            return "analyze_data";
+        }
         if (containsAny(value, "新增", "新建", "创建", "录入", "登记", "写入", "修改", "更新", "调整", "变更", "编辑", "保存", "提交", "发起", "分配", "转移", "关闭", "推进")
             || value.contains("写一条跟进")
             || (value.contains("跟进记录") && containsAny(value, "新增", "新建", "创建", "写", "记录一条", "补一条", "提交"))) {
             return "update_data";
         }
-        if (containsAny(value, "分析", "洞察", "诊断", "趋势", "建议", "怎么看", "情况怎么样", "怎么样", "按年", "每年", "年度")) {
+        if (containsAny(value, "分析", "洞察", "诊断", "趋势", "建议", "怎么看", "情况怎么样", "怎么样", "按年", "每年", "年度", "阶段", "状态", "分布", "分别", "省份", "所属省", "哪些省", "哪个省", "地区", "区域", "城市", "地域", "归属地", "所在地", "新客户", "老客户", "新老", "存量客户", "哪个多", "谁多", "更多", "对比", "比较", "占比", "比例", "还是")) {
             return "analyze_data";
         }
         if (containsAny(value, "查询", "查", "查看", "找", "搜索", "检索", "看看", "看一下", "帮我看", "列出", "展示", "打开", "给我看", "有哪些", "有没有", "多少", "几条", "几个", "几项", "几笔", "几份", "几单", "一共", "总共", "共有", "总计", "数量", "统计", "汇总", "明细", "列表", "清单", "情况", "数据", "了解")) {
@@ -232,11 +247,16 @@ public class AgentOrchestrator {
         }
         return "unknown";
     }
-
     private boolean containsBusinessObject(String value) {
         return containsAny(value, "crm", "客户关系", "销售管理", "客户", "联系人", "商机", "机会", "销售机会", "客户机会", "线索", "合同", "订单", "项目", "报价", "回款", "收款", "发票", "待办", "任务", "流程", "审批");
     }
 
+    private boolean isNewOldCustomerComparisonIntent(String value) {
+        boolean mentionsNewOldCustomer = containsAny(value, "新客户", "老客户", "新老客户", "新老", "新增客户", "存量客户")
+            || (value.contains("客户") && value.contains("新") && value.contains("老"));
+        boolean asksComparison = containsAny(value, "多", "哪个", "哪类", "谁", "更多", "占比", "比例", "对比", "比较", "分布", "统计", "数量", "情况", "还是");
+        return mentionsNewOldCustomer && asksComparison;
+    }
     private boolean containsAny(String value, String... keywords) {
         for (String keyword : keywords) {
             if (value.contains(keyword.toLowerCase(Locale.ROOT))) {
@@ -312,6 +332,10 @@ public class AgentOrchestrator {
         if ("clarify_intent".equals(intent)) {
             return "已尝试识别动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "，但无法稳定匹配真实云枢模型，进入澄清。";
         }
+        if (observation.inheritedRuntimeObject()) {
+            return "已继承上一轮运行态对象=" + observation.runtimeContext().entityName() + "、schemaCode=" + observation.runtimeContext().schemaCode()
+                + "；检测到动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "、分析维度=" + slots.dimension() + "，匹配对象“" + match.name() + "”，可进入计划执行。";
+        }
         return "检测到动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "、分析维度=" + slots.dimension() + "，匹配对象“" + match.name() + "”，可进入计划执行。";
     }
 
@@ -334,6 +358,12 @@ public class AgentOrchestrator {
         if (containsAny(content, List.of("阶段", "状态"))) {
             return "阶段/状态";
         }
+        if (containsAny(content, List.of("省份", "所属省", "哪些省", "哪个省", "地区", "区域", "城市", "地域", "归属地", "所在地", "省市"))) {
+            return "省份/区域";
+        }
+        if (containsAny(content, List.of("新客户", "老客户", "新老", "新增客户", "存量客户", "哪个多", "谁多", "更多", "对比", "比较", "占比", "比例", "还是"))) {
+            return "新老客户";
+        }
         if (containsAny(content, List.of("负责人", "销售", "人员"))) {
             return "负责人";
         }
@@ -342,7 +372,6 @@ public class AgentOrchestrator {
         }
         return "无明确维度";
     }
-
     private String filterSummary(String content) {
         if (containsAny(content, List.of("本月", "这个月"))) {
             return "本月";
@@ -378,12 +407,7 @@ public class AgentOrchestrator {
 
     private String runtimeFailureMessage(String content, MetadataSearchResult match, RuntimeException exception) {
         String error = exception.getMessage() == null ? "云枢运行态查询失败" : exception.getMessage();
-        return "### 执行过程\n"
-            + "- 意图理解：识别为数据读取任务，动作/对象为“" + businessSubject(content) + "”。\n"
-            + "- 对象匹配：从真实云枢元数据候选中命中“" + match.name() + "”，schemaCode=`" + match.code() + "`。\n"
-            + "- 数据动作：尝试调用云枢运行态查询，但接口返回失败。\n"
-            + "- 反思检查：未拿到真实运行态数据，因此不生成数量、分析结论或业务建议，避免返回错误结果。\n\n"
-            + "我已经理解你的问题，但这次没有成功查到真实云枢数据，所以不能直接回答结果。请检查普通用户云枢连接、账号权限、运行态接口是否可访问，或重新同步元数据后再试。\n\n"
+        return "我已经理解你的问题，但这次没有成功查到真实云枢数据，所以不能直接回答结果。请检查普通用户云枢连接、账号权限、运行态接口是否可访问，或重新同步元数据后再试。\n\n"
             + "错误摘要：" + shortText(error, 180);
     }
 
@@ -438,9 +462,32 @@ public class AgentOrchestrator {
     }
 
     private MessageItem withContent(MessageItem message, String content) {
-        return new MessageItem(message.id(), message.role(), content, message.createdAt(), message.metadataJson());
+        return withContent(message, content, message.metadataJson());
     }
 
+    private MessageItem withContent(MessageItem message, String content, String metadataJson) {
+        return new MessageItem(message.id(), message.role(), content, message.createdAt(), metadataJson);
+    }
+
+    private MessageItem withAgentRunMetadata(MessageItem message, String agentRunId, String defaultSource) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (message.metadataJson() != null && !message.metadataJson().isBlank()) {
+            try {
+                metadata.putAll(objectMapper.readValue(message.metadataJson(), new TypeReference<>() {}));
+            } catch (JsonProcessingException ignored) {
+                metadata.put("source", defaultSource);
+            }
+        }
+        if (!metadata.containsKey("source") || String.valueOf(metadata.getOrDefault("source", "")).isBlank()) {
+            metadata.put("source", defaultSource);
+        }
+        metadata.put("agentRunId", agentRunId);
+        return withContent(message, message.content(), toJson(metadata));
+    }
+
+    private String defaultMetadataSource(ActResult actResult) {
+        return "runtime_query_completed".equals(actResult.status()) ? "runtime-query" : "runtime-agent";
+    }
     private List<ExecutionStepDto> reactSteps(AgentObservation observation, AgentThought thought, ActResult actResult, AgentReflection reflection) {
         return List.of(
             new ExecutionStepDto("Observe 观察上下文", observeStepSummary(observation)),
@@ -451,7 +498,7 @@ public class AgentOrchestrator {
     }
 
     private String observeStepSummary(AgentObservation observation) {
-        return "用户目标=“" + shortText(observation.normalizedUserGoal(), 40) + "”；最近上下文=" + observation.recentMessages().size() + " 条；引用上一轮=" + yesNo(observation.referencesPreviousResult());
+        return "用户目标=“" + shortText(observation.normalizedUserGoal(), 40) + "”；有效目标=“" + shortText(observation.effectiveUserGoal(), 60) + "”；最近上下文=" + observation.recentMessages().size() + " 条；继承对象=" + yesNo(observation.inheritedRuntimeObject());
     }
 
     private String thinkStepSummary(AgentThought thought) {
@@ -493,9 +540,12 @@ public class AgentOrchestrator {
         value.put("mode", "react-reflection-mvp");
         value.put("observe", Map.of(
             "normalizedUserGoal", observation.normalizedUserGoal(),
+            "effectiveUserGoal", observation.effectiveUserGoal(),
             "recentMessageCount", observation.recentMessages().size(),
             "referencesPreviousResult", observation.referencesPreviousResult(),
-            "hasPreviousAssistantResult", observation.hasPreviousAssistantResult()
+            "hasPreviousAssistantResult", observation.hasPreviousAssistantResult(),
+            "inheritedRuntimeObject", observation.inheritedRuntimeObject(),
+            "runtimeContextSchema", observation.runtimeContext().schemaCode()
         ));
         Map<String, Object> think = new LinkedHashMap<>();
         think.put("detectedIntent", thought.detectedIntent());
@@ -550,7 +600,87 @@ public class AgentOrchestrator {
         }
     }
 
-    private record AgentObservation(String normalizedUserGoal, List<String> recentMessages, boolean hasPreviousAssistantResult, boolean referencesPreviousResult) {
+    private RuntimeContextObject lastRuntimeContext(List<MessageItem> messages) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            MessageItem message = messages.get(i);
+            if (!"assistant".equals(message.role()) || message.metadataJson() == null || message.metadataJson().isBlank()) {
+                continue;
+            }
+            try {
+                Map<String, Object> metadata = objectMapper.readValue(message.metadataJson(), new TypeReference<>() {});
+                if (!"runtime-query".equals(String.valueOf(metadata.getOrDefault("source", "")))) {
+                    continue;
+                }
+                String entityName = String.valueOf(metadata.getOrDefault("entityName", ""));
+                String schemaCode = String.valueOf(metadata.getOrDefault("schemaCode", ""));
+                if (!entityName.isBlank() && !schemaCode.isBlank()) {
+                    return new RuntimeContextObject(entityName, schemaCode);
+                }
+            } catch (JsonProcessingException ignored) {
+                // Ignore malformed legacy metadata and continue scanning older messages.
+            }
+        }
+        return new RuntimeContextObject("", "");
+    }
+
+    private boolean shouldInheritRuntimeObject(String content, RuntimeContextObject context) {
+        if (context == null || context.entityName().isBlank() || content == null || content.isBlank()) {
+            return false;
+        }
+        String value = compact(content);
+        boolean followUpDimensionQuestion = containsAny(value, "这些", "上述", "上面", "刚才", "上一轮", "它", "它们", "他们", "该", "都", "分别", "各", "每个", "阶段", "状态", "分布", "占比", "比例", "来源", "负责人", "金额", "按", "有哪些", "哪些", "多少", "属于", "省份", "所属省", "哪些省", "哪个省", "地区", "区域", "城市", "地域", "归属地", "所在地", "省市", "新客户", "老客户", "新老", "新增客户", "存量客户", "哪个多", "谁多", "更多", "对比", "比较", "多", "还是");
+        if (!followUpDimensionQuestion) {
+            return false;
+        }
+        if (containsBusinessObject(value) && !mentionsSameRuntimeEntity(value, context)) {
+            return false;
+        }
+        return true;
+    }
+    private boolean mentionsSameRuntimeEntity(String compactContent, RuntimeContextObject context) {
+        String entityName = compact(context.entityName());
+        return entityName.isBlank() || compactContent.contains(entityName);
+    }
+
+    private MetadataSearchResult inheritedMetadataMatch(RuntimeContextObject context) {
+        return new MetadataSearchResult(
+            "entity",
+            "",
+            context.entityName(),
+            context.schemaCode(),
+            "",
+            "low",
+            "继承上一轮真实运行态对象，跳过重复元数据召回"
+        );
+    }
+
+    private String inheritedEffectiveGoal(RuntimeContextObject context, String content) {
+        StringBuilder goal = new StringBuilder();
+        if (context.schemaCode() != null && !context.schemaCode().isBlank()) {
+            goal.append(context.schemaCode()).append(' ');
+        }
+        if (context.entityName() != null && !context.entityName().isBlank()) {
+            goal.append(context.entityName()).append(' ');
+        }
+        goal.append(content == null ? "" : content.trim());
+        return goal.toString().trim();
+    }
+
+    private String runtimeMetadataJson(CloudPivotQueryAnswer answer) {
+        return toJson(Map.of(
+            "source", "runtime-query",
+            "entityName", answer.entityName(),
+            "schemaCode", answer.schemaCode(),
+            "total", answer.total(),
+            "returnedRecords", answer.returnedRecords(),
+            "sourceEndpoint", answer.sourceEndpoint()
+        ));
+    }
+
+    private record AgentObservation(String normalizedUserGoal, String effectiveUserGoal, List<String> recentMessages, boolean hasPreviousAssistantResult, boolean referencesPreviousResult, RuntimeContextObject runtimeContext, boolean inheritedRuntimeObject) {
+    }
+
+    private record RuntimeContextObject(String entityName, String schemaCode) {
     }
 
     private record AgentThought(String detectedIntent, String intent, MetadataSearchResult match, IntentSlots slots, List<String> missingSlots, double confidence, String reasoningSummary) {

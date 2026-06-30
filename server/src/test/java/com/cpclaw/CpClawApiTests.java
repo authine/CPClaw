@@ -2,6 +2,9 @@ package com.cpclaw;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -13,6 +16,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
+import com.cpclaw.metadata.entity.MetadataSearchDocument;
+import com.cpclaw.vector.MetadataVectorSearch;
+import com.cpclaw.vector.VectorSearchCandidate;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +27,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -43,6 +52,9 @@ class CpClawApiTests {
 
     @MockBean
     private CloudPivotConnector cloudPivotConnector;
+
+    @Autowired
+    private FakeMetadataVectorSearch fakeMetadataVectorSearch;
 
     @Test
     void mvpApiFlowWorks() throws Exception {
@@ -136,6 +148,23 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data[0].name").value("客户"))
             .andExpect(jsonPath("$.data[0].code").value("crm_customer"));
 
+        fakeMetadataVectorSearch.setEnabled(true);
+        fakeMetadataVectorSearch.setQuery("帮我看看销售进展池子");
+        fakeMetadataVectorSearch.setCode("int_bu_oppor");
+        mockMvc.perform(get("/api/metadata/search").param("query", "帮我看看销售进展池子"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"))
+            .andExpect(jsonPath("$.data[0].reason").value(containsString("向量语义召回")));
+
+        fakeMetadataVectorSearch.setQuery("int_bu_oppor");
+        fakeMetadataVectorSearch.setCode("crm_customer");
+        mockMvc.perform(get("/api/metadata/search").param("query", "int_bu_oppor"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].name").value("商机"))
+            .andExpect(jsonPath("$.data[0].code").value("int_bu_oppor"));
+        fakeMetadataVectorSearch.reset();
+
         MvcResult conversation = mockMvc.perform(post("/api/conversations")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"title\":\"MVP 测试会话\",\"thinkingEnabled\":false}"))
@@ -203,15 +232,117 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.steps[1].title").value("Think 理解意图"))
             .andExpect(jsonPath("$.data.steps[2].title").value("Act 执行动作"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **237** 条")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("### 执行过程"))))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("schemaCode=`int_bu_oppor`"))))
             .andReturn();
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **237** 条"));
-        assertTrue(countOpportunityBody.contains("### 执行过程"));
-        assertTrue(countOpportunityBody.contains("schemaCode=`int_bu_oppor`"));
+        assertFalse(countOpportunityBody.contains("### 执行过程"));
+        assertTrue(countOpportunityBody.contains("schemaCode=int_bu_oppor"));
         assertTrue(countOpportunityBody.contains("北京菲斯曼供热"));
         assertFalse(countOpportunityBody.contains("system_opportunity"));
         assertFalse(countOpportunityBody.contains("local-fallback"));
         assertFalse(countOpportunityBody.contains("演示编码"));
+
+        MvcResult multiTurnConversation = mockMvc.perform(post("/api/conversations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"多轮上下文测试\",\"thinkingEnabled\":false}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        String multiTurnConversationBody = multiTurnConversation.getResponse().getContentAsString();
+        String multiTurnConversationId = multiTurnConversationBody.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"系统有多少商机？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(multiTurnConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **237** 条")))
+            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("agentRunId")));
+
+        mockMvc.perform(get("/api/conversations/" + multiTurnConversationId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("agentRunId")))
+            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("runtime-query")));
+
+        MvcResult stageFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"都处于什么阶段？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(multiTurnConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
+            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
+            .andReturn();
+        String stageFollowUpBody = stageFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(stageFollowUpBody.contains("方案确认"));
+        assertTrue(stageFollowUpBody.contains("需求沟通"));
+        assertTrue(stageFollowUpBody.contains("合同审批"));
+        assertTrue(stageFollowUpBody.contains("schemaCode=int_bu_oppor"));
+        assertFalse(stageFollowUpBody.contains("schemaCode=crm_customer"));
+
+        MvcResult explicitPathConversation = mockMvc.perform(post("/api/conversations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"显式路径上下文测试\",\"thinkingEnabled\":false}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        String explicitPathConversationBody = explicitPathConversation.getResponse().getContentAsString();
+        String explicitPathConversationId = explicitPathConversationBody.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"项目基础数据里的商机有多少？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(explicitPathConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **12** 条")));
+
+        MvcResult explicitPathFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"分别在什么阶段？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(explicitPathConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
+            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("business_opportunity")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
+            .andReturn();
+        String explicitPathFollowUpBody = explicitPathFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(explicitPathFollowUpBody.contains("项目立项"));
+        assertTrue(explicitPathFollowUpBody.contains("资源确认"));
+        assertTrue(explicitPathFollowUpBody.contains("schemaCode=business_opportunity"));
+        assertFalse(explicitPathFollowUpBody.contains("schemaCode=int_bu_oppor"));
 
         MvcResult colloquialOpportunityResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -228,10 +359,12 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andExpect(jsonPath("$.data.candidates[0].type").value("entity"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **237** 条")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("schemaCode=`int_bu_oppor`"))))
             .andReturn();
         String colloquialOpportunityBody = colloquialOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(colloquialOpportunityBody.contains("总计 **237** 条"));
-        assertTrue(colloquialOpportunityBody.contains("schemaCode=`int_bu_oppor`"));
+        assertTrue(colloquialOpportunityBody.contains("schemaCode=int_bu_oppor"));
         assertTrue(colloquialOpportunityBody.contains("北京菲斯曼供热"));
 
         MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
@@ -249,15 +382,89 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **58** 条")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("### 执行过程"))))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("schemaCode=`crm_customer`"))))
             .andReturn();
         String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countCustomerBody.contains("总计 **58** 条"));
-        assertTrue(countCustomerBody.contains("### 执行过程"));
-        assertTrue(countCustomerBody.contains("schemaCode=`crm_customer`"));
+        assertFalse(countCustomerBody.contains("### 执行过程"));
+        assertTrue(countCustomerBody.contains("schemaCode=crm_customer"));
         assertTrue(countCustomerBody.contains("华东制造集团"));
         assertFalse(countCustomerBody.contains("system_customer"));
         assertFalse(countCustomerBody.contains("local-fallback"));
         assertFalse(countCustomerBody.contains("总计 **237** 条"));
+
+        MvcResult customerFollowUpConversation = mockMvc.perform(post("/api/conversations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"客户省份追问测试\",\"thinkingEnabled\":false}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        String customerFollowUpConversationBody = customerFollowUpConversation.getResponse().getContentAsString();
+        String customerFollowUpConversationId = customerFollowUpConversationBody.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"系统有多少个客户？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(customerFollowUpConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("客户"));
+
+        MvcResult provinceFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"这些客户都属于哪些省份？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(customerFollowUpConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
+            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按省份分布")))
+            .andReturn();
+        String provinceFollowUpBody = provinceFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(provinceFollowUpBody.contains("schemaCode=crm_customer"));
+        assertTrue(provinceFollowUpBody.contains("广东省：2 个客户"));
+        assertTrue(provinceFollowUpBody.contains("上海市：1 个客户"));
+        assertFalse(provinceFollowUpBody.contains("schemaCode=system_customer"));
+        assertFalse(provinceFollowUpBody.contains("schemaCode=Test009"));
+
+        MvcResult customerLifecycleFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"新客户多还是老客户多",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(customerFollowUpConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("analyze_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
+            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[1].status").value(containsString("分析维度=新老客户")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("新老客户对比")))
+            .andReturn();
+        String customerLifecycleFollowUpBody = customerLifecycleFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(customerLifecycleFollowUpBody.contains("schemaCode=crm_customer"));
+        assertTrue(customerLifecycleFollowUpBody.contains("新客户：2 个客户"));
+        assertTrue(customerLifecycleFollowUpBody.contains("老客户：2 个客户"));
+        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=system_customer"));
+        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=Test009"));
 
         MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -275,13 +482,14 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
             .andExpect(jsonPath("$.data.steps[0].title").value("Observe 观察上下文"))
             .andExpect(jsonPath("$.data.steps[3].title").value("Reflect 反思检查"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按年客户量分析")))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("原始数据摘要"))))
             .andReturn();
         String yearlyCustomerBody = yearlyCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(yearlyCustomerBody.contains("按年客户量分析"));
         assertTrue(yearlyCustomerBody.contains("2023 年：2 个客户"));
         assertTrue(yearlyCustomerBody.contains("趋势判断"));
-        assertTrue(yearlyCustomerBody.contains("schemaCode=`crm_customer`"));
-        assertTrue(yearlyCustomerBody.contains("原始数据摘要"));
+        assertTrue(yearlyCustomerBody.contains("schemaCode=crm_customer"));
 
         MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -425,8 +633,10 @@ class CpClawApiTests {
                 new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low")
             )
         ));
-        when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt()))
+        when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt(), anyBoolean()))
             .thenAnswer(invocation -> runtimeResult(invocation.getArgument(3), invocation.getArgument(4)));
+        when(cloudPivotConnector.queryRecords(anyString(), anyString(), anyString(), anyString(), anyInt(), anyBoolean(), anyInt()))
+            .thenAnswer(invocation -> runtimeResult(invocation.getArgument(3), Math.min(invocation.getArgument(4), invocation.getArgument(6))));
     }
 
     private CloudPivotRuntimeQueryResult runtimeResult(String schemaCode, int pageSize) {
@@ -440,10 +650,10 @@ class CpClawApiTests {
         }
         if ("crm_customer".equals(schemaCode)) {
             List<Map<String, Object>> records = List.of(
-                Map.of("id", "cus-001", "data", Map.of("name", "华东制造集团", "industry", "制造业", "owner", "销售一部", "createdAt", "2022-03-18")),
-                Map.of("id", "cus-002", "data", Map.of("name", "西南零售连锁", "industry", "零售", "owner", "销售二部", "createdAt", "2023-07-09")),
-                Map.of("id", "cus-003", "data", Map.of("name", "总部存量客户", "industry", "集团总部", "owner", "客户成功部", "createdAt", "2023-11-26")),
-                Map.of("id", "cus-004", "data", Map.of("name", "华南新能源科技", "industry", "新能源", "owner", "销售三部", "createdAt", "2024-05-14"))
+                Map.of("id", "cus-001", "data", Map.of("name", "华东制造集团", "industry", "制造业", "province", "上海市", "customerType", "老客户", "owner", "销售一部", "createdAt", "2022-03-18")),
+                Map.of("id", "cus-002", "data", Map.of("name", "西南零售连锁", "industry", "零售", "province", "广东省", "customerType", "新客户", "owner", "销售二部", "createdAt", "2023-07-09")),
+                Map.of("id", "cus-003", "data", Map.of("name", "总部存量客户", "industry", "集团总部", "province", "北京市", "customerType", "老客户", "owner", "客户成功部", "createdAt", "2023-11-26")),
+                Map.of("id", "cus-004", "data", Map.of("name", "华南新能源科技", "industry", "新能源", "province", "广东省", "customerType", "新客户", "owner", "销售三部", "createdAt", "2024-05-14"))
             );
             return new CloudPivotRuntimeQueryResult(schemaCode, 58, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
         }
@@ -451,7 +661,14 @@ class CpClawApiTests {
             List<Map<String, Object>> records = List.of(Map.of("id", "meta-001", "data", Map.of("name", "业务模型", "type", "元数据")));
             return new CloudPivotRuntimeQueryResult(schemaCode, 1, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
         }
-        if ("business_opportunity".equals(schemaCode) || "Test009".equals(schemaCode)) {
+        if ("business_opportunity".equals(schemaCode)) {
+            List<Map<String, Object>> records = List.of(
+                Map.of("id", "biz-opp-001", "data", Map.of("instanceName", "项目基础数据商机 A", "stage", "项目立项", "amount", 120000, "createdAt", "2024-04-18")),
+                Map.of("id", "biz-opp-002", "data", Map.of("instanceName", "项目基础数据商机 B", "stage", "资源确认", "amount", 90000, "createdAt", "2024-05-03"))
+            );
+            return new CloudPivotRuntimeQueryResult(schemaCode, 12, limit(records, pageSize), "/api/runtime/query/listSkipQueryListV2");
+        }
+        if ("Test009".equals(schemaCode)) {
             throw new AssertionError("Generic business questions should prefer CRM core schema, not secondary schema " + schemaCode);
         }
         return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "/api/runtime/query/listSkipQueryListV2");
@@ -459,5 +676,61 @@ class CpClawApiTests {
 
     private List<Map<String, Object>> limit(List<Map<String, Object>> records, int pageSize) {
         return records.stream().limit(Math.max(1, pageSize)).toList();
+    }
+
+    @TestConfiguration
+    static class VectorSearchTestConfig {
+        @Bean
+        @Primary
+        FakeMetadataVectorSearch fakeMetadataVectorSearch() {
+            return new FakeMetadataVectorSearch();
+        }
+    }
+
+    static class FakeMetadataVectorSearch implements MetadataVectorSearch {
+        private boolean enabled;
+        private String query = "";
+        private String code = "";
+        private List<MetadataSearchDocument> documents = List.of();
+
+        @Override
+        public boolean enabled() {
+            return enabled;
+        }
+
+        @Override
+        public void indexDocuments(List<MetadataSearchDocument> documents) {
+            this.documents = documents == null ? List.of() : documents;
+        }
+
+        @Override
+        public List<VectorSearchCandidate> search(String query) {
+            if (!enabled || query == null || !query.contains(this.query) || code.isBlank()) {
+                return List.of();
+            }
+            return documents.stream()
+                .filter(document -> code.equals(document.getCode()))
+                .findFirst()
+                .map(document -> List.of(new VectorSearchCandidate(document.getId(), 0.93, "fake-test-embedding", "向量语义召回 similarity=0.9300")))
+                .orElse(List.of());
+        }
+
+        void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        void setQuery(String query) {
+            this.query = query;
+        }
+
+        void setCode(String code) {
+            this.code = code;
+        }
+
+        void reset() {
+            this.enabled = false;
+            this.query = "";
+            this.code = "";
+        }
     }
 }
