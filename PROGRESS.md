@@ -489,3 +489,9 @@ MVP 核心要求：
 - 每次验证、阻塞、恢复、交付前都必须更新本文件。
 - 本文件只记录事实进度，不写入密码、Token、Cookie、API Key、私钥或本地敏感配置。
 - 每次更新后单独提交并推送 `PROGRESS.md`，让 GitHub 保持最新状态。
+
+- 2026-07-01：根据用户建议完成“云枢业务对象 API 接口清单元数据化”落地：新增 `cloudpivot_api_endpoints` 表、`CloudPivotApiEndpoint` 实体和仓库，元数据同步时写入接口能力并生成 `api_endpoint` 检索文档；接口清单覆盖集合查询、详情查询、新增/修改、删除、数据项元数据和 Schema 元数据。
+- 2026-07-01：新增 `MetadataExecutionPlanner`，在 Agent Think 阶段把用户意图、候选元数据、实体字段、关联关系和 API 接口能力组合成执行计划；右侧处理流程和审计 JSON 已补充执行计划、字段线索、关联线索和接口线索。
+- 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
+- 2026-07-01：更新关键技术文档 `docs/technical-design/details/06-key-technical-strategy.md`，新增“云枢业务对象 API 接口元数据化”章节，详细记录每个接口的输入、输出、数据能力和风险策略。
+- 2026-07-01：定向执行 `server/` 下 `mvn -Dtest=CpClawApiTests test`，结果通过：Tests run: 1, Failures: 0, Errors: 0, Skipped: 0；覆盖接口元数据检索、真实业务对象查询、多轮上下文、右侧 Think 执行计划和 API 接口线索。
