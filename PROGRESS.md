@@ -495,3 +495,5 @@ MVP 核心要求：
 - 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
 - 2026-07-01：更新关键技术文档 `docs/technical-design/details/06-key-technical-strategy.md`，新增“云枢业务对象 API 接口元数据化”章节，详细记录每个接口的输入、输出、数据能力和风险策略。
 - 2026-07-01：定向执行 `server/` 下 `mvn -Dtest=CpClawApiTests test`，结果通过：Tests run: 1, Failures: 0, Errors: 0, Skipped: 0；覆盖接口元数据检索、真实业务对象查询、多轮上下文、右侧 Think 执行计划和 API 接口线索。
+
+- 2026-07-01：根据用户要求“云枢元数据这里，把云枢实体对象、实体对象中的数据项、以及关联关系、和实体对象的 API 动作，全部展示出来”，完成元数据模型浏览能力。后端新增 `GET /api/metadata/model`，按应用聚合实体对象，并在实体下返回数据项、关联关系和适用于实体的 API 动作，同时返回全局 API 动作清单；前端 `MetadataView.vue` 已改造为元数据模型浏览页面，支持应用筛选、实体搜索、实体详情 Tab（数据项 / 关联关系 / API 动作）和顶部统计。测试专家补充自动化断言覆盖 `/api/metadata/model`，验证返回 4 个应用、商机实体 `int_bu_oppor`、字段 `opportunityCustomer`、关联目标 `crm_customer`、API 动作 `query_collection`。验证结果：`web/` 下 `npm run build` 通过；`server/` 下 `mvn -Dtest=CpClawApiTests test` 通过，结果为 Tests run: 1, Failures: 0, Errors: 0, Skipped: 0。
