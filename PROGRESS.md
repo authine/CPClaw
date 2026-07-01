@@ -6,6 +6,8 @@
 
 **项目尚未全部完成。**
 
+2026-07-01 本轮根据用户反馈“主对话输出区域不要有内部滚动条，应像 DeepSeek 一样由浏览器滚动查看输出”，完成主消息区滚动行为调整。根因确认：此前 `.chat-messages` 设置了 `max-height` 和 `overflow:auto/hidden` 一类内部滚动策略，长对话时会在对话卡片内部出现独立滚动条，导致用户需要在消息区域内滚动查看输出，不符合类 DeepSeek 的整体页面滚动体验。本轮修复：主工作台 `.chat-workbench` 增加 `align-items:start`，避免三栏等高拉伸；`.chat-shell` 改为自然高度并 `overflow:visible`；`.chat-messages` 移除 `max-height`，改为 `overflow:visible`，让消息内容自然撑开页面，由浏览器/页面滚动条负责查看完整输出。保留最小高度 `180px`，避免空会话过窄；右侧“后端处理流程”作为独立侧栏仍保留自身滚动，主对话输出不再使用内部滚动条。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；当前 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。
+
 2026-07-01 本轮根据用户截图反馈“红色区域的框太高，空白区域太高，导致输入框和内容在很下面”，完成聊天消息区高度二次修正。根因确认：上一轮恢复 `grid-template-rows: auto minmax(0, 1fr) auto` 后，虽然修复了顶部工具栏漂移，但消息区重新占满剩余高度，在空会话或少量消息时会形成过高空白，输入区被压到页面下方。本轮将 `chat-shell` 调整为 `grid-template-rows: auto auto auto` 并设置 `align-content: start`，让工具栏、消息区、输入区按内容贴顶部排列；消息区设置 `min-height: 180px`、`max-height: calc(100vh - 380px)`，既保留必要阅读区域，又避免大面积空白；继续保留 `.chat-messages::before { margin-top: auto; }`，使短内容靠近输入区、长内容仍可滚动。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；当前 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。用户刷新前端即可验证红色区域高度明显收敛，输入框不再被压到很下面。
 
 2026-07-01 本轮根据用户截图反馈“界面乱了，标题、模型选择和会话标题被拉散”，完成聊天工作台布局回归修复。根因确认：上一轮为缩短输入框与消息距离，将 `.chat-shell` 改成 `grid-template-rows: auto minmax(180px, max-content) auto`，在 CSS Grid 有剩余高度时，`auto/max-content` 轨道被拉伸，导致顶部工具栏内部元素被拉到页面中部，模型选择和思考开关漂移，消息区/输入区整体失去稳定三段式结构。本轮修复为：`chat-shell` 恢复 `grid-template-rows: auto minmax(0, 1fr) auto`，保证头部固定、消息区占剩余空间、输入区固定；消息区从 grid 改为 flex column，并用 `.chat-messages::before { margin-top: auto; }` 实现短内容贴近输入区、长对话正常从上到下滚动，避免再次使用会撑坏外层布局的 `max-content` 行高。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；当前 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。用户刷新前端即可验证顶部工具栏和消息区恢复稳定。
@@ -49,7 +51,7 @@
 - 远程仓库：`origin` -> `ssh://git@github.com/authine/CPClaw.git`
 - 当前阶段：MVP 稳定化、结构化意图规划增强、真实云枢元数据模型同步增强与联调回归
 - 当前主目标：交付一个可用的云枢超级智能体对话式工作台，覆盖设置、元数据初始化、历史会话、附件、确认和审计入口。
-- Git 状态：本轮已完成聊天消息区高度二次修正，`chat-shell` 改为内容贴顶部的 `auto auto auto + align-content:start`，消息区限制为 `min-height:180px` 与 `max-height:calc(100vh - 380px)`，避免空会话/少消息时中间区域过高、输入框被压到底部。`web/` 下 `npm run build` 通过；当前前端 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。当前仍有多处前序任务本地未提交改动，提交时需继续避免混入无关文件；本次只更新并推送 `PROGRESS.md`。
+- Git 状态：本轮已完成主对话输出区内部滚动条移除，`.chat-shell` 和 `.chat-messages` 改为自然高度与 `overflow:visible`，由浏览器页面滚动查看完整输出，保留右侧流程面板自身滚动。`web/` 下 `npm run build` 通过；当前前端 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。当前仍有多处前序任务本地未提交改动，提交时需继续避免混入无关文件；本次只更新并推送 `PROGRESS.md`。
 
 ## 原始需求基线
 
