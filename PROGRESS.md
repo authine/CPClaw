@@ -510,6 +510,8 @@ MVP 核心要求：
 - 本文件只记录事实进度，不写入密码、Token、Cookie、API Key、私钥或本地敏感配置。
 - 每次更新后单独提交并推送 `PROGRESS.md`，让 GitHub 保持最新状态。
 
+- 2026-07-02：根据专家评审文档 `docs/technical-design/details/07-intent-action-output-chain-review-2026-07-02.md`，优先落地 P0 正确性与安全性修复。后端修复内容包括：`AgentOrchestrator` 调整意图识别顺序，避免“取消的订单/取消项目金额”等状态统计读请求误入删除链路；删除操作增加目标槽位校验，缺少记录 ID 或明确“第几条”时进入澄清，不再在确认单生成前抛异常；`CloudPivotRuntimeService` 扩展记录序号解析，支持阿拉伯数字和中文数字（一到十及常见十位表达），删除路径无法解析序号时不再默认第 1 条；状态过滤修复“未完成”误命中“已完成”的问题；`AuditService.confirm` 增加 pending、过期、重复确认和执行失败状态校验，避免重复确认二次执行云枢写操作。前端修复内容包括：`ChatView.vue` 根据确认接口返回的 `executed/status/message` 分别展示“已执行”“已确认但未自动执行”“失败/过期/重复处理”等状态，不再无条件提示成功。验证结果：`server/` 下 `mvn -Dtest=CpClawApiTests test` 通过，结果为 Tests run: 1, Failures: 0, Errors: 0, Skipped: 0；`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示。P1/P2 中的运行态过滤解耦、owner 聚合上限、金额单位换算、关系字段识别和结构化 Planner 重构尚未纳入本轮，需作为后续任务继续推进。
+
 - 2026-07-01：根据用户建议完成“云枢业务对象 API 接口清单元数据化”落地：新增 `cloudpivot_api_endpoints` 表、`CloudPivotApiEndpoint` 实体和仓库，元数据同步时写入接口能力并生成 `api_endpoint` 检索文档；接口清单覆盖集合查询、详情查询、新增/修改、删除、数据项元数据和 Schema 元数据。
 - 2026-07-01：新增 `MetadataExecutionPlanner`，在 Agent Think 阶段把用户意图、候选元数据、实体字段、关联关系和 API 接口能力组合成执行计划；右侧处理流程和审计 JSON 已补充执行计划、字段线索、关联线索和接口线索。
 - 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
