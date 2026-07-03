@@ -522,6 +522,8 @@ MVP 核心要求：
 
 - 2026-07-03：根据用户截图反馈“点击展开执行详情的时候界面错乱”，修复 `ChatView.vue` 的三栏网格布局。根因是 Codex 风格改造时将默认网格右侧列固定成 48px，导致执行详情展开后仍按折叠宽度渲染，按钮、提示和面板内容互相挤压覆盖。现已将默认展开态右侧列恢复为 `minmax(320px, 360px)`，仅在 `.chat-workbench--trace-collapsed` 状态下使用 48px 窄栏；历史会话折叠 + 执行详情展开时也保留右侧可用宽度。验证结果：`web/` 下 `npm run build` 通过；本地 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。
 
+- 2026-07-03：根据用户截图反馈“UI 设计应该是 3 个卡片，看上去比较美观一些”，完成对话页三卡片视觉恢复。前端 `ChatView.vue` 将左侧历史会话、中间主对话、右侧执行详情明确恢复为三个独立卡片：三个区域均使用白色背景、8px 圆角、浅边框和轻阴影；工作台恢复 12px 间距和外侧留白；中间 `chat-shell` 增加边框、圆角和 `overflow:hidden`，避免主对话区与左右区域视觉粘连；右侧执行详情展开态保持 `minmax(320px, 360px)`，折叠态才收窄到 48px，避免再次出现展开时面板挤压错乱。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；本地 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。本轮仅提交并推送 `PROGRESS.md`，界面源码改动暂未提交，等待用户确认视觉效果后再纳入源码提交。
+
 - 2026-07-01：根据用户建议完成“云枢业务对象 API 接口清单元数据化”落地：新增 `cloudpivot_api_endpoints` 表、`CloudPivotApiEndpoint` 实体和仓库，元数据同步时写入接口能力并生成 `api_endpoint` 检索文档；接口清单覆盖集合查询、详情查询、新增/修改、删除、数据项元数据和 Schema 元数据。
 - 2026-07-01：新增 `MetadataExecutionPlanner`，在 Agent Think 阶段把用户意图、候选元数据、实体字段、关联关系和 API 接口能力组合成执行计划；右侧处理流程和审计 JSON 已补充执行计划、字段线索、关联线索和接口线索。
 - 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
