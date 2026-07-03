@@ -520,6 +520,8 @@ MVP 核心要求：
 
 - 2026-07-03：按用户要求启动 2 个架构师对技术方案和代码进行评审，评审结果保存到 `.codex/architect-review-results.csv`。Agent 主链路架构师指出的主要问题：运行态远端过滤成功后仍无条件本地二次过滤，可能把真实 total 覆盖为当前页样本数；负责人筛选优先把聚合查询上限截断为 50 条；模型规划结果可覆盖写操作安全意图，但未校验 `requiresConfirmation` 与 `apiOperation` 一致性；结构化计划尚未成为执行契约，执行层仍有多处关键词推断；非删除写操作会创建确认单但缺少可执行写计划；金额单位“万/万元/亿”解析仍可能错误；模型规划 JSON 缺少统一验证器。前端交互与可观测性架构师指出的主要问题：SSE 流缺少端到端取消，用户断开后后端任务仍可能继续执行并写库；流式请求使用公共 `CompletableFuture.runAsync` 线程池，缺少专用 Executor 和并发控制；进度事件只有 title/status 文本，无法形成稳定状态机和指标；当前仍是完成后伪流式切块，不是真实模型 token 流；前端 SSE 单事件 JSON 解析缺少容错；历史 trace 恢复依赖前端解析审计内部 JSON，展示协议和审计存储强耦合。以上均为评审结论，尚未进入代码修复；后续应按 P1 优先处理过滤/聚合口径、安全意图校验、SSE 取消与专用执行器。
 
+- 2026-07-03：根据用户截图反馈“点击展开执行详情的时候界面错乱”，修复 `ChatView.vue` 的三栏网格布局。根因是 Codex 风格改造时将默认网格右侧列固定成 48px，导致执行详情展开后仍按折叠宽度渲染，按钮、提示和面板内容互相挤压覆盖。现已将默认展开态右侧列恢复为 `minmax(320px, 360px)`，仅在 `.chat-workbench--trace-collapsed` 状态下使用 48px 窄栏；历史会话折叠 + 执行详情展开时也保留右侧可用宽度。验证结果：`web/` 下 `npm run build` 通过；本地 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。
+
 - 2026-07-01：根据用户建议完成“云枢业务对象 API 接口清单元数据化”落地：新增 `cloudpivot_api_endpoints` 表、`CloudPivotApiEndpoint` 实体和仓库，元数据同步时写入接口能力并生成 `api_endpoint` 检索文档；接口清单覆盖集合查询、详情查询、新增/修改、删除、数据项元数据和 Schema 元数据。
 - 2026-07-01：新增 `MetadataExecutionPlanner`，在 Agent Think 阶段把用户意图、候选元数据、实体字段、关联关系和 API 接口能力组合成执行计划；右侧处理流程和审计 JSON 已补充执行计划、字段线索、关联线索和接口线索。
 - 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
