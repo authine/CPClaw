@@ -524,6 +524,8 @@ MVP 核心要求：
 
 - 2026-07-03：根据用户截图反馈“UI 设计应该是 3 个卡片，看上去比较美观一些”，完成对话页三卡片视觉恢复。前端 `ChatView.vue` 将左侧历史会话、中间主对话、右侧执行详情明确恢复为三个独立卡片：三个区域均使用白色背景、8px 圆角、浅边框和轻阴影；工作台恢复 12px 间距和外侧留白；中间 `chat-shell` 增加边框、圆角和 `overflow:hidden`，避免主对话区与左右区域视觉粘连；右侧执行详情展开态保持 `minmax(320px, 360px)`，折叠态才收窄到 48px，避免再次出现展开时面板挤压错乱。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；本地 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。本轮仅提交并推送 `PROGRESS.md`，界面源码改动暂未提交，等待用户确认视觉效果后再纳入源码提交。
 
+- 2026-07-03：根据用户截图反馈“历史会话刷新按钮和折叠按钮不在同一个区域”，完成左侧历史卡片头部按钮布局修复。根因是 `.conversation-panel__header div` 的通用样式把右侧 `.panel-actions` 也设置成 `display:grid`，覆盖了按钮组原本的 flex 横向排列，导致刷新和折叠两个圆形按钮上下分离。现已将网格样式收窄到标题文本区域 `> div:first-child`，并明确让历史会话和执行详情头部的 `.panel-actions` 保持 `display:flex` 与 `flex-shrink:0`，两个按钮会在标题右侧同一行展示。验证结果：`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示；本地 `http://127.0.0.1:5173/` 返回 200，后端 `http://127.0.0.1:8080/api/metadata/apps` 返回 200。
+
 - 2026-07-01：根据用户建议完成“云枢业务对象 API 接口清单元数据化”落地：新增 `cloudpivot_api_endpoints` 表、`CloudPivotApiEndpoint` 实体和仓库，元数据同步时写入接口能力并生成 `api_endpoint` 检索文档；接口清单覆盖集合查询、详情查询、新增/修改、删除、数据项元数据和 Schema 元数据。
 - 2026-07-01：新增 `MetadataExecutionPlanner`，在 Agent Think 阶段把用户意图、候选元数据、实体字段、关联关系和 API 接口能力组合成执行计划；右侧处理流程和审计 JSON 已补充执行计划、字段线索、关联线索和接口线索。
 - 2026-07-01：修复本轮开发中发现的编码污染问题，恢复 `AgentOrchestrator.java` 与 `CpClawApiTests.java` 到可编译状态，并清理 `MvpCloudPivotConnector.java`、`MetadataService.java`、新增仓库文件的 BOM 和损坏字符串。
