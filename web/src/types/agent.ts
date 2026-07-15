@@ -7,8 +7,17 @@ export interface CandidateOption {
 }
 
 export interface ExecutionStep {
+  id: string
   title: string
-  status: string
+  status: 'running' | 'completed' | 'warning' | 'failed'
+  process: string
+  conclusion: string
+}
+
+export interface AgentProcessState {
+  steps: ExecutionStep[]
+  streaming: boolean
+  completed: boolean
 }
 
 export interface AgentPlanPreview {

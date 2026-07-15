@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuditService {
 
+    private static final int MAX_AUDIT_TEXT_LENGTH = 20000;
+
     private final AgentRunRepository agentRunRepository;
     private final ToolCallRepository toolCallRepository;
     private final ConfirmationRepository confirmationRepository;
@@ -42,7 +44,7 @@ public class AuditService {
         run.setIntentSummary(intent);
         run.setRiskLevel(riskLevel);
         run.setStatus("completed");
-        run.setPlanJson(masker.mask(planJson));
+        run.setPlanJson(maskAndTruncate(planJson));
         run.setReflectionJson("{\"status\":\"mvp-reflection-placeholder\"}");
         run.setCreatedAt(now);
         run.setCompletedAt(now);
@@ -52,7 +54,7 @@ public class AuditService {
     public AgentRun updateReflection(String agentRunId, String reflectionJson) {
         AgentRun run = agentRunRepository.findById(agentRunId)
             .orElseThrow(() -> new IllegalArgumentException("Agent run not found"));
-        run.setReflectionJson(masker.mask(reflectionJson));
+        run.setReflectionJson(maskAndTruncate(reflectionJson));
         run.setCompletedAt(Instant.now());
         return agentRunRepository.save(run);
     }
@@ -63,8 +65,8 @@ public class AuditService {
         toolCall.setId(UUID.randomUUID().toString());
         toolCall.setAgentRunId(agentRunId);
         toolCall.setToolName(toolName);
-        toolCall.setInputJsonMasked(masker.mask(inputJson));
-        toolCall.setOutputJsonMasked(masker.mask(outputJson));
+        toolCall.setInputJsonMasked(maskAndTruncate(inputJson));
+        toolCall.setOutputJsonMasked(maskAndTruncate(outputJson));
         toolCall.setStatus("completed");
         toolCall.setCreatedAt(now);
         toolCall.setCompletedAt(now);
@@ -81,7 +83,7 @@ public class AuditService {
         confirmation.setRiskLevel(riskLevel);
         confirmation.setSummary(summary);
         confirmation.setAffectedObjectsJson("[]");
-        confirmation.setChangesJsonMasked(masker.mask(changesJson));
+        confirmation.setChangesJsonMasked(maskAndTruncate(changesJson));
         confirmation.setStatus("pending");
         confirmation.setCreatedAt(now);
         confirmation.setExpiresAt(now.plusSeconds(1800));
@@ -125,5 +127,13 @@ public class AuditService {
             "reflectionJson", run.getReflectionJson() == null ? "{}" : run.getReflectionJson(),
             "tools", tools
         );
+    }
+
+    private String maskAndTruncate(String value) {
+        String masked = masker.mask(value);
+        if (masked == null || masked.length() <= MAX_AUDIT_TEXT_LENGTH) {
+            return masked;
+        }
+        return masked.substring(0, MAX_AUDIT_TEXT_LENGTH) + "...[truncated]";
     }
 }

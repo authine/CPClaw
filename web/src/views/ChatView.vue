@@ -9,55 +9,15 @@
 
       <div v-for="message in messages" :key="message.id" :class="['message', `message--${message.role}`]">
         <div class="message__role">{{ roleLabel(message.role) }}</div>
+        <ThinkingProcess
+          v-if="message.role === 'assistant' && processByMessage[message.id]"
+          :steps="processByMessage[message.id].steps"
+          :streaming="processByMessage[message.id].streaming"
+          :completed="processByMessage[message.id].completed"
+        />
         <MarkdownMessage :content="message.content" />
+        <span v-if="message.role === 'assistant' && processByMessage[message.id]?.streaming" class="stream-cursor" />
       </div>
-
-      <el-card v-if="lastAgent" class="workflow-card" shadow="never">
-        <template #header>
-          <div class="workflow-card__header">
-            <span>后端处理流程</span>
-            <el-tag size="small" type="info">Agent Run: {{ lastAgent.agentRunId }}</el-tag>
-          </div>
-        </template>
-
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="识别意图">
-            <el-tag size="small">{{ lastAgent.intent }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="风险等级">
-            <el-tag size="small" :type="riskTagType(lastAgent.riskLevel)">{{ riskLabel(lastAgent.riskLevel) }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="元数据匹配" :span="2">
-            {{ lastAgent.matchReason || '暂无匹配说明' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="处理摘要" :span="2">
-            {{ lastAgent.planSummary }}
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <div v-if="lastAgent.candidates.length" class="workflow-section">
-          <div class="workflow-section__title">匹配到的云枢对象</div>
-          <el-table :data="lastAgent.candidates" size="small" border>
-            <el-table-column prop="name" label="名称" min-width="160" />
-            <el-table-column prop="type" label="类型" width="120" />
-            <el-table-column prop="reason" label="匹配原因" min-width="220" />
-          </el-table>
-        </div>
-
-        <div v-if="lastAgent.steps.length" class="workflow-section">
-          <div class="workflow-section__title">执行步骤</div>
-          <el-timeline>
-            <el-timeline-item
-              v-for="step in lastAgent.steps"
-              :key="`${step.title}-${step.status}`"
-              :type="stepType(step.status)"
-              :timestamp="step.status"
-            >
-              {{ step.title }}
-            </el-timeline-item>
-          </el-timeline>
-        </div>
-      </el-card>
 
       <el-alert v-if="errorMessage" class="chat-error" type="error" show-icon :closable="false" :title="errorMessage" />
 
@@ -92,10 +52,11 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '../components/common/PageHeader.vue'
 import MarkdownMessage from '../components/chat/MarkdownMessage.vue'
-import { createConversation, sendMessage } from '../services/conversationApi'
+import ThinkingProcess from '../components/chat/ThinkingProcess.vue'
+import { createConversation, sendMessageStream } from '../services/conversationApi'
 import { confirmOperation } from '../services/auditApi'
 import { listModelConfigs } from '../services/settingsApi'
-import type { AgentResponse } from '../types/agent'
+import type { AgentProcessState, AgentResponse, ExecutionStep } from '../types/agent'
 import type { MessageItem } from '../types/conversation'
 import type { ModelConfigSummary } from '../types/settings'
 
@@ -104,6 +65,7 @@ const thinkingEnabled = ref(false)
 const models = ref<ModelConfigSummary[]>([])
 const conversationId = ref('')
 const messages = ref<MessageItem[]>([])
+const processByMessage = ref<Record<string, AgentProcessState>>({})
 const input = ref('')
 const lastAgent = ref<AgentResponse>()
 const submitting = ref(false)
@@ -130,6 +92,7 @@ async function startConversation() {
   })
   conversationId.value = conversation.id
   messages.value = []
+  processByMessage.value = {}
   lastAgent.value = undefined
 }
 
@@ -143,33 +106,88 @@ async function submit() {
   errorMessage.value = ''
   const draft = input.value
   input.value = ''
-  const localMessage: MessageItem = {
-    id: crypto.randomUUID(),
-    role: 'user',
-    content: userContent,
-    createdAt: new Date().toISOString()
-  }
-  messages.value.push(localMessage)
+  lastAgent.value = undefined
+  let assistantMessage: MessageItem | undefined
+  let processState: AgentProcessState | undefined
 
   try {
     if (!conversationId.value) {
       await startConversation()
-      messages.value.push(localMessage)
     }
-    const response = await sendMessage({
-      conversationId: conversationId.value,
+    const localMessage: MessageItem = {
+      id: crypto.randomUUID(),
+      role: 'user',
       content: userContent,
-      modelConfigId: selectedModelId.value,
-      thinkingEnabled: thinkingEnabled.value,
-      attachmentIds: []
-    })
-    lastAgent.value = response
-    messages.value.push(response.assistantMessage)
+      createdAt: new Date().toISOString()
+    }
+    assistantMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      metadataJson: '{"source":"runtime-agent-stream"}'
+    }
+    processState = {
+      steps: [],
+      streaming: true,
+      completed: false
+    }
+    messages.value.push(localMessage, assistantMessage)
+    processByMessage.value[assistantMessage.id] = processState
+
+    await sendMessageStream(
+      {
+        conversationId: conversationId.value,
+        content: userContent,
+        modelConfigId: selectedModelId.value,
+        thinkingEnabled: thinkingEnabled.value,
+        attachmentIds: []
+      },
+      {
+        onStep(step) {
+          if (processState) {
+            upsertStep(processState.steps, step)
+          }
+        },
+        onMetadata(response) {
+          if (!assistantMessage || !processState) {
+            return
+          }
+          lastAgent.value = response
+          const temporaryId = assistantMessage.id
+          assistantMessage.id = response.assistantMessage.id
+          assistantMessage.createdAt = response.assistantMessage.createdAt
+          assistantMessage.metadataJson = response.assistantMessage.metadataJson
+          response.steps.forEach((step) => upsertStep(processState!.steps, step))
+          delete processByMessage.value[temporaryId]
+          processByMessage.value[assistantMessage.id] = processState
+        },
+        onContent(delta) {
+          if (assistantMessage) {
+            assistantMessage.content += delta
+          }
+        },
+        onDone() {
+          if (processState) {
+            processState.streaming = false
+            processState.completed = true
+          }
+        }
+      }
+    )
   } catch (error) {
+    if (processState) {
+      processState.streaming = false
+      processState.completed = false
+    }
     input.value = draft
     errorMessage.value = messageFromError(error)
     ElMessage.error(errorMessage.value)
   } finally {
+    if (processState?.streaming) {
+      processState.streaming = false
+      processState.completed = true
+    }
     submitting.value = false
   }
 }
@@ -200,41 +218,13 @@ function roleLabel(role: MessageItem['role']) {
   return role === 'user' ? '你' : role === 'assistant' ? 'CPClaw' : '系统'
 }
 
-function riskLabel(riskLevel: AgentResponse['riskLevel']) {
-  const labels: Record<AgentResponse['riskLevel'], string> = {
-    none: '无风险',
-    low: '低风险',
-    medium: '中风险',
-    high: '高风险'
+function upsertStep(steps: ExecutionStep[], step: ExecutionStep) {
+  const index = steps.findIndex((item) => item.id === step.id)
+  if (index >= 0) {
+    steps.splice(index, 1, step)
+    return
   }
-  return labels[riskLevel]
-}
-
-function riskTagType(riskLevel: AgentResponse['riskLevel']) {
-  const types: Record<AgentResponse['riskLevel'], 'info' | 'success' | 'warning' | 'danger'> = {
-    none: 'info',
-    low: 'success',
-    medium: 'warning',
-    high: 'danger'
-  }
-  return types[riskLevel]
-}
-
-function stepType(status: string) {
-  const value = status.toLowerCase()
-  if (['success', 'completed', 'done'].includes(value)) {
-    return 'success'
-  }
-  if (['processing', 'running'].includes(value)) {
-    return 'primary'
-  }
-  if (['warning', 'skipped', 'pending-confirmation'].includes(value)) {
-    return 'warning'
-  }
-  if (['error', 'failed'].includes(value)) {
-    return 'danger'
-  }
-  return 'info'
+  steps.push(step)
 }
 
 function messageFromError(error: unknown) {
@@ -280,7 +270,7 @@ function messageFromError(error: unknown) {
 .message {
   max-width: 820px;
   padding: 14px 16px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: #f2f4f7;
 }
 
@@ -291,6 +281,9 @@ function messageFromError(error: unknown) {
 
 .message--assistant {
   justify-self: start;
+  width: min(920px, 100%);
+  max-width: 920px;
+  box-sizing: border-box;
   background: #f7f7fb;
 }
 
@@ -302,32 +295,18 @@ function messageFromError(error: unknown) {
 }
 
 .chat-error,
-.confirmation,
-.workflow-card {
+.confirmation {
   max-width: 920px;
 }
 
-.workflow-card {
-  border-color: #d0d5dd;
-}
-
-.workflow-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  font-weight: 600;
-}
-
-.workflow-section {
-  margin-top: 16px;
-}
-
-.workflow-section__title {
-  margin-bottom: 10px;
-  color: #344054;
-  font-size: 14px;
-  font-weight: 600;
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: #2970ff;
+  animation: cursor-blink 0.8s steps(1) infinite;
 }
 
 .confirmation__summary {
@@ -347,5 +326,11 @@ function messageFromError(error: unknown) {
 .chat-input__actions {
   display: flex;
   justify-content: flex-end;
+}
+
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
 }
 </style>

@@ -455,7 +455,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 int firstDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
                 RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, firstDetailLimit);
                 remainingDetailBudget = remainingDetailBudget(remainingDetailBudget, firstPage.records().size(), firstDetailLimit);
-                if (pageSize <= 1 || firstPage.records().size() >= firstPage.total() || firstPage.records().size() >= recordLimit) {
+                if (!bulkQuery || pageSize <= 1 || firstPage.records().size() >= firstPage.total() || firstPage.records().size() >= recordLimit) {
                     List<Map<String, Object>> limitedRecords = firstPage.records().size() > recordLimit ? firstPage.records().subList(0, recordLimit) : firstPage.records();
                     return new CloudPivotRuntimeQueryResult(schemaCode, firstPage.total(), limitedRecords, endpoint);
                 }

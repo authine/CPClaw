@@ -2,6 +2,7 @@ package com.cpclaw.conversation;
 
 import com.cpclaw.agent.AgentOrchestrator;
 import com.cpclaw.agent.dto.AgentResponse;
+import com.cpclaw.agent.dto.ExecutionStepDto;
 import com.cpclaw.conversation.dto.ConversationDetail;
 import com.cpclaw.conversation.dto.ConversationSummary;
 import com.cpclaw.conversation.dto.CreateConversationRequest;
@@ -14,6 +15,7 @@ import com.cpclaw.conversation.repository.MessageRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +65,12 @@ public class ConversationService {
 
     @Transactional
     public AgentResponse sendMessage(SendMessageRequest request) {
+        return sendMessage(request, step -> {
+        });
+    }
+
+    @Transactional
+    public AgentResponse sendMessage(SendMessageRequest request, Consumer<ExecutionStepDto> progressListener) {
         if (request == null || !hasText(request.content())) {
             throw new IllegalArgumentException("请输入要处理的内容");
         }
@@ -83,7 +91,8 @@ public class ConversationService {
             request.modelConfigId(),
             request.thinkingEnabled(),
             toMessageItem(assistantMessage),
-            conversationContext
+            conversationContext,
+            progressListener
         );
         assistantMessage.setContent(response.assistantMessage().content());
         assistantMessage.setMetadataJson(response.assistantMessage().metadataJson());

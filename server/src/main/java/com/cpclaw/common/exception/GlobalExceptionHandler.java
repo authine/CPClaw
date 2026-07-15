@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 500;
+
     private final SensitiveDataMasker masker;
 
     public GlobalExceptionHandler(SensitiveDataMasker masker) {
@@ -17,11 +19,19 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest().body(ApiResponse.error(masker.mask(exception.getMessage())));
+        return ResponseEntity.badRequest().body(ApiResponse.error(safeMessage(exception)));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handle(Exception exception) {
-        return ResponseEntity.internalServerError().body(ApiResponse.error(masker.mask(exception.getMessage())));
+        return ResponseEntity.internalServerError().body(ApiResponse.error(safeMessage(exception)));
+    }
+
+    private String safeMessage(Exception exception) {
+        String message = exception.getMessage() == null ? "请求处理失败" : masker.mask(exception.getMessage());
+        if (message == null || message.length() <= MAX_ERROR_MESSAGE_LENGTH) {
+            return message;
+        }
+        return message.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "...[truncated]";
     }
 }

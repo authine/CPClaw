@@ -267,7 +267,6 @@ public class CloudPivotRuntimeService {
             .filter(java.util.Optional::isPresent)
             .map(java.util.Optional::get)
             .collect(java.util.stream.Collectors.groupingBy(String::valueOf, java.util.LinkedHashMap::new, java.util.stream.Collectors.counting()));
-
         String objectLabel = objectLabel(match);
         String unitLabel = unitLabel(objectLabel);
         StringBuilder answer = new StringBuilder();

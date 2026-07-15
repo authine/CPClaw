@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -43,10 +44,39 @@ public class AgentOrchestrator {
     }
 
     public AgentResponse handleMessage(String conversationId, String userMessageId, String content, String modelConfigId, boolean thinkingEnabled, MessageItem assistantMessage, List<MessageItem> conversationContext) {
+        return handleMessage(conversationId, userMessageId, content, modelConfigId, thinkingEnabled, assistantMessage, conversationContext, step -> {
+        });
+    }
+
+    public AgentResponse handleMessage(
+        String conversationId,
+        String userMessageId,
+        String content,
+        String modelConfigId,
+        boolean thinkingEnabled,
+        MessageItem assistantMessage,
+        List<MessageItem> conversationContext,
+        Consumer<ExecutionStepDto> progressListener
+    ) {
+        List<ExecutionStepDto> steps = new ArrayList<>();
         AgentObservation observation = observe(content, conversationContext);
         AgentThought thought = think(content, observation);
         String intent = thought.intent();
         MetadataSearchResult match = thought.match();
+        completeStep(
+            steps,
+            progressListener,
+            "理解请求",
+            "结合当前输入和最近 " + observation.recentMessages().size() + " 条对话，识别用户希望执行的业务动作。",
+            "识别为“" + thought.slots().actionLabel() + "”，目标是“" + thought.slots().businessObject() + "”，意图=" + intent + "。"
+        );
+        completeStep(
+            steps,
+            progressListener,
+            "定位业务对象",
+            "使用用户原话和业务同义词检索已同步的云枢 Metadata Index。",
+            metadataConclusion(match)
+        );
         boolean writeRisk = isWriteIntent(intent);
         String riskLevel = writeRisk ? "medium" : "low";
         String planSummary = buildPlanSummary(intent, match, writeRisk);
@@ -68,12 +98,39 @@ public class AgentOrchestrator {
             assistantMessage = withContent(assistantMessage, clarificationMessage(content, match, thought.missingSlots()));
             planSummary = "当前信息不足以安全执行，已向用户发起澄清问题。";
             actResult = new ActResult(assistantMessage, null, planSummary, null, "clarification_sent");
+            completeStep(
+                steps,
+                progressListener,
+                "确认缺失信息",
+                "检查执行所需的对象、动作、内容和筛选条件是否完整。",
+                thought.missingSlots().isEmpty()
+                    ? "当前表达仍不足以确定唯一执行路径，已请求用户补充。"
+                    : "还需要补充：" + String.join("、", thought.missingSlots()) + "。"
+            );
         } else if (writeRisk) {
             Confirmation confirmation = auditService.createConfirmation(conversationId, run.getId(), riskLevel, planSummary, toJson(Map.of("operation", intent)));
             assistantMessage = withContent(assistantMessage, "我已理解你的操作请求。这个请求可能会修改云枢数据，需要你确认后再继续执行。");
             actResult = new ActResult(assistantMessage, confirmation, planSummary, null, "pending_confirmation");
+            completeStep(
+                steps,
+                progressListener,
+                "检查操作风险",
+                "判断本次动作是否会新增、修改或推进云枢业务数据。",
+                "该动作会改变业务数据，已生成确认请求，确认前不会执行写入。"
+            );
         } else if (isDataReadIntent(intent)) {
             if (canQueryRuntime(match)) {
+                String actionStepId = UUID.randomUUID().toString();
+                publishStep(
+                    progressListener,
+                    new ExecutionStepDto(
+                        actionStepId,
+                        "查询云枢数据",
+                        "running",
+                        "正在使用 schemaCode=`" + match.code() + "` 调用云枢运行态接口。",
+                        "等待云枢返回真实数据。"
+                    )
+                );
                 try {
                     CloudPivotQueryAnswer runtimeAnswer = cloudPivotRuntimeService.query(match, observation.effectiveUserGoal(), modelConfigId, thinkingEnabled);
                     auditService.recordToolCall(
@@ -93,6 +150,17 @@ public class AgentOrchestrator {
                         ? "已根据真实云枢元数据匹配到“" + runtimeAnswer.entityName() + "”，并调用云枢运行态接口查询数据，再生成业务分析。"
                         : "已根据真实云枢元数据匹配到“" + runtimeAnswer.entityName() + "”，并调用云枢运行态接口查询到真实数据。";
                     actResult = new ActResult(assistantMessage, null, planSummary, runtimeAnswer, "runtime_query_completed");
+                    completeStep(
+                        steps,
+                        progressListener,
+                        new ExecutionStepDto(
+                            actionStepId,
+                            "查询云枢数据",
+                            "completed",
+                            "使用 schemaCode=`" + runtimeAnswer.schemaCode() + "` 调用云枢运行态接口，来源=`" + runtimeAnswer.sourceEndpoint() + "`。",
+                            "查询完成：总数 " + runtimeAnswer.total() + " 条，本次返回 " + runtimeAnswer.returnedRecords() + " 条。"
+                        )
+                    );
                 } catch (RuntimeException exception) {
                     auditService.recordToolCall(
                         run.getId(),
@@ -103,18 +171,52 @@ public class AgentOrchestrator {
                     assistantMessage = withContent(assistantMessage, runtimeFailureMessage(content, match, exception));
                     planSummary = "已理解为" + ("analyze_data".equals(intent) ? "分析" : "查询") + "类任务，并匹配到候选“" + match.name() + "”，但真实云枢运行态查询失败，未生成业务结论。";
                     actResult = new ActResult(assistantMessage, null, planSummary, null, "runtime_query_failed");
+                    completeStep(
+                        steps,
+                        progressListener,
+                        new ExecutionStepDto(
+                            actionStepId,
+                            "查询云枢数据",
+                            "failed",
+                            "已尝试使用 schemaCode=`" + match.code() + "` 调用云枢运行态接口。",
+                            "查询失败，未使用不完整或演示数据生成业务结论。"
+                        )
+                    );
                 }
             } else {
                 assistantMessage = withContent(assistantMessage, unmatchedReadMessage(intent, content));
                 planSummary = "已识别为" + ("analyze_data".equals(intent) ? "分析" : "查询") + "类请求，但本地元数据中没有匹配到可直接查询的云枢模型，未调用云枢运行态接口。";
                 actResult = new ActResult(assistantMessage, null, planSummary, null, "no_runtime_candidate");
+                completeStep(
+                    steps,
+                    progressListener,
+                    "判断可执行性",
+                    "检查候选对象是否为真实云枢业务模型，并且包含可调用的 schemaCode。",
+                    "当前没有可直接查询的真实业务模型，已停止执行并提示重新同步或补充对象。"
+                );
             }
         } else {
             assistantMessage = withContent(assistantMessage, clarificationMessage(content, match));
             actResult = new ActResult(assistantMessage, null, planSummary, null, "fallback_clarification");
+            completeStep(
+                steps,
+                progressListener,
+                "确定下一步",
+                "检查当前请求是否具备明确、可安全执行的路径。",
+                "没有形成可靠执行路径，已转为澄清。"
+            );
         }
         AgentReflection reflection = reflect(thought, plan, actResult);
         auditService.updateReflection(run.getId(), toJson(reflectionAuditMap(reflection)));
+        if (isDataReadIntent(intent) && canQueryRuntime(match)) {
+            completeStep(
+                steps,
+                progressListener,
+                "校验结果",
+                "检查返回来源、对象编码和执行状态，确认是否可以形成最终回答。",
+                reflection.summary()
+            );
+        }
         MessageItem responseAssistantMessage = withAgentRunMetadata(actResult.assistantMessage(), run.getId(), defaultMetadataSource(actResult));
 
         return new AgentResponse(
@@ -125,7 +227,7 @@ public class AgentOrchestrator {
             actResult.planSummary(),
             match.reason(),
             List.of(new CandidateDto(match.name(), match.objectType(), match.reason())),
-            reactSteps(observation, thought, actResult, reflection),
+            List.copyOf(steps),
             actResult.confirmation() == null ? null : actResult.confirmation().getId(),
             responseAssistantMessage
         );
@@ -488,51 +590,34 @@ public class AgentOrchestrator {
     private String defaultMetadataSource(ActResult actResult) {
         return "runtime_query_completed".equals(actResult.status()) ? "runtime-query" : "runtime-agent";
     }
-    private List<ExecutionStepDto> reactSteps(AgentObservation observation, AgentThought thought, ActResult actResult, AgentReflection reflection) {
-        return List.of(
-            new ExecutionStepDto("Observe 观察上下文", observeStepSummary(observation)),
-            new ExecutionStepDto("Think 理解意图", thinkStepSummary(thought)),
-            new ExecutionStepDto("Act 执行动作", actStepSummary(actResult)),
-            new ExecutionStepDto("Reflect 反思检查", reflectStepSummary(reflection))
-        );
-    }
 
-    private String observeStepSummary(AgentObservation observation) {
-        return "用户目标=“" + shortText(observation.normalizedUserGoal(), 40) + "”；有效目标=“" + shortText(observation.effectiveUserGoal(), 60) + "”；最近上下文=" + observation.recentMessages().size() + " 条；继承对象=" + yesNo(observation.inheritedRuntimeObject());
-    }
-
-    private String thinkStepSummary(AgentThought thought) {
-        String slots = thought.missingSlots().isEmpty() ? "无" : String.join("、", thought.missingSlots());
-        return "原始意图=" + thought.detectedIntent()
-            + "；最终意图=" + thought.intent()
-            + "；动作=" + thought.slots().actionLabel()
-            + "；业务对象=" + thought.slots().businessObject()
-            + "；分析维度=" + thought.slots().dimension()
-            + "；筛选=" + thought.slots().filters()
-            + "；候选对象=" + thought.match().name()
-            + "；候选编码=" + thought.match().code()
-            + "；缺失槽位=" + slots
-            + "；置信度=" + thought.confidence();
-    }
-
-    private String actStepSummary(ActResult actResult) {
-        if (actResult.runtimeAnswer() != null) {
-            CloudPivotQueryAnswer answer = actResult.runtimeAnswer();
-            return "工具=cloudpivot_runtime_query；" + schemaCodeLabel(answer) + "=" + answer.schemaCode() + "；来源=" + answer.sourceEndpoint() + "；total=" + answer.total() + "；returned=" + answer.returnedRecords() + "；原始摘要=" + shortText(answer.rawDataSummary(), 120);
+    private String metadataConclusion(MetadataSearchResult match) {
+        if (match == null || "unknown".equals(match.objectType()) || match.code() == null || match.code().isBlank()) {
+            return "没有匹配到可直接执行的真实云枢业务对象。";
         }
-        return "状态=" + actResult.status();
+        return "命中“" + match.name() + "”，类型=" + match.objectType() + "，schemaCode=`" + match.code() + "`。";
     }
 
-    private String schemaCodeLabel(CloudPivotQueryAnswer answer) {
-        return answer != null && "local-fallback".equals(answer.sourceEndpoint()) ? "演示编码" : "schemaCode";
+    private void completeStep(
+        List<ExecutionStepDto> steps,
+        Consumer<ExecutionStepDto> progressListener,
+        String title,
+        String process,
+        String conclusion
+    ) {
+        completeStep(steps, progressListener, new ExecutionStepDto(UUID.randomUUID().toString(), title, "completed", process, conclusion));
     }
 
-    private String reflectStepSummary(AgentReflection reflection) {
-        return "状态=" + reflection.status() + "；通过=" + yesNo(reflection.passed()) + "；需要用户补充=" + yesNo(reflection.needsUserInput()) + "；" + reflection.summary();
+    private void completeStep(List<ExecutionStepDto> steps, Consumer<ExecutionStepDto> progressListener, ExecutionStepDto step) {
+        steps.removeIf(existing -> existing.id().equals(step.id()));
+        steps.add(step);
+        publishStep(progressListener, step);
     }
 
-    private String yesNo(boolean value) {
-        return value ? "是" : "否";
+    private void publishStep(Consumer<ExecutionStepDto> progressListener, ExecutionStepDto step) {
+        if (progressListener != null) {
+            progressListener.accept(step);
+        }
     }
 
     private Map<String, Object> planAuditMap(AgentObservation observation, AgentThought thought, AgentPlan plan) {
