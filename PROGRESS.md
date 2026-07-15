@@ -524,6 +524,12 @@ MVP 核心要求：
 - 本文件只记录事实进度，不写入密码、Token、Cookie、API Key、私钥或本地敏感配置。
 - 每次更新后单独提交并推送 `PROGRESS.md`，让 GitHub 保持最新状态。
 
+- 2026-07-15：完成 OpenClaw/Codex 风格执行活动流改造。实时思考、元数据匹配、云枢 API 调用、请求参数、返回数据、回答生成和任务完成按时间顺序展示，不再压缩成固定四步模板；消息区和右侧栏复用同一组件。
+- 2026-07-15：后端新增完整执行事件记录，将 `phase/state/kind/data/elapsedMs` 写入 `AgentResponse.steps` 和助手消息 `metadataJson.executionTimeline`；历史会话刷新后仍可恢复完整过程。新增时间线敏感信息脱敏，避免密码、Token、API Key 等进入执行详情。
+- 2026-07-15：修复右侧详情展开撑高中央区域的问题。桌面端两侧栏固定在视口高度内，右侧栏保持 320-360px；响应式断点由 1280px 调整为 1180px，1265px 视口仍为三栏布局。
+- 2026-07-15：完成专项验证：后端全量 16 个测试通过；前端 `npm run build` 通过；真实发送“系统有多少商机？”返回真实对象 `int_bu_oppor`、总数 237，并在消息内和右侧恢复 18 个执行活动；1265px 桌面和 390px 移动端均无横向溢出，浏览器控制台无错误。
+- 2026-07-15：当前服务已启动，前端 `http://127.0.0.1:5173/`，后端 `http://127.0.0.1:8080/`。已知边界：当前事件契约尚未包含生产级 `eventId/callId/parentId`，并行工具调用和复杂重试后续仍需升级为不可变事件日志。
+
 - 2026-07-02：根据专家评审文档 `docs/technical-design/details/07-intent-action-output-chain-review-2026-07-02.md`，优先落地 P0 正确性与安全性修复。后端修复内容包括：`AgentOrchestrator` 调整意图识别顺序，避免“取消的订单/取消项目金额”等状态统计读请求误入删除链路；删除操作增加目标槽位校验，缺少记录 ID 或明确“第几条”时进入澄清，不再在确认单生成前抛异常；`CloudPivotRuntimeService` 扩展记录序号解析，支持阿拉伯数字和中文数字（一到十及常见十位表达），删除路径无法解析序号时不再默认第 1 条；状态过滤修复“未完成”误命中“已完成”的问题；`AuditService.confirm` 增加 pending、过期、重复确认和执行失败状态校验，避免重复确认二次执行云枢写操作。前端修复内容包括：`ChatView.vue` 根据确认接口返回的 `executed/status/message` 分别展示“已执行”“已确认但未自动执行”“失败/过期/重复处理”等状态，不再无条件提示成功。验证结果：`server/` 下 `mvn -Dtest=CpClawApiTests test` 通过，结果为 Tests run: 1, Failures: 0, Errors: 0, Skipped: 0；`web/` 下 `npm run build` 通过，仅保留 Vite/Rollup 第三方 PURE 注释和 chunk 体积提示。P1/P2 中的运行态过滤解耦、owner 聚合上限、金额单位换算、关系字段识别和结构化 Planner 重构尚未纳入本轮，需作为后续任务继续推进。
 
 - 2026-07-02：根据用户再次明确的系统主链路要求，完成一次执行逻辑框架修正：目标链路应为“获取用户输入 -> 理解用户意图 -> 从本地元数据库检索云枢实体、数据项、关联关系和业务动作 -> 将用户问题与元数据交给 AI 生成结构化执行步骤 -> 调用云枢 API 获取/操作数据 -> 再把用户问题、元数据、执行路径和查询结果交给大模型总结输出”。本轮定位到当前实现的关键偏差：AI 规划此前只补充 intent/dimension/filter 文本，不能表达可执行 API、字段过滤、指标、分组、排序和确认要求，导致执行层仍大量依赖关键词规则二次判断。已扩展 `IntentPlanningResult`，新增 `apiOperation`、`executionSteps`、`runtimeFilters`、`metricFieldCodes`、`groupByFieldCodes`、`sortFields`、`resultLimit` 和 `requiresConfirmation`；更新 `OpenAiCompatibleModelGateway` 的规划 Prompt，要求模型只能使用本地元数据中的真实字段编码和 API 能力输出结构化执行计划；`AgentOrchestrator` 已优先使用 AI 规划的 `runtimeFilters` 和 `metricFieldCodes` 作为云枢运行态查询参数，并把模型执行计划写入 `runtimeReasoningContext` 与右侧 Think 摘要，规则解析降为兜底。验证结果：`server/` 下 `mvn -Dtest=CpClawApiTests test` 通过，结果为 Tests run: 1, Failures: 0, Errors: 0, Skipped: 0；`web/` 下 `npm run build` 通过。当前仍未完成完整 DAG 执行引擎和运行态服务去规则化，`CloudPivotRuntimeService.summarize(...)` 仍有较多基于用户问题的规则分支，后续需要继续把聚合、分组、排序、详情/列表选择改成由结构化执行计划驱动。
