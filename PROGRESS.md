@@ -581,3 +581,5 @@ MVP 核心要求：
 - 2026-07-16：根据用户反馈“当前 UI 仍不满意，先设计 UI 界面确认，参考之前发的 HTML”，暂停继续改业务页面，新增静态确认原型 `design/chat-ui-v2-prototype.html`，并导出桌面和移动端预览图 `design/chat-ui-v2-desktop.png`、`design/chat-ui-v2-mobile.png`。原型保留顶部深色导航，采用左侧历史会话 + 中央对话主窗口两栏布局，取消右侧独立执行详情栏，中央空状态增加 3 个高频问题入口，底部输入框固定浮层且桌面宽度约 820px。同步更新 `docs/product-design/details/01-requirements.md` 和 `docs/technical-design/details/06-key-technical-strategy.md`，明确 UI v2 确认前以该原型为设计基准。验证结果：浏览器渲染检查桌面和移动端均无水平溢出。
 
 - 2026-07-16：根据用户补充的 ChatUI 标注参考图，继续修订 `design/chat-ui-v2-prototype.html`。本轮原型新增顶部右侧消耗信息与主题切换入口、会话标题下划线对齐、输入框内部附件与发送按钮、输入框底部模型选择与思考深度配置；重新导出 `design/chat-ui-v2-desktop.png` 和 `design/chat-ui-v2-mobile.png`。同步更新产品和技术文档，明确这些控件在实现阶段必须接入现有模型配置、思考开关和附件上传逻辑，不能只做静态装饰。验证结果：浏览器渲染检查桌面和移动端均无水平溢出。
+
+- 2026-07-16：根据用户最新反馈“顶部导航栏也不需要了，把用户登录信息和设置信息都参考图放置”，继续修订 UI v2 原型。`design/chat-ui-v2-prototype.html` 已移除顶部全局导航栏，品牌、菜单折叠入口、历史会话、用户登录信息和系统设置入口统一放入左侧栏；主区域顶部只保留当前会话标题、消耗信息、主题切换、模型选择和思考模式控制。重新导出 `design/chat-ui-v2-desktop.png` 和 `design/chat-ui-v2-mobile.png`，并同步更新产品和技术文档。验证结果：浏览器渲染检查顶部 `.top-nav` 数量为 0，桌面和移动端均无水平溢出。
