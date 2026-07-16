@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CloudPivotDataItemRepository extends JpaRepository<CloudPivotDataItem, String> {
     List<CloudPivotDataItem> findByEntityId(String entityId);
+
+    List<CloudPivotDataItem> findByDataItemCodeIgnoreCase(String dataItemCode);
 }

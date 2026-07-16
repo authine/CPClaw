@@ -1,20 +1,18 @@
 <template>
   <div class="attachment-uploader">
-    <el-upload v-model:file-list="fileList" action="#" :auto-upload="false" multiple>
-      <el-button>选择附件</el-button>
-      <template #tip>
-        <div class="upload-tip">支持图片、PDF、Excel 等业务材料。选择后点击“上传附件”，MVP 阶段上传后进入待解析状态。</div>
-      </template>
-    </el-upload>
-    <el-button type="primary" plain :disabled="uploading || pendingFiles.length === 0" :loading="uploading" @click="submitUploads">
-      上传附件
-    </el-button>
+    <input ref="fileInput" hidden type="file" multiple accept="image/*,.pdf,.xls,.xlsx,.csv" @change="uploadSelectedFiles" />
+    <el-tooltip content="上传附件" placement="top" :show-after="300">
+      <el-button class="attachment-button" circle text aria-label="上传附件" :loading="uploading" @click="selectFiles">
+        <el-icon v-if="!uploading"><Paperclip /></el-icon>
+      </el-button>
+    </el-tooltip>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { UploadUserFile } from 'element-plus'
+import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
 import { uploadAttachment } from '../../services/attachmentApi'
 import type { AttachmentResponse } from '../../types/agent'
 
@@ -22,40 +20,50 @@ const emit = defineEmits<{
   uploaded: [attachment: AttachmentResponse]
 }>()
 
-const fileList = ref<UploadUserFile[]>([])
+const fileInput = ref<HTMLInputElement>()
 const uploading = ref(false)
-const uploadedUids = ref(new Set<number>())
 
-const pendingFiles = computed(() => fileList.value.filter((file) => file.raw && !uploadedUids.value.has(file.uid)))
+function selectFiles() {
+  if (!uploading.value) {
+    fileInput.value?.click()
+  }
+}
 
-async function submitUploads() {
+async function uploadSelectedFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (!files.length) {
+    return
+  }
+
   uploading.value = true
   try {
-    for (const file of pendingFiles.value) {
-      if (!file.raw) {
-        continue
-      }
-      const attachment = await uploadAttachment(file.raw)
-      uploadedUids.value.add(file.uid)
-      emit('uploaded', attachment)
+    for (const file of files) {
+      emit('uploaded', await uploadAttachment(file))
     }
-    fileList.value = fileList.value.filter((file) => !uploadedUids.value.has(file.uid))
+    ElMessage.success('附件已上传，将随下一条消息发送')
+  } catch (error) {
+    ElMessage.error(error instanceof Error && error.message ? error.message : '附件上传失败')
   } finally {
     uploading.value = false
+    input.value = ''
   }
 }
 </script>
 
 <style scoped>
 .attachment-uploader {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  display: inline-flex;
 }
 
-.upload-tip {
-  color: #667085;
-  font-size: 12px;
-  margin-top: 4px;
+.attachment-button {
+  width: 32px;
+  height: 32px;
+  color: var(--chat-text-secondary, #657084);
+}
+
+.attachment-button:hover {
+  background: var(--chat-surface-soft, #f2f4f7);
+  color: var(--chat-text, #171c2b);
 }
 </style>

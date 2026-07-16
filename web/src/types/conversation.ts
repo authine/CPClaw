@@ -12,6 +12,8 @@ export interface MessageItem {
   content: string
   createdAt: string
   metadataJson?: string
+  thinkingElapsedMs?: number
+  answerElapsedMs?: number
 }
 
 export interface CreateConversationRequest {
@@ -26,6 +28,7 @@ export interface SendMessageRequest {
   modelConfigId?: string
   thinkingEnabled: boolean
   attachmentIds: string[]
+  executionId: string
 }
 
 export interface ConversationDetail {

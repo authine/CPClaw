@@ -18,6 +18,8 @@ server:
 cpclaw:
   encryption-key: ${CPC_ENCRYPTION_KEY:}
   storage-root: ${CPC_STORAGE_ROOT:./storage}
+  conversation:
+    stream-timeout-ms: ${CPCLAW_STREAM_TIMEOUT_MS:600000}
   cloudpivot:
     corp-id: ${CPC_CLOUDPIVOT_CORP_ID:dingbb40ac2a2529cb14}
   vector:

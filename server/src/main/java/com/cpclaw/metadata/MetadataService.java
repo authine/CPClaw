@@ -4,12 +4,15 @@ import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.credential.CredentialService;
 import com.cpclaw.metadata.dto.MetadataAppSummary;
+import com.cpclaw.metadata.dto.MetadataModelResponse;
 import com.cpclaw.metadata.dto.MetadataSyncResponse;
+import com.cpclaw.metadata.entity.CloudPivotApiEndpoint;
 import com.cpclaw.metadata.entity.CloudPivotApp;
 import com.cpclaw.metadata.entity.CloudPivotDataItem;
 import com.cpclaw.metadata.entity.CloudPivotEntity;
 import com.cpclaw.metadata.entity.CloudPivotEntityRelation;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
+import com.cpclaw.metadata.repository.CloudPivotApiEndpointRepository;
 import com.cpclaw.metadata.repository.CloudPivotAppRepository;
 import com.cpclaw.metadata.repository.CloudPivotDataItemRepository;
 import com.cpclaw.metadata.repository.CloudPivotEntityRepository;
@@ -38,6 +41,7 @@ public class MetadataService {
     private static final String OWNER_SYSTEM = "system";
     private static final String ADMIN_CLOUDPIVOT_PASSWORD = "admin_cloudpivot_password";
 
+    private final CloudPivotApiEndpointRepository apiEndpointRepository;
     private final CloudPivotAppRepository appRepository;
     private final CloudPivotEntityRepository entityRepository;
     private final CloudPivotDataItemRepository dataItemRepository;
@@ -49,6 +53,7 @@ public class MetadataService {
     private final MetadataVectorSearch metadataVectorSearch;
 
     public MetadataService(
+        CloudPivotApiEndpointRepository apiEndpointRepository,
         CloudPivotAppRepository appRepository,
         CloudPivotEntityRepository entityRepository,
         CloudPivotDataItemRepository dataItemRepository,
@@ -59,6 +64,7 @@ public class MetadataService {
         CloudPivotConnector cloudPivotConnector,
         MetadataVectorSearch metadataVectorSearch
     ) {
+        this.apiEndpointRepository = apiEndpointRepository;
         this.appRepository = appRepository;
         this.entityRepository = entityRepository;
         this.dataItemRepository = dataItemRepository;
@@ -82,6 +88,252 @@ public class MetadataService {
             .toList();
     }
 
+
+    public MetadataModelResponse metadataModel() {
+        List<CloudPivotApp> apps = appRepository.findAllByOrderBySyncedAtDesc();
+        List<CloudPivotEntity> entities = entityRepository.findAll();
+        List<CloudPivotDataItem> dataItems = dataItemRepository.findAll();
+        List<CloudPivotEntityRelation> relations = relationRepository.findAll();
+        List<MetadataModelResponse.ApiAction> apiActions = apiEndpointRepository.findAll().stream()
+            .map(this::toApiAction)
+            .toList();
+
+        Map<String, CloudPivotEntity> entitiesById = new LinkedHashMap<>();
+        for (CloudPivotEntity entity : entities) {
+            entitiesById.put(entity.getId(), entity);
+        }
+        Map<String, CloudPivotDataItem> dataItemsById = new LinkedHashMap<>();
+        Map<String, List<CloudPivotDataItem>> dataItemsByEntityId = new LinkedHashMap<>();
+        for (CloudPivotDataItem dataItem : dataItems) {
+            dataItemsById.put(dataItem.getId(), dataItem);
+            dataItemsByEntityId.computeIfAbsent(dataItem.getEntityId(), ignored -> new ArrayList<>()).add(dataItem);
+        }
+        Map<String, List<CloudPivotEntityRelation>> relationsByEntityId = new LinkedHashMap<>();
+        for (CloudPivotEntityRelation relation : relations) {
+            relationsByEntityId.computeIfAbsent(relation.getSourceEntityId(), ignored -> new ArrayList<>()).add(relation);
+            relationsByEntityId.computeIfAbsent(relation.getTargetEntityId(), ignored -> new ArrayList<>()).add(relation);
+        }
+        Map<String, List<CloudPivotEntity>> entitiesByAppId = new LinkedHashMap<>();
+        for (CloudPivotEntity entity : entities) {
+            entitiesByAppId.computeIfAbsent(entity.getAppId(), ignored -> new ArrayList<>()).add(entity);
+        }
+
+        List<MetadataModelResponse.AppModel> appModels = apps.stream()
+            .map(app -> new MetadataModelResponse.AppModel(
+                app.getId(),
+                app.getAppCode(),
+                app.getName(),
+                app.getDescription(),
+                instantText(app.getSyncedAt()),
+                entitiesByAppId.getOrDefault(app.getId(), List.of()).stream()
+                    .map(entity -> toEntityModel(app, entity, dataItemsByEntityId, relationsByEntityId, entitiesById, dataItemsById))
+                    .toList()
+            ))
+            .toList();
+        return new MetadataModelResponse(appModels, apiActions);
+    }
+
+    private MetadataModelResponse.EntityModel toEntityModel(
+        CloudPivotApp app,
+        CloudPivotEntity entity,
+        Map<String, List<CloudPivotDataItem>> dataItemsByEntityId,
+        Map<String, List<CloudPivotEntityRelation>> relationsByEntityId,
+        Map<String, CloudPivotEntity> entitiesById,
+        Map<String, CloudPivotDataItem> dataItemsById
+    ) {
+        List<MetadataModelResponse.DataItemModel> dataItems = dataItemsByEntityId.getOrDefault(entity.getId(), List.of()).stream()
+            .map(dataItem -> toDataItemModel(dataItem, entitiesById))
+            .toList();
+        List<MetadataModelResponse.RelationModel> relations = relationsByEntityId.getOrDefault(entity.getId(), List.of()).stream()
+            .map(relation -> toRelationModel(relation, entitiesById, dataItemsById))
+            .toList();
+        List<MetadataModelResponse.ApiAction> entityActions = businessRuleActions(app, entity);
+        return new MetadataModelResponse.EntityModel(
+            entity.getId(),
+            entity.getAppId(),
+            entity.getEntityCode(),
+            entity.getName(),
+            entity.getEntityType(),
+            instantText(entity.getSyncedAt()),
+            dataItems.size(),
+            relations.size(),
+            dataItems,
+            relations,
+            entityActions
+        );
+    }
+
+    private List<MetadataModelResponse.ApiAction> businessRuleActions(CloudPivotApp app, CloudPivotEntity entity) {
+        String appCode = safe(app.getAppCode(), "");
+        String schemaCode = safe(entity.getEntityCode(), "");
+        String basePath = "/api/api/runtime/business_rule/" + appCode + "/" + schemaCode;
+        String inputBase = "\"appCode\":\"" + appCode + "\",\"schemaCode\":\"" + schemaCode + "\"";
+        String syncedAt = instantText(entity.getSyncedAt());
+        return List.of(
+            businessRuleAction(
+                entity.getId(),
+                "Create",
+                "数据新增",
+                "POST",
+                basePath + "/Create",
+                "create",
+                "high",
+                true,
+                "{" + inputBase + ",\"data\":\"待新增的业务对象字段数据\"}",
+                "创建指定业务对象的一条运行态数据",
+                syncedAt
+            ),
+            businessRuleAction(
+                entity.getId(),
+                "Delete",
+                "数据删除",
+                "DELETE",
+                basePath + "/Delete/{bizObjectId}",
+                "delete",
+                "high",
+                true,
+                "{" + inputBase + ",\"bizObjectId\":\"待删除表单记录 ObjectId\"}",
+                "删除指定业务对象的一条运行态数据",
+                syncedAt
+            ),
+            businessRuleAction(
+                entity.getId(),
+                "GetList",
+                "加载列表数据",
+                "POST",
+                basePath + "/GetList",
+                "query_collection",
+                "low",
+                false,
+                "{" + inputBase + ",\"query\":\"列表查询条件、分页、排序和过滤参数\"}",
+                "查询指定业务对象的数据集合、分页列表和总数",
+                syncedAt
+            ),
+            businessRuleAction(
+                entity.getId(),
+                "Update",
+                "数据更新",
+                "PUT",
+                basePath + "/Update",
+                "update",
+                "high",
+                true,
+                "{" + inputBase + ",\"bizObjectId\":\"待更新表单记录 ObjectId\",\"data\":\"待更新字段数据\"}",
+                "更新指定业务对象的一条运行态数据",
+                syncedAt
+            ),
+            businessRuleAction(
+                entity.getId(),
+                "Load",
+                "加载表单详情",
+                "GET",
+                basePath + "/Load/{bizObjectId}",
+                "query_detail",
+                "low",
+                false,
+                "{" + inputBase + ",\"bizObjectId\":\"待加载表单记录 ObjectId\"}",
+                "加载指定业务对象的一条表单详情数据",
+                syncedAt
+            )
+        );
+    }
+
+    private MetadataModelResponse.ApiAction businessRuleAction(
+        String entityId,
+        String actionCode,
+        String name,
+        String method,
+        String path,
+        String operationType,
+        String riskLevel,
+        boolean requiresConfirmation,
+        String inputSchemaJson,
+        String dataScope,
+        String syncedAt
+    ) {
+        String apiCode = "business_rule_" + actionCode.toLowerCase();
+        return new MetadataModelResponse.ApiAction(
+            entityId + ":" + actionCode,
+            apiCode,
+            name,
+            method,
+            path,
+            "runtime_business_rule",
+            operationType,
+            riskLevel,
+            requiresConfirmation,
+            inputSchemaJson,
+            "{\"success\":\"是否成功\",\"data\":\"云枢接口返回的业务数据或执行结果\",\"message\":\"执行结果说明\"}",
+            dataScope,
+            "entity",
+            syncedAt
+        );
+    }
+
+    private MetadataModelResponse.DataItemModel toDataItemModel(CloudPivotDataItem dataItem, Map<String, CloudPivotEntity> entitiesById) {
+        CloudPivotEntity referenceEntity = hasText(dataItem.getReferenceEntityId()) ? entitiesById.get(dataItem.getReferenceEntityId()) : null;
+        return new MetadataModelResponse.DataItemModel(
+            dataItem.getId(),
+            dataItem.getDataItemCode(),
+            dataItem.getName(),
+            dataItem.getDataType(),
+            dataItem.isRequired(),
+            dataItem.isReference(),
+            dataItem.getReferenceEntityId(),
+            referenceEntity == null ? "" : referenceEntity.getEntityCode(),
+            referenceEntity == null ? "" : referenceEntity.getName(),
+            dataItem.getDescription(),
+            instantText(dataItem.getSyncedAt())
+        );
+    }
+
+    private MetadataModelResponse.RelationModel toRelationModel(
+        CloudPivotEntityRelation relation,
+        Map<String, CloudPivotEntity> entitiesById,
+        Map<String, CloudPivotDataItem> dataItemsById
+    ) {
+        CloudPivotEntity sourceEntity = entitiesById.get(relation.getSourceEntityId());
+        CloudPivotEntity targetEntity = entitiesById.get(relation.getTargetEntityId());
+        CloudPivotDataItem sourceDataItem = hasText(relation.getSourceDataItemId()) ? dataItemsById.get(relation.getSourceDataItemId()) : null;
+        return new MetadataModelResponse.RelationModel(
+            relation.getId(),
+            relation.getRelationType(),
+            relation.getRelationName(),
+            relation.getSourceEntityId(),
+            sourceEntity == null ? "" : sourceEntity.getEntityCode(),
+            sourceEntity == null ? "" : sourceEntity.getName(),
+            relation.getSourceDataItemId(),
+            sourceDataItem == null ? "" : sourceDataItem.getDataItemCode(),
+            sourceDataItem == null ? "" : sourceDataItem.getName(),
+            relation.getTargetEntityId(),
+            targetEntity == null ? "" : targetEntity.getEntityCode(),
+            targetEntity == null ? "" : targetEntity.getName(),
+            instantText(relation.getSyncedAt())
+        );
+    }
+
+    private MetadataModelResponse.ApiAction toApiAction(CloudPivotApiEndpoint endpoint) {
+        return new MetadataModelResponse.ApiAction(
+            endpoint.getId(),
+            endpoint.getApiCode(),
+            endpoint.getName(),
+            endpoint.getMethod(),
+            endpoint.getPath(),
+            endpoint.getCategory(),
+            endpoint.getOperationType(),
+            endpoint.getRiskLevel(),
+            endpoint.isRequiresConfirmation(),
+            endpoint.getInputSchemaJson(),
+            endpoint.getOutputSchemaJson(),
+            endpoint.getDataScope(),
+            endpoint.getApplicableObjectType(),
+            instantText(endpoint.getSyncedAt())
+        );
+    }
+
+    private String instantText(Instant instant) {
+        return instant == null ? null : instant.toString();
+    }
     @Transactional
     public MetadataSyncResponse initializeCloudPivotMetadata() {
         Instant now = Instant.now();
@@ -97,6 +349,7 @@ public class MetadataService {
         );
 
         searchDocumentRepository.deleteAllInBatch();
+        apiEndpointRepository.deleteAllInBatch();
         relationRepository.deleteAllInBatch();
         dataItemRepository.deleteAllInBatch();
         entityRepository.deleteAllInBatch();
@@ -126,6 +379,11 @@ public class MetadataService {
             .filter(item -> item != null)
             .toList();
         relationRepository.saveAll(relations);
+
+        List<CloudPivotApiEndpoint> apiEndpoints = snapshot.apiEndpoints().stream()
+            .map(api -> createApiEndpoint(api, now))
+            .toList();
+        apiEndpointRepository.saveAll(apiEndpoints);
 
         List<MetadataSearchDocument> searchDocuments = new ArrayList<>();
         for (CloudPivotApp app : apps) {
@@ -161,9 +419,24 @@ public class MetadataService {
                 entity.getId(),
                 dataItem.getName(),
                 dataItem.getDataItemCode(),
-                app.getName() + " " + entity.getName() + " " + dataItem.getName() + " " + dataItem.getDataItemCode() + " " + dataItem.getDataType() + relationText,
+                app.getName() + " " + entity.getName() + " 查询 新增 修改 删除 表单 数据 字段 附件 流程 操作" + dataItem.getName() + " " + dataItem.getDataItemCode() + " " + dataItem.getDataType() + relationText,
                 app.getName() + " / " + entity.getName() + " / " + dataItem.getName(),
                 riskLevelByCode(snapshot, entity.getEntityCode()),
+                syncId,
+                now
+            ));
+        }
+        for (CloudPivotApiEndpoint apiEndpoint : apiEndpoints) {
+            searchDocuments.add(createDocument(
+                "api_endpoint",
+                apiEndpoint.getId(),
+                null,
+                null,
+                apiEndpoint.getName(),
+                apiEndpoint.getApiCode(),
+                apiSearchText(apiEndpoint),
+                "云枢 API / " + apiEndpoint.getName(),
+                apiEndpoint.getRiskLevel(),
                 syncId,
                 now
             ));
@@ -183,7 +456,7 @@ public class MetadataService {
                 sourceEntity.getId(),
                 name,
                 relation.getRelationType(),
-                app.getName() + " " + sourceEntity.getName() + " " + targetEntity.getName() + " " + name + " 关联表单 关联关系 跨实体 查询 分析",
+                app.getName() + " " + sourceEntity.getName() + "关联" + targetEntity.getName() + " " + name + " 鍏宠仈琛ㄥ崟 鍏宠仈鍏崇郴 璺ㄥ疄浣?鏌ヨ 鍒嗘瀽",
                 app.getName() + " / " + sourceEntity.getName() + " / " + name + " -> " + targetEntity.getName(),
                 riskLevelByCode(snapshot, sourceEntity.getEntityCode()),
                 syncId,
@@ -200,6 +473,41 @@ public class MetadataService {
         return new MetadataSyncResponse(syncId, "cloudpivot-metadata-initialized", apps.size(), entities.size(), dataItems.size(), relations.size(), (int) searchDocumentRepository.count(), now.toString());
     }
 
+    private CloudPivotApiEndpoint createApiEndpoint(CloudPivotMetadataSnapshot.ApiEndpointMetadata metadata, Instant now) {
+        CloudPivotApiEndpoint endpoint = new CloudPivotApiEndpoint();
+        endpoint.setId(UUID.randomUUID().toString());
+        endpoint.setApiCode(metadata.apiCode());
+        endpoint.setName(metadata.name());
+        endpoint.setMethod(metadata.method());
+        endpoint.setPath(metadata.path());
+        endpoint.setCategory(metadata.category());
+        endpoint.setOperationType(metadata.operationType());
+        endpoint.setRiskLevel(metadata.riskLevel());
+        endpoint.setRequiresConfirmation(metadata.requiresConfirmation());
+        endpoint.setInputSchemaJson(metadata.inputSchemaJson());
+        endpoint.setOutputSchemaJson(metadata.outputSchemaJson());
+        endpoint.setDataScope(metadata.dataScope());
+        endpoint.setApplicableObjectType(metadata.applicableObjectType());
+        endpoint.setRawJson(hasText(metadata.rawJson()) ? metadata.rawJson() : "{\"source\":\"cloudpivot-api-endpoint\"}");
+        endpoint.setSyncedAt(now);
+        return endpoint;
+    }
+
+    private String apiSearchText(CloudPivotApiEndpoint endpoint) {
+        return String.join(" ",
+            "云枢 API 接口 能力 动作 执行",
+            safe(endpoint.getName(), ""),
+            safe(endpoint.getApiCode(), ""),
+            safe(endpoint.getOperationType(), ""),
+            safe(endpoint.getMethod(), ""),
+            safe(endpoint.getPath(), ""),
+            safe(endpoint.getCategory(), ""),
+            safe(endpoint.getDataScope(), ""),
+            safe(endpoint.getApplicableObjectType(), ""),
+            safe(endpoint.getInputSchemaJson(), ""),
+            safe(endpoint.getOutputSchemaJson(), "")
+        );
+    }
     private CloudPivotApp createApp(String code, String name, String description, String syncId, Instant now) {
         CloudPivotApp app = new CloudPivotApp();
         app.setId(UUID.randomUUID().toString());
@@ -395,6 +703,10 @@ public class MetadataService {
 
     private String dataItemKey(String appCode, String entityCode, String dataItemCode) {
         return entityKey(appCode, entityCode) + ":" + (dataItemCode == null ? "" : dataItemCode);
+    }
+
+    private String safe(String value, String fallback) {
+        return hasText(value) ? value : fallback;
     }
 
     private boolean hasText(String value) {

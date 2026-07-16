@@ -21,7 +21,7 @@
 - 客户统计：能将“系统有多少个客户？”识别为客户计数，并在 mock 和真实云枢元数据下命中 `客户 / crm_customer`。
 - 维度分析：能将“每年的客户量情况怎么样？”识别为对象=客户、维度=年份，并在真实云枢 total=8694 时分页返回 8694 条后做按年聚合。
 - 分析请求：能将“分析系统中的商机信息”识别为 `analyze_data`，先查询运行态数据，再交给模型/规则生成分析。
-- 执行过程可见：`Think` 步骤展示动作、业务对象、维度、筛选、候选对象和候选编码；回答正文展示真实 `schemaCode`、运行态来源、total、原始数据摘要和结论生成方式。
+- 审计过程可追踪：`Think` 步骤、Agent Run 和工具调用记录展示动作、业务对象、维度、筛选、候选对象、真实 `schemaCode`、运行态来源、total、原始数据摘要和结论生成方式；回答正文默认只展示业务结论或分析，不再展示 `### 执行过程`。
 - fallback 保护：在 fallback 演示环境下，“系统有多少商机？”不会返回 `system_opportunity`、演示样本或 `总计 **3** 条`，而是进入澄清/阻断，提示需要真实云枢元数据。
 
 主要不足：
@@ -63,7 +63,9 @@
 候选对象：商机
 schemaCode：int_bu_oppor
 运行态 total：237
-回答包含：schemaCode=`int_bu_oppor`、北京菲斯曼供热、总计 **237** 条
+回答正文包含：总计 **237** 条
+Agent 步骤/审计包含：schemaCode=int_bu_oppor、北京菲斯曼供热
+回答正文不包含：### 执行过程、schemaCode=`int_bu_oppor`
 回答不包含：system_opportunity、local-fallback、演示编码
 ```
 
@@ -75,7 +77,9 @@ schemaCode：int_bu_oppor
 schemaCode：crm_customer
 mock 运行态 total：58
 真实运行态 total：8694
-回答包含：schemaCode=`crm_customer`、总计 **8694** 条
+回答正文包含：总计 **8694** 条
+Agent 步骤/审计包含：schemaCode=crm_customer
+回答正文不包含：### 执行过程、schemaCode=`crm_customer`
 回答不包含：system_customer、local-fallback、商机 total
 ```
 
@@ -87,7 +91,9 @@ mock 运行态 total：58
 schemaCode：crm_customer
 真实运行态 total：8694
 真实运行态 returned：8694
-回答包含：schemaCode=`crm_customer`、按年客户量分析、原始数据摘要
+回答正文包含：按年客户量分析
+Agent 步骤/审计包含：schemaCode=crm_customer、原始数据摘要
+回答正文不包含：### 执行过程、原始数据摘要
 回答不包含：system_customer、local-fallback、样本冒充全量
 ```
 
