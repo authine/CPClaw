@@ -67,7 +67,10 @@ public class AgentOrchestrator {
             steps,
             progressListener,
             "理解请求",
-            "结合当前输入和最近 " + observation.recentMessages().size() + " 条对话，识别用户希望执行的业务动作。",
+            "结合当前输入和最近 " + observation.recentMessages().size() + " 条对话，识别用户希望执行的业务动作。"
+                + (observation.inheritedRuntimeObject()
+                    ? " 本次请求继承上一轮已确认的业务对象，继承对象=是，schemaCode=`" + match.code() + "`。"
+                    : ""),
             "识别为“" + thought.slots().actionLabel() + "”，目标是“" + thought.slots().businessObject() + "”，意图=" + intent + "。"
         );
         completeStep(
@@ -76,6 +79,7 @@ public class AgentOrchestrator {
             "定位业务对象",
             "使用用户原话和业务同义词检索已同步的云枢 Metadata Index。",
             metadataConclusion(match)
+                + ("analyze_data".equals(intent) ? " 分析维度=" + thought.slots().dimension() + "。" : "")
         );
         boolean writeRisk = isWriteIntent(intent);
         String riskLevel = writeRisk ? "medium" : "low";
@@ -217,7 +221,12 @@ public class AgentOrchestrator {
                 reflection.summary()
             );
         }
-        MessageItem responseAssistantMessage = withAgentRunMetadata(actResult.assistantMessage(), run.getId(), defaultMetadataSource(actResult));
+        MessageItem responseAssistantMessage = withAgentRunMetadata(
+            actResult.assistantMessage(),
+            run.getId(),
+            defaultMetadataSource(actResult),
+            steps
+        );
 
         return new AgentResponse(
             run.getId(),
@@ -571,7 +580,12 @@ public class AgentOrchestrator {
         return new MessageItem(message.id(), message.role(), content, message.createdAt(), metadataJson);
     }
 
-    private MessageItem withAgentRunMetadata(MessageItem message, String agentRunId, String defaultSource) {
+    private MessageItem withAgentRunMetadata(
+        MessageItem message,
+        String agentRunId,
+        String defaultSource,
+        List<ExecutionStepDto> executionSteps
+    ) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         if (message.metadataJson() != null && !message.metadataJson().isBlank()) {
             try {
@@ -584,6 +598,7 @@ public class AgentOrchestrator {
             metadata.put("source", defaultSource);
         }
         metadata.put("agentRunId", agentRunId);
+        metadata.put("executionSteps", List.copyOf(executionSteps));
         return withContent(message, message.content(), toJson(metadata));
     }
 

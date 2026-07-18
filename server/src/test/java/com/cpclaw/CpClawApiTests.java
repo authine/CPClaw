@@ -274,7 +274,6 @@ class CpClawApiTests {
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **237** 条"));
         assertFalse(countOpportunityBody.contains("### 执行过程"));
-        assertTrue(countOpportunityBody.contains("北京菲斯曼供热"));
         assertFalse(countOpportunityBody.contains("system_opportunity"));
         assertFalse(countOpportunityBody.contains("local-fallback"));
         assertFalse(countOpportunityBody.contains("演示编码"));
@@ -301,12 +300,15 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **237** 条")))
-            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("agentRunId")));
+            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("agentRunId")))
+            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("executionSteps")));
 
         mockMvc.perform(get("/api/conversations/" + multiTurnConversationId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("agentRunId")))
-            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("runtime-query")));
+            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("runtime-query")))
+            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("executionSteps")))
+            .andExpect(jsonPath("$.data.messages[1].metadataJson").value(containsString("校验结果")));
 
         MvcResult stageFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -322,15 +324,15 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[0].process").value(containsString("继承对象=是")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
             .andReturn();
         String stageFollowUpBody = stageFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(stageFollowUpBody.contains("方案确认"));
         assertTrue(stageFollowUpBody.contains("需求沟通"));
         assertTrue(stageFollowUpBody.contains("合同审批"));
-        assertTrue(stageFollowUpBody.contains("schemaCode=int_bu_oppor"));
-        assertFalse(stageFollowUpBody.contains("schemaCode=crm_customer"));
+        assertTrue(stageFollowUpBody.contains("schemaCode=`int_bu_oppor`"));
+        assertFalse(stageFollowUpBody.contains("schemaCode=`crm_customer`"));
 
         MvcResult explicitPathConversation = mockMvc.perform(post("/api/conversations")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -368,15 +370,15 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
-            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("business_opportunity")))
+            .andExpect(jsonPath("$.data.steps[0].process").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[0].process").value(containsString("business_opportunity")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
             .andReturn();
         String explicitPathFollowUpBody = explicitPathFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(explicitPathFollowUpBody.contains("项目立项"));
         assertTrue(explicitPathFollowUpBody.contains("资源确认"));
-        assertTrue(explicitPathFollowUpBody.contains("schemaCode=business_opportunity"));
-        assertFalse(explicitPathFollowUpBody.contains("schemaCode=int_bu_oppor"));
+        assertTrue(explicitPathFollowUpBody.contains("schemaCode=`business_opportunity`"));
+        assertFalse(explicitPathFollowUpBody.contains("schemaCode=`int_bu_oppor`"));
 
         MvcResult colloquialOpportunityResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -398,7 +400,7 @@ class CpClawApiTests {
             .andReturn();
         String colloquialOpportunityBody = colloquialOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(colloquialOpportunityBody.contains("总计 **237** 条"));
-        assertTrue(colloquialOpportunityBody.contains("schemaCode=int_bu_oppor"));
+        assertTrue(colloquialOpportunityBody.contains("schemaCode=`int_bu_oppor`"));
         assertTrue(colloquialOpportunityBody.contains("北京菲斯曼供热"));
 
         MvcResult streamStart = mockMvc.perform(post("/api/conversations/messages/stream")
@@ -448,7 +450,6 @@ class CpClawApiTests {
         String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countCustomerBody.contains("总计 **58** 条"));
         assertFalse(countCustomerBody.contains("### 执行过程"));
-        assertTrue(countCustomerBody.contains("华东制造集团"));
         assertFalse(countCustomerBody.contains("system_customer"));
         assertFalse(countCustomerBody.contains("local-fallback"));
         assertFalse(countCustomerBody.contains("总计 **237** 条"));
@@ -489,15 +490,15 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[0].process").value(containsString("继承对象=是")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按省份分布")))
             .andReturn();
         String provinceFollowUpBody = provinceFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(provinceFollowUpBody.contains("schemaCode=crm_customer"));
+        assertTrue(provinceFollowUpBody.contains("schemaCode=`crm_customer`"));
         assertTrue(provinceFollowUpBody.contains("广东省：2 个客户"));
         assertTrue(provinceFollowUpBody.contains("上海市：1 个客户"));
-        assertFalse(provinceFollowUpBody.contains("schemaCode=system_customer"));
-        assertFalse(provinceFollowUpBody.contains("schemaCode=Test009"));
+        assertFalse(provinceFollowUpBody.contains("schemaCode=`system_customer`"));
+        assertFalse(provinceFollowUpBody.contains("schemaCode=`Test009`"));
 
         MvcResult customerLifecycleFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -513,16 +514,16 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[0].status").value(containsString("继承对象=是")))
-            .andExpect(jsonPath("$.data.steps[1].status").value(containsString("分析维度=新老客户")))
+            .andExpect(jsonPath("$.data.steps[0].process").value(containsString("继承对象=是")))
+            .andExpect(jsonPath("$.data.steps[1].conclusion").value(containsString("分析维度=新老客户")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("新老客户对比")))
             .andReturn();
         String customerLifecycleFollowUpBody = customerLifecycleFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(customerLifecycleFollowUpBody.contains("schemaCode=crm_customer"));
+        assertTrue(customerLifecycleFollowUpBody.contains("schemaCode=`crm_customer`"));
         assertTrue(customerLifecycleFollowUpBody.contains("新客户：2 个客户"));
         assertTrue(customerLifecycleFollowUpBody.contains("老客户：2 个客户"));
-        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=system_customer"));
-        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=Test009"));
+        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=`system_customer`"));
+        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=`Test009`"));
 
         MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)

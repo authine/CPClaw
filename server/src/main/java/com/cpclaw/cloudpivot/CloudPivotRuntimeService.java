@@ -1,6 +1,7 @@
 package com.cpclaw.cloudpivot;
 
 import com.cpclaw.credential.CredentialService;
+import com.cpclaw.cloudpivot.CloudPivotRecordDisplayPolicy.DisplayContext;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.model.ModelGateway;
 import com.cpclaw.settings.entity.SystemSettings;
@@ -23,17 +24,23 @@ public class CloudPivotRuntimeService {
     private final CredentialService credentialService;
     private final CloudPivotConnector cloudPivotConnector;
     private final ModelGateway modelGateway;
+    private final CloudPivotRuntimeProperties runtimeProperties;
+    private final CloudPivotRecordDisplayPolicy recordDisplayPolicy;
 
     public CloudPivotRuntimeService(
         SystemSettingsRepository settingsRepository,
         CredentialService credentialService,
         CloudPivotConnector cloudPivotConnector,
-        ModelGateway modelGateway
+        ModelGateway modelGateway,
+        CloudPivotRuntimeProperties runtimeProperties,
+        CloudPivotRecordDisplayPolicy recordDisplayPolicy
     ) {
         this.settingsRepository = settingsRepository;
         this.credentialService = credentialService;
         this.cloudPivotConnector = cloudPivotConnector;
         this.modelGateway = modelGateway;
+        this.runtimeProperties = runtimeProperties;
+        this.recordDisplayPolicy = recordDisplayPolicy;
     }
 
     public CloudPivotQueryAnswer query(MetadataSearchResult match, String userQuestion, String modelConfigId, boolean thinkingEnabled) {
@@ -96,7 +103,8 @@ public class CloudPivotRuntimeService {
         if (isFallbackResult(result)) {
             throw new IllegalStateException("当前连接返回的是本地演示数据源 local-fallback，不能用于回答真实云枢业务数据。请配置真实云枢地址、账号并重新同步元数据。");
         }
-        RuntimeAnswerDetail detail = summarize(match, result, userQuestion, modelConfigId, thinkingEnabled);
+        DisplayContext displayContext = recordDisplayPolicy.context(match.code());
+        RuntimeAnswerDetail detail = summarize(match, result, userQuestion, modelConfigId, thinkingEnabled, displayContext);
         return new CloudPivotQueryAnswer(
             match.name(),
             match.code(),
@@ -105,23 +113,30 @@ public class CloudPivotRuntimeService {
             detail.answer(),
             result.sourceEndpoint(),
             detail.actionSummary(),
-            rawDataSummary(result),
+            rawDataSummary(result, displayContext),
             detail.conclusionSummary()
         );
     }
 
-    private RuntimeAnswerDetail summarize(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, String userQuestion, String modelConfigId, boolean thinkingEnabled) {
+    private RuntimeAnswerDetail summarize(
+        MetadataSearchResult match,
+        CloudPivotRuntimeQueryResult result,
+        String userQuestion,
+        String modelConfigId,
+        boolean thinkingEnabled,
+        DisplayContext displayContext
+    ) {
         if (isStageDistributionQuestion(userQuestion)) {
-            return stageDistributionAnalysis(match, result);
+            return stageDistributionAnalysis(match, result, displayContext);
         }
         if (isYearlyDistributionQuestion(userQuestion)) {
-            return yearlyDistributionAnalysis(match, result);
+            return yearlyDistributionAnalysis(match, result, displayContext);
         }
         if (isProvinceDistributionQuestion(userQuestion)) {
-            return provinceDistributionAnalysis(match, result);
+            return provinceDistributionAnalysis(match, result, displayContext);
         }
         if (isNewOldCustomerQuestion(userQuestion)) {
-            return newOldCustomerAnalysis(match, result);
+            return newOldCustomerAnalysis(match, result, displayContext);
         }
         if (isCountQuestion(userQuestion)) {
             String conclusion = "统计“" + match.name() + "”总数为 " + result.total() + " 条";
@@ -132,7 +147,7 @@ public class CloudPivotRuntimeService {
             String conclusion = "基于“" + match.name() + "”返回数据生成业务分析";
             String answer = modelGateway.analyzeRecords(modelConfigId, userQuestion, match.name(), result.total(), result.records(), thinkingEnabled)
                 .map(modelAnswer -> "已查询“" + match.name() + "”数据，并基于返回结果完成分析：\n\n" + modelAnswer)
-                .orElseGet(() -> fallbackAnalysis(match, result));
+                .orElseGet(() -> fallbackAnalysis(match, result, displayContext));
             return new RuntimeAnswerDetail(answer, "分析查询：查询运行态数据并生成分析", conclusion);
         }
         StringBuilder answer = new StringBuilder();
@@ -140,14 +155,14 @@ public class CloudPivotRuntimeService {
         if (!result.records().isEmpty()) {
             answer.append("\n\n前 ").append(result.records().size()).append(" 条记录摘要：");
             for (int i = 0; i < result.records().size(); i++) {
-                answer.append("\n").append(i + 1).append(". ").append(recordSummary(result.records().get(i)));
+                answer.append("\n").append(i + 1).append(". ").append(recordSummary(displayContext, result.records().get(i)));
             }
         }
         String conclusion = "查询“" + match.name() + "”并返回前 " + result.records().size() + " 条摘要";
         return new RuntimeAnswerDetail(answer.toString(), "列表查询：查询运行态记录摘要", conclusion);
     }
 
-    private RuntimeAnswerDetail yearlyDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private RuntimeAnswerDetail yearlyDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         Map<String, Long> yearlyCounts = result.records().stream()
             .map(this::recordData)
             .map(this::recordYear)
@@ -164,7 +179,7 @@ public class CloudPivotRuntimeService {
         if (yearlyCounts.isEmpty()) {
             answer.append("- 当前返回记录中没有可识别的年份字段，建议确认").append(objectLabel).append("表是否存在创建时间、登记时间或年份字段。\n");
             if (!result.records().isEmpty()) {
-                answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
+                answer.append("- 返回样本：").append(recordSummary(displayContext, result.records().getFirst())).append("。\n");
             }
             String conclusion = "未能从返回记录识别年份字段，不能生成年度分布";
             return new RuntimeAnswerDetail(answer.toString(), "按年分析：查询运行态数据并按年份聚合", conclusion);
@@ -183,7 +198,7 @@ public class CloudPivotRuntimeService {
         return new RuntimeAnswerDetail(answer.toString(), "按年分析：查询运行态数据并按年份聚合", conclusion);
     }
 
-    private RuntimeAnswerDetail stageDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private RuntimeAnswerDetail stageDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         Map<String, Long> stageCounts = result.records().stream()
             .map(this::recordData)
             .map(this::recordStage)
@@ -198,7 +213,7 @@ public class CloudPivotRuntimeService {
         if (stageCounts.isEmpty()) {
             answer.append("- 当前返回记录中没有可识别的阶段或状态字段，建议确认").append(objectLabel).append("表是否存在阶段、状态、stage、status 等字段。\n");
             if (!result.records().isEmpty()) {
-                answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
+                answer.append("- 返回样本：").append(recordSummary(displayContext, result.records().getFirst())).append("。\n");
             }
             String conclusion = "未能从返回记录识别阶段或状态字段，不能生成阶段分布";
             return new RuntimeAnswerDetail(answer.toString(), "阶段分布分析：查询运行态数据并按阶段聚合", conclusion);
@@ -215,7 +230,7 @@ public class CloudPivotRuntimeService {
         return new RuntimeAnswerDetail(answer.toString(), "阶段分布分析：查询运行态数据并按阶段聚合", conclusion);
     }
 
-    private RuntimeAnswerDetail provinceDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private RuntimeAnswerDetail provinceDistributionAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         Map<String, Long> provinceCounts = result.records().stream()
             .map(this::recordData)
             .map(this::recordProvince)
@@ -243,7 +258,7 @@ public class CloudPivotRuntimeService {
         if (provinceCounts.isEmpty()) {
             answer.append("- 当前返回记录中没有可识别的省份、地区、区域、城市或地址字段，建议确认").append(objectLabel).append("表是否存在 province、省份、所属省份、地区、区域、城市或地址字段。\n");
             if (!result.records().isEmpty()) {
-                answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
+                answer.append("- 返回样本：").append(recordSummary(displayContext, result.records().getFirst())).append("。\n");
             }
             String conclusion = "未能从返回记录识别省份或区域字段，不能生成省份分布";
             return new RuntimeAnswerDetail(answer.toString(), "省份分布分析：查询运行态数据并按省份/区域聚合", conclusion);
@@ -260,7 +275,7 @@ public class CloudPivotRuntimeService {
         return new RuntimeAnswerDetail(answer.toString(), "省份分布分析：查询运行态数据并按省份/区域聚合", conclusion);
     }
 
-    private RuntimeAnswerDetail newOldCustomerAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private RuntimeAnswerDetail newOldCustomerAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         Map<String, Long> lifecycleCounts = result.records().stream()
             .map(this::recordData)
             .map(this::recordCustomerLifecycleType)
@@ -276,7 +291,7 @@ public class CloudPivotRuntimeService {
             answer.append("- 当前返回记录中没有可识别的新老客户或客户类型字段，不能可靠判断新客户、老客户哪个更多。\n");
             answer.append("- 建议确认").append(objectLabel).append("表是否存在 customerType、customer_type、客户类型、新老客户、是否新客户、客户属性、客户性质、存量/新增 等字段。\n");
             if (!result.records().isEmpty()) {
-                answer.append("- 返回样本：").append(recordSummary(result.records().getFirst())).append("。\n");
+                answer.append("- 返回样本：").append(recordSummary(displayContext, result.records().getFirst())).append("。\n");
             }
             if (result.records().size() < result.total()) {
                 answer.append("- 为避免卡顿，本次只做了前 ").append(result.records().size()).append(" 条轻量样本识别；样本未发现可用字段，因此没有继续全量扫描。\n");
@@ -315,13 +330,13 @@ public class CloudPivotRuntimeService {
         return result != null && "local-fallback".equals(result.sourceEndpoint());
     }
 
-    private String rawDataSummary(CloudPivotRuntimeQueryResult result) {
+    private String rawDataSummary(CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         if (result.records().isEmpty()) {
             return "未返回记录明细";
         }
         return result.records().stream()
             .limit(3)
-            .map(this::recordSummary)
+            .map(record -> recordSummary(displayContext, record))
             .reduce((left, right) -> left + "；" + right)
             .orElse("未返回记录明细");
     }
@@ -563,7 +578,7 @@ public class CloudPivotRuntimeService {
         return matcher.find() ? java.util.Optional.of(matcher.group(1)) : java.util.Optional.empty();
     }
 
-    private String fallbackAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result) {
+    private String fallbackAnalysis(MetadataSearchResult match, CloudPivotRuntimeQueryResult result, DisplayContext displayContext) {
         StringBuilder answer = new StringBuilder();
         answer.append("已在云枢中查询到“").append(match.name()).append("”对应数据，总计 **").append(result.total()).append("** 条。当前模型未配置或暂不可用，先基于查询结果给出规则分析：");
         if (result.records().isEmpty()) {
@@ -571,7 +586,7 @@ public class CloudPivotRuntimeService {
             return answer.toString();
         }
         answer.append("\n\n- 返回样本数：").append(result.records().size()).append(" 条。");
-        answer.append("\n- 代表性记录：").append(recordSummary(result.records().getFirst())).append("。");
+        answer.append("\n- 代表性记录：").append(recordSummary(displayContext, result.records().getFirst())).append("。");
         opportunityAmountSummary(result.records()).ifPresent(summary -> answer.append("\n- 金额概览：").append(summary).append("。"));
         stageSummary(result.records()).ifPresent(summary -> answer.append("\n- 阶段分布：").append(summary).append("。"));
         answer.append("\n- 建议下一步：配置可用大模型后重新分析，系统会基于完整返回样本生成更深入的结论、风险和行动建议。");
@@ -613,42 +628,12 @@ public class CloudPivotRuntimeService {
         return data instanceof Map<?, ?> dataMap ? dataMap : record;
     }
 
-    private String recordSummary(Map<String, Object> record) {
+    private String recordSummary(DisplayContext displayContext, Map<String, Object> record) {
         Object data = record.get("data");
         if (data instanceof Map<?, ?> dataMap) {
-            return pickReadableValue(dataMap);
+            return recordDisplayPolicy.summarize(displayContext, dataMap);
         }
-        return pickReadableValue(record);
-    }
-
-    private String pickReadableValue(Map<?, ?> values) {
-        return values.entrySet().stream()
-            .filter(entry -> entry.getValue() != null)
-            .filter(entry -> !String.valueOf(entry.getKey()).toLowerCase().contains("password"))
-            .sorted((left, right) -> Integer.compare(displayPriority(left.getKey()), displayPriority(right.getKey())))
-            .limit(5)
-            .map(entry -> String.valueOf(entry.getKey()) + "=" + valueText(entry.getValue()))
-            .reduce((left, right) -> left + "，" + right)
-            .orElse("无可展示字段");
-    }
-
-    private int displayPriority(Object key) {
-        String value = String.valueOf(key);
-        if ("instanceName".equalsIgnoreCase(value) || "name".equalsIgnoreCase(value) || "title".equalsIgnoreCase(value)) {
-            return 0;
-        }
-        if ("id".equalsIgnoreCase(value) || "objectId".equalsIgnoreCase(value) || "dataId".equalsIgnoreCase(value)) {
-            return 2;
-        }
-        return 1;
-    }
-
-    private String valueText(Object value) {
-        if (value instanceof Map<?, ?> map && map.containsKey("name")) {
-            return String.valueOf(map.get("name"));
-        }
-        String text = String.valueOf(value);
-        return text.length() > 80 ? text.substring(0, 80) + "..." : text;
+        return recordDisplayPolicy.summarize(displayContext, record);
     }
 
     private boolean isCountQuestion(String content) {
@@ -733,29 +718,31 @@ public class CloudPivotRuntimeService {
     }
 
     private int queryPageSize(String content) {
+        CloudPivotRuntimeProperties.Query query = runtimeProperties.getQuery();
         if (isYearlyDistributionQuestion(content)) {
-            return 200;
+            return query.getYearlyPageSize();
         }
         if (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content) || isAnalysisQuestion(content)) {
-            return 100;
+            return query.getAnalysisPageSize();
         }
-        return isCountQuestion(content) ? 1 : 10;
+        return isCountQuestion(content) ? query.getCountPageSize() : query.getListPageSize();
     }
 
     private int queryRecordLimit(String content) {
+        CloudPivotRuntimeProperties.Query query = runtimeProperties.getQuery();
         if (isCountQuestion(content)) {
-            return 1;
+            return query.getCountRecordLimit();
         }
         if (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content)) {
-            return 100;
+            return query.getDimensionRecordLimit();
         }
         if (isYearlyDistributionQuestion(content)) {
-            return 20_000;
+            return query.getYearlyRecordLimit();
         }
         if (isAnalysisQuestion(content)) {
-            return 200;
+            return query.getAnalysisRecordLimit();
         }
-        return 10;
+        return query.getListRecordLimit();
     }
 
     private boolean requiresFullDimensionDetails(String content) {

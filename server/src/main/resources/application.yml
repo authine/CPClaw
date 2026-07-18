@@ -23,6 +23,73 @@ cpclaw:
   storage-root: ${CPC_STORAGE_ROOT:./storage}
   cloudpivot:
     corp-id: ${CPC_CLOUDPIVOT_CORP_ID:dingbb40ac2a2529cb14}
+    runtime:
+      query:
+        count-page-size: ${CPC_RUNTIME_COUNT_PAGE_SIZE:1}
+        list-page-size: ${CPC_RUNTIME_LIST_PAGE_SIZE:10}
+        analysis-page-size: ${CPC_RUNTIME_ANALYSIS_PAGE_SIZE:100}
+        yearly-page-size: ${CPC_RUNTIME_YEARLY_PAGE_SIZE:200}
+        count-record-limit: ${CPC_RUNTIME_COUNT_RECORD_LIMIT:1}
+        list-record-limit: ${CPC_RUNTIME_LIST_RECORD_LIMIT:10}
+        dimension-record-limit: ${CPC_RUNTIME_DIMENSION_RECORD_LIMIT:100}
+        analysis-record-limit: ${CPC_RUNTIME_ANALYSIS_RECORD_LIMIT:200}
+        yearly-record-limit: ${CPC_RUNTIME_YEARLY_RECORD_LIMIT:20000}
+      connector:
+        request-timeout-seconds: ${CPC_RUNTIME_REQUEST_TIMEOUT_SECONDS:15}
+        max-analysis-records: ${CPC_RUNTIME_MAX_ANALYSIS_RECORDS:20000}
+        max-page-size: ${CPC_RUNTIME_MAX_PAGE_SIZE:200}
+        max-detail-enrich-records: ${CPC_RUNTIME_MAX_DETAIL_ENRICH_RECORDS:500}
+        max-list-detail-records: ${CPC_RUNTIME_MAX_LIST_DETAIL_RECORDS:10}
+        detail-enrich-parallelism: ${CPC_RUNTIME_DETAIL_ENRICH_PARALLELISM:16}
+        data-item-probe-parallelism: ${CPC_RUNTIME_DATA_ITEM_PROBE_PARALLELISM:8}
+      display:
+        max-fields: ${CPC_RUNTIME_DISPLAY_MAX_FIELDS:5}
+        max-value-length: ${CPC_RUNTIME_DISPLAY_MAX_VALUE_LENGTH:80}
+        default-priority: ${CPC_RUNTIME_DISPLAY_DEFAULT_PRIORITY:30}
+        nested-value-keys: [name, displayName, label, text, value]
+        hidden-exact: [id, objectId, dataId, operator]
+        hidden-contains: [password, schema, propertyType, displayCode, modifier, sequence, rawJson]
+        hidden-suffixes: [_id, Id]
+        identifier-patterns:
+          - '(?i)[0-9a-f]{32}'
+          - '(?i)[0-9a-f]{8}-[0-9a-f-]{27,}'
+        field-rules:
+          - label: 名称
+            priority: 0
+            exact: [instanceName, name, title]
+          - label: 负责人
+            priority: 10
+            contains: [owner, principal, 负责人]
+          - label: 阶段
+            priority: 10
+            contains: [stage, 阶段]
+          - label: 状态
+            priority: 10
+            contains: [status, state, 状态]
+          - label: 金额
+            priority: 10
+            contains: [amount, money, 金额]
+          - label: 客户
+            priority: 10
+            contains: [customer, 客户]
+          - label: 销售组织
+            priority: 10
+            contains: [sales_org, salesOrg, 销售组织]
+          - label: 签约概率
+            priority: 10
+            contains: [sign_probability, 签约概率]
+          - label: 预计签约时间
+            priority: 10
+            contains: [pre_sign, 预计签约]
+          - label: 分类
+            priority: 10
+            contains: [category, 分类]
+          - label: 创建时间
+            priority: 20
+            contains: [created, 创建时间]
+          - label: 更新时间
+            priority: 20
+            contains: [modified, updated, 更新时间]
   vector:
     enabled: ${CPCLAW_VECTOR_ENABLED:false}
     jdbc-url: ${CPCLAW_VECTOR_JDBC_URL:jdbc:postgresql://localhost:5432/CPClaw}

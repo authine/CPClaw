@@ -38,27 +38,24 @@ import org.springframework.stereotype.Service;
 public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private static final Logger log = LoggerFactory.getLogger(MvpCloudPivotConnector.class);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_RUNTIME_ANALYSIS_RECORDS = 20_000;
-    private static final int MAX_RUNTIME_PAGE_SIZE = 200;
-    private static final int MAX_RUNTIME_DETAIL_ENRICH_RECORDS = 500;
-    private static final int DETAIL_ENRICH_PARALLELISM = 16;
-    private static final int DATA_ITEM_PROBE_PARALLELISM = 8;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
     private final String configuredCorpId;
+    private final CloudPivotRuntimeProperties runtimeProperties;
 
     public MvpCloudPivotConnector(
         ObjectMapper objectMapper,
         @Value("${cpclaw.cloudpivot.allow-metadata-fallback:false}") boolean allowFallbackMetadata,
-        @Value("${cpclaw.cloudpivot.corp-id:}") String configuredCorpId
+        @Value("${cpclaw.cloudpivot.corp-id:}") String configuredCorpId,
+        CloudPivotRuntimeProperties runtimeProperties
     ) {
         this.objectMapper = objectMapper;
         this.allowFallbackMetadata = allowFallbackMetadata;
         this.configuredCorpId = configuredCorpId;
+        this.runtimeProperties = runtimeProperties;
         this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(REQUEST_TIMEOUT)
+            .connectTimeout(requestTimeout())
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
     }
@@ -100,7 +97,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     @Override
     public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails) {
-        return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, MAX_RUNTIME_ANALYSIS_RECORDS);
+        return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, connectorProperties().getMaxAnalysisRecords());
     }
 
     @Override
@@ -117,7 +114,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
             .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询业务数据"));
-        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, MAX_RUNTIME_PAGE_SIZE)), enrichAllDetails, Math.max(1, maxRecords));
+        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, connectorProperties().getMaxPageSize())), enrichAllDetails, Math.max(1, maxRecords));
     }
 
     private CloudPivotMetadataSnapshot fetchRemoteMetadata(String host, AuthSession session) {
@@ -210,7 +207,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         entities.values().forEach(entity -> entityCodes.add(entity.code()));
         Set<String> dataItemKeys = new LinkedHashSet<>();
         Set<String> relationKeys = new LinkedHashSet<>();
-        ExecutorService executor = Executors.newFixedThreadPool(Math.min(DATA_ITEM_PROBE_PARALLELISM, Math.max(1, entities.size())));
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(connectorProperties().getDataItemProbeParallelism(), Math.max(1, entities.size())));
         try {
             List<CompletableFuture<EntityDataItemNodes>> futures = entities.values().stream()
                 .map(entity -> CompletableFuture.supplyAsync(
@@ -450,8 +447,8 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
             try {
                 boolean bulkQuery = pageSize >= 50;
-                int recordLimit = Math.max(1, Math.min(maxRecords, MAX_RUNTIME_ANALYSIS_RECORDS));
-                int remainingDetailBudget = enrichAllDetails ? MAX_RUNTIME_DETAIL_ENRICH_RECORDS : Integer.MAX_VALUE;
+                int recordLimit = Math.max(1, Math.min(maxRecords, connectorProperties().getMaxAnalysisRecords()));
+                int remainingDetailBudget = enrichAllDetails ? connectorProperties().getMaxDetailEnrichRecords() : Integer.MAX_VALUE;
                 int firstDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
                 RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, firstDetailLimit);
                 remainingDetailBudget = remainingDetailBudget(remainingDetailBudget, firstPage.records().size(), firstDetailLimit);
@@ -490,7 +487,12 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private int detailEnrichLimit(int pageSize, boolean bulkQuery, boolean enrichAllDetails, int remainingDetailBudget) {
-        int requestedLimit = enrichAllDetails ? pageSize : 0;
+        if (pageSize <= 1) {
+            return 0;
+        }
+        int requestedLimit = enrichAllDetails
+            ? pageSize
+            : (bulkQuery ? 0 : Math.min(pageSize, connectorProperties().getMaxListDetailRecords()));
         return Math.max(0, Math.min(requestedLimit, remainingDetailBudget));
     }
 
@@ -530,7 +532,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         }
 
         List<Map<String, Object>> enriched = new ArrayList<>(records);
-        ExecutorService executor = Executors.newFixedThreadPool(Math.min(enrichLimit, DETAIL_ENRICH_PARALLELISM));
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(enrichLimit, connectorProperties().getDetailEnrichParallelism()));
         try {
             List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
             for (int i = 0; i < enrichLimit; i++) {
@@ -1051,7 +1053,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private HttpRequest.Builder baseRequest(String url) {
         return HttpRequest.newBuilder(URI.create(url))
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(requestTimeout())
             .header("Accept", "application/json, text/plain, */*");
     }
 
@@ -1110,6 +1112,14 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private CloudPivotRuntimeQueryResult fallbackRuntimeQueryResult(String schemaCode, int pageSize) {
         return new CloudPivotRuntimeQueryResult(schemaCode, 0, List.of(), "local-fallback");
+    }
+
+    private CloudPivotRuntimeProperties.Connector connectorProperties() {
+        return runtimeProperties.getConnector();
+    }
+
+    private Duration requestTimeout() {
+        return Duration.ofSeconds(connectorProperties().getRequestTimeoutSeconds());
     }
 
     private boolean hasText(String value) {

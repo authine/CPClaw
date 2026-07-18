@@ -42,7 +42,7 @@ type StreamEvent = {
   data: unknown
 }
 
-export async function sendMessageStream(payload: SendMessageRequest, handlers: MessageStreamHandlers) {
+export async function sendMessageStream(payload: SendMessageRequest, handlers: MessageStreamHandlers, signal?: AbortSignal) {
   let response: Response
   try {
     response = await fetch('/api/conversations/messages/stream', {
@@ -51,7 +51,8 @@ export async function sendMessageStream(payload: SendMessageRequest, handlers: M
         'Content-Type': 'application/json',
         Accept: 'application/x-ndjson'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal
     })
   } catch {
     throw new Error('后端服务不可用，请确认后端已启动后重试。')
