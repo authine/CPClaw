@@ -1,0 +1,20 @@
+﻿CREATE TABLE IF NOT EXISTS cloudpivot_api_endpoints (
+    id VARCHAR(36) PRIMARY KEY,
+    api_code VARCHAR(128) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    method VARCHAR(16) NOT NULL,
+    path VARCHAR(512) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    operation_type VARCHAR(64) NOT NULL,
+    risk_level VARCHAR(32) NOT NULL,
+    requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,
+    input_schema_json LONGTEXT,
+    output_schema_json LONGTEXT,
+    data_scope TEXT,
+    applicable_object_type VARCHAR(64),
+    raw_json LONGTEXT,
+    synced_at TIMESTAMP NULL,
+    UNIQUE KEY uk_cloudpivot_api_code (api_code),
+    INDEX idx_cloudpivot_api_operation (operation_type),
+    INDEX idx_cloudpivot_api_category (category)
+);

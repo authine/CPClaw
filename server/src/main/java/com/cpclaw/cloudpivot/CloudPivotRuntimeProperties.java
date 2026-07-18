@@ -48,15 +48,31 @@ public class CloudPivotRuntimeProperties {
     }
 
     public static class Query {
+        @NotEmpty private List<String> collectionRequestPhrases = new ArrayList<>();
         @Min(1) private int countPageSize;
         @Min(1) private int listPageSize;
         @Min(1) private int analysisPageSize;
         @Min(1) private int yearlyPageSize;
+        @Min(1) private int ownerFilterPageSize;
+        @Min(1) private int filterFallbackPageSize;
+        @Min(1) private int broadAnalysisPageSize;
+        @Min(1) private int dimensionProbePageSize;
         @Min(1) private int countRecordLimit;
         @Min(1) private int listRecordLimit;
         @Min(1) private int dimensionRecordLimit;
         @Min(1) private int analysisRecordLimit;
         @Min(1) private int yearlyRecordLimit;
+        @Min(1) private int ownerFilterRecordLimit;
+        @Min(1) private int completeAggregationRecordLimit;
+        @Min(1) private int rankingRecordLimit;
+        @Min(1) private int ownerRankingRecordLimit;
+        @Min(1) private int broadAnalysisRecordLimit;
+        @Min(1) private int filterFallbackRecordLimit;
+        @Min(1) private int dimensionProbeMinRecords;
+        @Min(1) private int dimensionProbeMaxRecords;
+
+        public List<String> getCollectionRequestPhrases() { return collectionRequestPhrases; }
+        public void setCollectionRequestPhrases(List<String> collectionRequestPhrases) { this.collectionRequestPhrases = collectionRequestPhrases; }
 
         public int getCountPageSize() { return countPageSize; }
         public void setCountPageSize(int countPageSize) { this.countPageSize = countPageSize; }
@@ -66,6 +82,14 @@ public class CloudPivotRuntimeProperties {
         public void setAnalysisPageSize(int analysisPageSize) { this.analysisPageSize = analysisPageSize; }
         public int getYearlyPageSize() { return yearlyPageSize; }
         public void setYearlyPageSize(int yearlyPageSize) { this.yearlyPageSize = yearlyPageSize; }
+        public int getOwnerFilterPageSize() { return ownerFilterPageSize; }
+        public void setOwnerFilterPageSize(int ownerFilterPageSize) { this.ownerFilterPageSize = ownerFilterPageSize; }
+        public int getFilterFallbackPageSize() { return filterFallbackPageSize; }
+        public void setFilterFallbackPageSize(int filterFallbackPageSize) { this.filterFallbackPageSize = filterFallbackPageSize; }
+        public int getBroadAnalysisPageSize() { return broadAnalysisPageSize; }
+        public void setBroadAnalysisPageSize(int broadAnalysisPageSize) { this.broadAnalysisPageSize = broadAnalysisPageSize; }
+        public int getDimensionProbePageSize() { return dimensionProbePageSize; }
+        public void setDimensionProbePageSize(int dimensionProbePageSize) { this.dimensionProbePageSize = dimensionProbePageSize; }
         public int getCountRecordLimit() { return countRecordLimit; }
         public void setCountRecordLimit(int countRecordLimit) { this.countRecordLimit = countRecordLimit; }
         public int getListRecordLimit() { return listRecordLimit; }
@@ -76,19 +100,41 @@ public class CloudPivotRuntimeProperties {
         public void setAnalysisRecordLimit(int analysisRecordLimit) { this.analysisRecordLimit = analysisRecordLimit; }
         public int getYearlyRecordLimit() { return yearlyRecordLimit; }
         public void setYearlyRecordLimit(int yearlyRecordLimit) { this.yearlyRecordLimit = yearlyRecordLimit; }
+        public int getOwnerFilterRecordLimit() { return ownerFilterRecordLimit; }
+        public void setOwnerFilterRecordLimit(int ownerFilterRecordLimit) { this.ownerFilterRecordLimit = ownerFilterRecordLimit; }
+        public int getCompleteAggregationRecordLimit() { return completeAggregationRecordLimit; }
+        public void setCompleteAggregationRecordLimit(int completeAggregationRecordLimit) { this.completeAggregationRecordLimit = completeAggregationRecordLimit; }
+        public int getRankingRecordLimit() { return rankingRecordLimit; }
+        public void setRankingRecordLimit(int rankingRecordLimit) { this.rankingRecordLimit = rankingRecordLimit; }
+        public int getOwnerRankingRecordLimit() { return ownerRankingRecordLimit; }
+        public void setOwnerRankingRecordLimit(int ownerRankingRecordLimit) { this.ownerRankingRecordLimit = ownerRankingRecordLimit; }
+        public int getBroadAnalysisRecordLimit() { return broadAnalysisRecordLimit; }
+        public void setBroadAnalysisRecordLimit(int broadAnalysisRecordLimit) { this.broadAnalysisRecordLimit = broadAnalysisRecordLimit; }
+        public int getFilterFallbackRecordLimit() { return filterFallbackRecordLimit; }
+        public void setFilterFallbackRecordLimit(int filterFallbackRecordLimit) { this.filterFallbackRecordLimit = filterFallbackRecordLimit; }
+        public int getDimensionProbeMinRecords() { return dimensionProbeMinRecords; }
+        public void setDimensionProbeMinRecords(int dimensionProbeMinRecords) { this.dimensionProbeMinRecords = dimensionProbeMinRecords; }
+        public int getDimensionProbeMaxRecords() { return dimensionProbeMaxRecords; }
+        public void setDimensionProbeMaxRecords(int dimensionProbeMaxRecords) { this.dimensionProbeMaxRecords = dimensionProbeMaxRecords; }
     }
 
     public static class Connector {
         @Min(1) private int requestTimeoutSeconds;
+        @Min(1) private int authSessionTtlMinutes;
         @Min(1) private int maxAnalysisRecords;
         @Min(1) private int maxPageSize;
         @Min(1) private int maxDetailEnrichRecords;
         @Min(1) private int maxListDetailRecords;
         @Min(1) private int detailEnrichParallelism;
         @Min(1) private int dataItemProbeParallelism;
+        @Min(1) private int metadataPageSize;
+        @Min(1) private int bulkQueryThreshold;
+        @Min(1) private int maxRuntimeFilters;
 
         public int getRequestTimeoutSeconds() { return requestTimeoutSeconds; }
         public void setRequestTimeoutSeconds(int requestTimeoutSeconds) { this.requestTimeoutSeconds = requestTimeoutSeconds; }
+        public int getAuthSessionTtlMinutes() { return authSessionTtlMinutes; }
+        public void setAuthSessionTtlMinutes(int authSessionTtlMinutes) { this.authSessionTtlMinutes = authSessionTtlMinutes; }
         public int getMaxAnalysisRecords() { return maxAnalysisRecords; }
         public void setMaxAnalysisRecords(int maxAnalysisRecords) { this.maxAnalysisRecords = maxAnalysisRecords; }
         public int getMaxPageSize() { return maxPageSize; }
@@ -101,6 +147,12 @@ public class CloudPivotRuntimeProperties {
         public void setDetailEnrichParallelism(int detailEnrichParallelism) { this.detailEnrichParallelism = detailEnrichParallelism; }
         public int getDataItemProbeParallelism() { return dataItemProbeParallelism; }
         public void setDataItemProbeParallelism(int dataItemProbeParallelism) { this.dataItemProbeParallelism = dataItemProbeParallelism; }
+        public int getMetadataPageSize() { return metadataPageSize; }
+        public void setMetadataPageSize(int metadataPageSize) { this.metadataPageSize = metadataPageSize; }
+        public int getBulkQueryThreshold() { return bulkQueryThreshold; }
+        public void setBulkQueryThreshold(int bulkQueryThreshold) { this.bulkQueryThreshold = bulkQueryThreshold; }
+        public int getMaxRuntimeFilters() { return maxRuntimeFilters; }
+        public void setMaxRuntimeFilters(int maxRuntimeFilters) { this.maxRuntimeFilters = maxRuntimeFilters; }
     }
 
     public static class Display {
@@ -110,6 +162,7 @@ public class CloudPivotRuntimeProperties {
         @NotEmpty private List<String> nestedValueKeys = new ArrayList<>();
         private List<String> hiddenExact = new ArrayList<>();
         private List<String> hiddenContains = new ArrayList<>();
+        private List<String> hiddenLabelContains = new ArrayList<>();
         private List<String> hiddenSuffixes = new ArrayList<>();
         private List<String> identifierPatterns = new ArrayList<>();
         @Valid private List<FieldRule> fieldRules = new ArrayList<>();
@@ -127,6 +180,8 @@ public class CloudPivotRuntimeProperties {
         public void setHiddenExact(List<String> hiddenExact) { this.hiddenExact = hiddenExact; }
         public List<String> getHiddenContains() { return hiddenContains; }
         public void setHiddenContains(List<String> hiddenContains) { this.hiddenContains = hiddenContains; }
+        public List<String> getHiddenLabelContains() { return hiddenLabelContains; }
+        public void setHiddenLabelContains(List<String> hiddenLabelContains) { this.hiddenLabelContains = hiddenLabelContains; }
         public List<String> getHiddenSuffixes() { return hiddenSuffixes; }
         public void setHiddenSuffixes(List<String> hiddenSuffixes) { this.hiddenSuffixes = hiddenSuffixes; }
         public List<String> getIdentifierPatterns() { return identifierPatterns; }

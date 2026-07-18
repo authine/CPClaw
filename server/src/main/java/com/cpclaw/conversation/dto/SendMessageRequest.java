@@ -7,6 +7,7 @@ public record SendMessageRequest(
     String content,
     String modelConfigId,
     boolean thinkingEnabled,
-    List<String> attachmentIds
+    List<String> attachmentIds,
+    String executionId
 ) {
 }

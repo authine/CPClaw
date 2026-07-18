@@ -1,8 +1,12 @@
 import { requestJson } from './api'
-import type { MetadataAppSummary, MetadataSearchResult, MetadataSyncResponse } from '../types/metadata'
+import type { MetadataAppSummary, MetadataModelResponse, MetadataSearchResult, MetadataSyncResponse } from '../types/metadata'
 
 export function listMetadataApps() {
   return requestJson<MetadataAppSummary[]>('/metadata/apps')
+}
+
+export function loadMetadataModel() {
+  return requestJson<MetadataModelResponse>('/metadata/model')
 }
 
 export function syncMetadata() {

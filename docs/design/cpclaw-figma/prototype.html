@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CPClaw 对话式超级智能体工作台原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --surface-2: #f9fafb;
+      --line: #d8dee8;
+      --line-soft: #e8edf3;
+      --text: #182230;
+      --muted: #5f6b7a;
+      --subtle: #8a94a3;
+      --blue: #2563eb;
+      --blue-weak: #e8f0ff;
+      --cyan: #0e7490;
+      --green: #168a4a;
+      --green-weak: #e8f6ee;
+      --amber: #b06b00;
+      --amber-weak: #fff4df;
+      --red: #c4382b;
+      --red-weak: #fff0ee;
+      --purple: #6d4aff;
+      --shadow: 0 18px 45px rgba(20, 32, 48, 0.12);
+      --radius: 6px;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px minmax(520px, 1fr) 340px;
+      background: var(--bg);
+    }
+    .sidebar {
+      background: #0f172a;
+      color: #dbe6f5;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      border-right: 1px solid #1f2a44;
+    }
+    .brand {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid #22304d;
+    }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: #0f172a;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .brand-title { font-weight: 700; letter-spacing: 0; }
+    .brand-sub { color: #96a4ba; font-size: 12px; }
+    .side-section { padding: 14px; border-bottom: 1px solid #1f2a44; }
+    .new-chat {
+      width: 100%;
+      height: 36px;
+      border: 1px solid #334362;
+      border-radius: var(--radius);
+      background: #16233a;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .side-label {
+      color: #91a0b6;
+      font-size: 12px;
+      margin: 6px 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .conversation-list { display: grid; gap: 6px; }
+    .conversation-item {
+      padding: 10px;
+      border-radius: var(--radius);
+      color: #cfd8e8;
+      border: 1px solid transparent;
+    }
+    .conversation-item.active {
+      background: #1d2b46;
+      border-color: #405276;
+      color: #fff;
+    }
+    .conversation-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conversation-meta { margin-top: 4px; font-size: 12px; color: #91a0b6; display: flex; justify-content: space-between; }
+    .sidebar-footer { margin-top: auto; padding: 14px; display: grid; gap: 8px; }
+    .side-link {
+      height: 34px;
+      border: 0;
+      background: transparent;
+      color: #cfd8e8;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      text-align: left;
+    }
+    .side-link:hover { background: #1d2b46; }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      border-right: 1px solid var(--line);
+    }
+    .topbar {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .title-block h1 { margin: 0; font-size: 17px; line-height: 1.2; }
+    .title-block p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .top-actions { display: flex; gap: 8px; align-items: center; }
+    .icon-btn, .ghost-btn, .primary-btn, .danger-btn, .quiet-btn {
+      height: 34px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 12px;
+    }
+    .icon-btn { width: 34px; padding: 0; }
+    .primary-btn { background: #1f5eff; color: #fff; border-color: #1f5eff; }
+    .danger-btn { background: #c4382b; color: #fff; border-color: #c4382b; }
+    .quiet-btn { background: #f8fafc; }
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px 20px;
+      background: #fbfcfe;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .status-card {
+      min-height: 54px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--subtle); flex: 0 0 auto; }
+    .dot.ok { background: var(--green); }
+    .dot.warn { background: #d58a00; }
+    .dot.err { background: var(--red); }
+    .status-title { font-size: 12px; color: var(--muted); }
+    .status-value { font-weight: 650; margin-top: 2px; }
+    .message-flow {
+      flex: 1;
+      overflow: auto;
+      padding: 22px 24px 18px;
+      display: grid;
+      align-content: start;
+      gap: 16px;
+    }
+    .message { display: grid; gap: 6px; max-width: 900px; min-width: 0; }
+    .message.user { justify-self: end; width: min(76%, 720px); }
+    .message.assistant { justify-self: start; width: min(88%, 860px); }
+    .bubble {
+      border-radius: var(--radius);
+      border: 1px solid var(--line-soft);
+      background: var(--surface);
+      padding: 12px 14px;
+      box-shadow: 0 1px 0 rgba(20, 32, 48, 0.03);
+      min-width: 0;
+    }
+    .user .bubble { background: #e8f0ff; border-color: #c8d8ff; }
+    .message-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #e8edf3;
+      display: grid;
+      place-items: center;
+      color: #334155;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .user .avatar { background: #d8e4ff; }
+    .config-checklist { display: grid; gap: 8px; margin-top: 10px; }
+    .check-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 10px;
+      border: 1px solid var(--line-soft);
+      background: var(--surface-2);
+      border-radius: var(--radius);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.green { color: var(--green); background: var(--green-weak); border-color: #bde4cd; }
+    .pill.amber { color: var(--amber); background: var(--amber-weak); border-color: #ffd99a; }
+    .pill.red { color: var(--red); background: var(--red-weak); border-color: #ffc5bf; }
+    .pill.blue { color: var(--blue); background: var(--blue-weak); border-color: #c7d7ff; }
+    .intent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+    .mini-card {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+      min-width: 0;
+    }
+    .mini-card .k { color: var(--muted); font-size: 12px; }
+    .mini-card .v { margin-top: 4px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .plan-card, .result-card, .risk-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .card-head {
+      min-height: 38px;
+      padding: 9px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line-soft);
+      background: #fbfcfe;
+      font-weight: 650;
+    }
+    .plan-list { margin: 0; padding: 10px 12px 12px 28px; color: #304054; }
+    .plan-list li { margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+    th { color: var(--muted); background: #fbfcfe; font-weight: 650; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .markdown { padding: 12px; color: #304054; }
+    .markdown h4 { margin: 0 0 6px; font-size: 14px; }
+    .audit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+    .risk-card { border-color: #ffb6ae; }
+    .risk-card .card-head { background: #fff0ee; color: #a62d24; border-color: #ffd5d1; }
+    .risk-body { padding: 12px; display: grid; gap: 10px; }
+    .risk-grid { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; }
+    .risk-key { color: var(--muted); }
+    .risk-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+
+    .composer {
+      border-top: 1px solid var(--line-soft);
+      background: var(--surface);
+      padding: 12px 20px 16px;
+    }
+    .sample-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .composer-box {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: end;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+    }
+    .composer-box textarea {
+      min-height: 44px;
+      max-height: 110px;
+      resize: vertical;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+    }
+    .attach-area {
+      width: 38px;
+      height: 38px;
+      border: 1px dashed #aeb8c8;
+      border-radius: var(--radius);
+      background: #f8fafc;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+    }
+
+    .right-panel {
+      background: #fbfcfe;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .right-head {
+      height: 64px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .panel-scroll { overflow: auto; padding: 14px; display: grid; gap: 12px; }
+    .panel-card {
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+    .panel-card h3 { margin: 0 0 10px; font-size: 14px; }
+    .timeline { display: grid; gap: 10px; }
+    .timeline-item { display: grid; grid-template-columns: 18px 1fr; gap: 8px; }
+    .timeline-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); margin-top: 4px; box-shadow: 0 0 0 4px #e8f0ff; }
+    .timeline-title { font-weight: 650; font-size: 13px; }
+    .timeline-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .match-item {
+      display: grid;
+      gap: 6px;
+      padding: 9px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      margin-top: 8px;
+      background: #fff;
+    }
+    .score { height: 5px; background: #edf2f7; border-radius: 999px; overflow: hidden; }
+    .score i { display: block; height: 100%; background: var(--green); }
+    .candidate {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      margin-top: 8px;
+      background: #fff;
+    }
+
+    .drawer-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      display: none;
+      align-items: stretch;
+      justify-content: flex-end;
+      z-index: 50;
+    }
+    .drawer-mask.open { display: flex; }
+    .drawer {
+      width: min(820px, 100vw);
+      background: #fff;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer-head {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .drawer-body { overflow: auto; padding: 18px; }
+    .drawer-section { display: none; }
+    .drawer-section.active { display: block; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field { display: grid; gap: 6px; }
+    .field label { color: var(--muted); font-size: 12px; }
+    .field input, .field select, .field textarea {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--text);
+    }
+    .field textarea { min-height: 82px; resize: vertical; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 10px; }
+    .section-title h2 { margin: 0; font-size: 16px; }
+    .settings-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line-soft); margin-bottom: 14px; }
+    .settings-tabs button { height: 36px; border: 0; background: transparent; color: var(--muted); padding: 0 10px; border-bottom: 2px solid transparent; }
+    .settings-tabs button.active { color: var(--blue); border-color: var(--blue); font-weight: 650; }
+    .sync-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 12px; background: #fbfcfe; }
+    .stat b { display: block; font-size: 22px; margin-bottom: 2px; }
+    .progress { height: 8px; background: #edf2f7; border-radius: 999px; overflow: hidden; }
+    .progress i { display: block; width: 78%; height: 100%; background: #1f5eff; }
+    .tool-log { display: grid; gap: 8px; }
+    .log-line { display: grid; grid-template-columns: 92px 1fr 76px; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+
+    .spec-page {
+      max-width: 1440px;
+      margin: 28px auto;
+      padding: 0 24px 28px;
+    }
+    .spec-frame {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      margin-top: 18px;
+      padding: 18px;
+    }
+    .spec-frame h2 { margin: 0 0 8px; font-size: 18px; }
+    .spec-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .component-demo { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 12px; background: #fbfcfe; min-height: 128px; }
+    .state-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .state-tile { min-height: 108px; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 12px; background: #fff; display: grid; align-content: start; gap: 8px; }
+    .narrow-demo {
+      width: 390px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #fff;
+      display: grid;
+      grid-template-rows: 54px 1fr 72px;
+      min-height: 640px;
+      margin-top: 12px;
+    }
+    .narrow-head, .narrow-foot { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
+    .narrow-foot { border-top: 1px solid var(--line-soft); border-bottom: 0; }
+    .narrow-body { padding: 12px; display: grid; gap: 10px; align-content: start; background: #f8fafc; }
+
+    .hidden { display: none !important; }
+    .sr { position: absolute; left: -9999px; }
+
+    @media (max-width: 1120px) {
+      .app-shell { grid-template-columns: 220px minmax(0, 1fr); }
+      .right-panel { display: none; }
+      .status-strip { grid-template-columns: 1fr; }
+      .intent-grid, .spec-grid, .state-grid, .sync-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .topbar { height: auto; min-height: 58px; padding: 10px 12px; align-items: flex-start; gap: 8px; flex-direction: column; }
+      .top-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+      .message-flow { padding: 14px 12px; }
+      .message.user, .message.assistant { width: 100%; }
+      .check-row { align-items: flex-start; flex-wrap: wrap; }
+      .check-row > span:first-child { flex: 1 1 100%; min-width: 0; }
+      .check-row .quiet-btn { width: 100%; }
+      .composer { padding: 10px 12px; }
+      .composer-box { grid-template-columns: 1fr auto; }
+      .attach-area { display: none; }
+      .form-grid, .intent-grid, .spec-grid, .state-grid, .sync-grid { grid-template-columns: 1fr; }
+      .drawer { width: 100vw; }
+      .spec-page { padding: 0 12px; }
+      .narrow-demo { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell" id="workspace">
+    <aside class="sidebar" aria-label="历史会话">
+      <div class="brand">
+        <div class="brand-mark">CP</div>
+        <div>
+          <div class="brand-title">CPClaw</div>
+          <div class="brand-sub">云枢超级智能体</div>
+        </div>
+      </div>
+      <div class="side-section">
+        <button class="new-chat" id="newChatBtn" title="新建会话"><span aria-hidden="true">＋</span> 新建会话</button>
+      </div>
+      <div class="side-section" style="border-bottom:0; overflow:auto;">
+        <div class="side-label"><span>历史会话</span><span>18</span></div>
+        <div class="conversation-list">
+          <div class="conversation-item active">
+            <div class="conversation-title">销售订单查询与跟进</div>
+            <div class="conversation-meta"><span>刚刚</span><span>Run 8451</span></div>
+          </div>
+          <div class="conversation-item">
+            <div class="conversation-title">合同审批流程状态</div>
+            <div class="conversation-meta"><span>10:24</span><span>中风险</span></div>
+          </div>
+          <div class="conversation-item">
+            <div class="conversation-title">客户主数据字段说明</div>
+            <div class="conversation-meta"><span>昨天</span><span>只读</span></div>
+          </div>
+          <div class="conversation-item">
+            <div class="conversation-title">费用报销附件检查</div>
+            <div class="conversation-meta"><span>周三</span><span>失败重试</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="side-link" data-panel="settings"><span aria-hidden="true">⚙</span><span>设置与连接</span></button>
+        <button class="side-link" data-panel="metadata"><span aria-hidden="true">▦</span><span>元数据初始化</span></button>
+        <button class="side-link" data-panel="audit"><span aria-hidden="true">#</span><span>审计记录</span></button>
+        <button class="side-link" data-panel="components"><span aria-hidden="true">□</span><span>组件规范</span></button>
+      </div>
+    </aside>
+
+    <main class="main" aria-label="主对话工作台">
+      <header class="topbar">
+        <div class="title-block">
+          <h1>对话式云枢业务执行工作台</h1>
+          <p>自然语言查询、解释、执行与审计追踪</p>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-btn" data-panel="audit">审计查询</button>
+          <button class="ghost-btn" data-panel="metadata">初始化</button>
+          <button class="primary-btn" data-panel="settings">配置连接</button>
+        </div>
+      </header>
+      <section class="status-strip" aria-label="基础配置状态">
+        <div class="status-card"><span class="dot warn" id="dotAccount"></span><div><div class="status-title">云枢账号</div><div class="status-value" id="accountState">待配置</div></div></div>
+        <div class="status-card"><span class="dot ok"></span><div><div class="status-title">模型 API</div><div class="status-value">已保存，不回显 Key</div></div></div>
+        <div class="status-card"><span class="dot warn" id="dotMeta"></span><div><div class="status-title">管理员元数据</div><div class="status-value" id="metaState">待初始化</div></div></div>
+      </section>
+
+      <section class="message-flow" id="messageFlow">
+        <article class="message assistant" id="introMessage">
+          <div class="message-head"><span class="avatar">AI</span><span>CPClaw</span><span>09:28</span></div>
+          <div class="bubble">
+            <strong>可以直接开始对话。</strong> 当前环境还缺少基础配置，涉及真实写入前我会先展示确认卡片，确认前不会执行任何写入。
+            <div class="config-checklist">
+              <div class="check-row"><span>1. 配置云枢登录地址、账号和密码</span><button class="quiet-btn" data-panel="settings">去配置</button></div>
+              <div class="check-row"><span>2. 管理员同步应用、业务模型、表单、字段和 Action</span><button class="quiet-btn" data-panel="metadata">去初始化</button></div>
+              <div class="check-row"><span>3. 选择模型、API 地址和思考模式</span><span class="pill green">已保存</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="composer" aria-label="消息输入区">
+        <div class="sample-row">
+          <button class="quiet-btn" id="sampleConfig">完成示例配置</button>
+          <button class="quiet-btn" id="sampleQuery">查询我的销售订单数据</button>
+          <button class="quiet-btn" id="sampleWrite">给这个客户新增跟进记录</button>
+        </div>
+        <div class="composer-box">
+          <button class="attach-area" title="上传附件" aria-label="上传附件">＋</button>
+          <textarea id="composerInput" placeholder="输入自然语言问题，例如：查询我的销售订单数据"></textarea>
+          <button class="primary-btn" id="sendBtn">发送</button>
+        </div>
+      </footer>
+    </main>
+
+    <aside class="right-panel" aria-label="Agent 执行与审计">
+      <div class="right-head"><strong>Agent 执行过程</strong><button class="icon-btn" data-panel="audit" title="查看审计">#</button></div>
+      <div class="panel-scroll">
+        <section class="panel-card">
+          <h3>执行时间线</h3>
+          <div class="timeline">
+            <div class="timeline-item"><span class="timeline-dot"></span><div><div class="timeline-title">解析自然语言</div><div class="timeline-meta">识别为查询意图，置信度 0.92</div></div></div>
+            <div class="timeline-item"><span class="timeline-dot" style="background:#0e7490; box-shadow:0 0 0 4px #dff7fb"></span><div><div class="timeline-title">匹配元数据</div><div class="timeline-meta">应用：销售管理；实体：销售订单</div></div></div>
+            <div class="timeline-item"><span class="timeline-dot" style="background:#168a4a; box-shadow:0 0 0 4px #e8f6ee"></span><div><div class="timeline-title">执行只读查询</div><div class="timeline-meta">耗时 1.42s，返回 12 条记录</div></div></div>
+          </div>
+        </section>
+        <section class="panel-card">
+          <h3>元数据匹配</h3>
+          <div class="match-item"><strong>销售管理 / 销售订单</strong><span class="pill green">96% 匹配</span><div class="score"><i style="width:96%"></i></div><span class="timeline-meta">字段：订单号、客户、金额、状态、创建时间</span></div>
+          <div class="match-item"><strong>客户管理 / 客户档案</strong><span class="pill amber">68% 关联</span><div class="score"><i style="width:68%; background:#d58a00"></i></div><span class="timeline-meta">用于客户详情和跟进记录上下文</span></div>
+        </section>
+        <section class="panel-card">
+          <h3>多候选选择</h3>
+          <div class="candidate"><span>销售订单</span><button class="quiet-btn">选择</button></div>
+          <div class="candidate"><span>采购订单</span><button class="quiet-btn">选择</button></div>
+          <div class="candidate"><span>合同订单</span><button class="quiet-btn">选择</button></div>
+        </section>
+        <section class="panel-card">
+          <h3>审计编号</h3>
+          <div class="audit-row"><span class="pill blue">AGT-RUN-20260620-8451</span><span class="pill green">只读成功</span></div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <div class="drawer-mask" id="drawerMask" role="dialog" aria-modal="true" aria-label="详情面板">
+    <div class="drawer">
+      <div class="drawer-head"><strong id="drawerTitle">设置</strong><button class="icon-btn" id="closeDrawer" title="关闭">×</button></div>
+      <div class="drawer-body">
+        <section class="drawer-section" id="panel-settings">
+          <div class="settings-tabs" aria-label="设置分类">
+            <button class="active">云枢账号</button><button>管理员元数据</button><button>模型 API</button><button>思考模式</button>
+          </div>
+          <div class="form-grid">
+            <div class="field"><label>云枢登录地址</label><input value="https://yunshu.example.com" /></div>
+            <div class="field"><label>租户 / 环境</label><input value="prod-cn-east" /></div>
+            <div class="field"><label>账号</label><input value="admin.operator" /></div>
+            <div class="field"><label>密码</label><input type="password" value="************" /></div>
+            <div class="field"><label>模型 Base URL</label><input value="https://api.example.com/v1" /></div>
+            <div class="field"><label>API Key</label><input type="password" value="sk-********-saved" /></div>
+            <div class="field"><label>模型</label><select><option>gpt-5.5</option><option>gpt-5-mini</option></select></div>
+            <div class="field"><label>思考模式</label><select><option>平衡：解释充分，延迟可控</option><option>快速：低延迟</option><option>深度：高复杂度任务</option></select></div>
+          </div>
+          <div class="section-title"><h2>连接测试</h2><span class="pill green">上次成功 2026-06-20 18:42</span></div>
+          <div class="panel-card">
+            <div class="risk-grid">
+              <div class="risk-key">云枢账号</div><div>连接成功，权限：应用读取、模型读取、Action 需确认</div>
+              <div class="risk-key">模型 API</div><div>连通成功，Key 已保存，不回显明文</div>
+              <div class="risk-key">失败状态</div><div><span class="pill red">无权限 / 连接失败</span> 会阻止执行查询，并引导重新测试</div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;"><button class="ghost-btn">测试连接</button><button class="primary-btn" id="saveSettings">保存配置</button></div>
+        </section>
+
+        <section class="drawer-section" id="panel-metadata">
+          <div class="section-title"><h2>云枢元数据初始化</h2><button class="primary-btn" id="startSync">开始同步</button></div>
+          <div class="panel-card" style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:10px;"><strong id="syncText">待同步应用、模型、表单、字段、Action</strong><span class="pill amber" id="syncStatus">等待管理员操作</span></div>
+            <div class="progress"><i id="syncBar" style="width:0%"></i></div>
+          </div>
+          <div class="sync-grid">
+            <div class="stat"><b id="appCount">0</b><span>应用数</span></div>
+            <div class="stat"><b id="entityCount">0</b><span>实体数</span></div>
+            <div class="stat"><b id="docCount">0</b><span>索引文档数</span></div>
+            <div class="stat"><b id="syncTime">--</b><span>同步时间</span></div>
+          </div>
+          <div class="section-title"><h2>应用与实体</h2><input style="height:34px; border:1px solid var(--line); border-radius:var(--radius); padding:0 9px;" placeholder="检索应用、实体、字段" /></div>
+          <table>
+            <thead><tr><th>应用</th><th>实体 / 表单</th><th>字段</th><th>Action</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>销售管理</td><td>销售订单</td><td>38</td><td>提交审批、作废、导出</td><td><span class="pill green">已索引</span></td></tr>
+              <tr><td>客户管理</td><td>客户档案 / 跟进记录</td><td>51</td><td>新增跟进、转商机</td><td><span class="pill green">已索引</span></td></tr>
+              <tr><td>合同管理</td><td>销售合同</td><td>44</td><td>流程提交、盖章</td><td><span class="pill amber">部分失败</span></td></tr>
+            </tbody>
+          </table>
+          <div class="panel-card" style="margin-top:12px; border-color:#ffd99a; background:#fffaf0;">同步失败提示：合同管理 / 附件字段缺少读取权限，已跳过附件内容索引；审计中保留失败原因。</div>
+        </section>
+
+        <section class="drawer-section" id="panel-audit">
+          <div class="section-title"><h2>Agent Run 审计详情</h2><div style="display:flex; gap:8px;"><input value="AGT-RUN-20260620-8451" style="height:34px; border:1px solid var(--line); border-radius:var(--radius); padding:0 9px;" /><button class="primary-btn">查询</button></div></div>
+          <div class="sync-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+            <div class="stat"><span>意图</span><b style="font-size:16px;">查询销售订单</b></div>
+            <div class="stat"><span>风险等级</span><b style="font-size:16px; color:var(--green);">低风险</b></div>
+            <div class="stat"><span>状态</span><b style="font-size:16px;">成功</b></div>
+            <div class="stat"><span>耗时</span><b style="font-size:16px;">1.42s</b></div>
+          </div>
+          <div class="section-title"><h2>执行计划</h2><span class="pill blue">只读查询</span></div>
+          <ol class="plan-list" style="border:1px solid var(--line-soft); border-radius:var(--radius);">
+            <li>将“我的销售订单数据”解析为当前用户负责订单查询。</li>
+            <li>匹配销售管理应用、销售订单实体及客户关联字段。</li>
+            <li>调用云枢查询接口，仅返回脱敏摘要和必要字段。</li>
+          </ol>
+          <div class="section-title"><h2>工具调用记录</h2><span class="pill green">输入输出已脱敏</span></div>
+          <div class="tool-log">
+            <div class="log-line"><span>metadata.search</span><span>{ query: "销售订单", user: "u_***" }</span><span>200</span></div>
+            <div class="log-line"><span>yunshu.query</span><span>{ app: "sales", entity: "order", filter: "owner=current" }</span><span>200</span></div>
+            <div class="log-line"><span>audit.write</span><span>{ runId: "AGT-RUN-20260620-8451", risk: "low" }</span><span>200</span></div>
+          </div>
+          <div class="panel-card" style="margin-top:12px;">输入脱敏：客户手机号、附件名、API Key、密码均以占位符或哈希展示。输出脱敏：金额保留两位，个人身份字段隐藏。</div>
+        </section>
+
+        <section class="drawer-section" id="panel-components">
+          <div class="section-title"><h2>组件规范页</h2><span class="pill blue">桌面优先，窄屏折叠</span></div>
+          <div class="spec-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+            <div class="component-demo"><strong>会话列表项</strong><div class="conversation-item active" style="background:#eef4ff;color:#172033;border-color:#c8d8ff;margin-top:10px;"><div class="conversation-title">销售订单查询与跟进</div><div class="conversation-meta" style="color:#5f6b7a;"><span>刚刚</span><span>Run 8451</span></div></div></div>
+            <div class="component-demo"><strong>元数据匹配卡片</strong><div class="match-item"><strong>销售订单</strong><span class="pill green">96% 匹配</span><div class="score"><i style="width:96%"></i></div></div></div>
+            <div class="component-demo"><strong>连接测试结果</strong><p><span class="pill green">成功</span> <span class="pill red">连接失败</span> <span class="pill amber">无权限</span></p></div>
+            <div class="component-demo"><strong>高风险确认卡片</strong><div class="risk-card"><div class="card-head">新增跟进记录 <span class="pill red">高风险</span></div><div class="risk-body"><span>确认前不会执行真实写入。</span></div></div></div>
+          </div>
+          <div class="section-title"><h2>状态覆盖</h2></div>
+          <div class="state-grid">
+            <div class="state-tile"><strong>空状态</strong><span class="timeline-meta">尚无历史会话，主输入框保持可见</span></div>
+            <div class="state-tile"><strong>加载中</strong><span class="timeline-meta">时间线展示步骤与耗时</span></div>
+            <div class="state-tile"><strong>失败</strong><span class="pill red">连接失败</span><span class="timeline-meta">提供重试与查看审计</span></div>
+            <div class="state-tile"><strong>多候选</strong><span class="timeline-meta">要求用户选择应用 / 实体后再执行</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <section class="spec-page" id="componentSpecs">
+    <div class="spec-frame">
+      <h2>关键交互说明</h2>
+      <p>第一屏就是对话工作台；基础配置缺失时不阻塞用户理解，但会在执行前清晰提示。只读查询直接执行并生成审计编号；写操作、流程提交、Action、附件上传必须先展示确认卡片，用户确认前不会发生真实写入。</p>
+      <div class="spec-grid">
+        <div class="component-demo"><strong>配置云枢账号</strong><p>设置抽屉保存地址、账号、密码；密码和 API Key 始终以占位符展示。</p></div>
+        <div class="component-demo"><strong>初始化元数据</strong><p>管理员同步应用、实体、字段、Action；展示应用数、实体数、索引文档数和同步时间。</p></div>
+        <div class="component-demo"><strong>审计详情</strong><p>可按 Agent Run ID 查询意图、风险、状态、计划、工具调用和脱敏输入输出。</p></div>
+      </div>
+    </div>
+    <div class="spec-frame">
+      <h2>窄屏适配方案</h2>
+      <p>窄屏隐藏左侧会话栏和右侧审计栏，顶部提供会话入口；Agent 过程、元数据匹配和确认卡片作为底部抽屉进入，保证输入框始终可见。</p>
+      <div class="narrow-demo">
+        <div class="narrow-head"><button class="icon-btn">☰</button><strong>CPClaw</strong><button class="icon-btn">#</button></div>
+        <div class="narrow-body">
+          <div class="bubble"><strong>CPClaw</strong><br />已匹配销售订单，准备执行只读查询。</div>
+          <div class="bubble" style="background:#e8f0ff;">查询我的销售订单数据</div>
+          <div class="result-card"><div class="card-head">结果摘要 <span class="pill green">只读</span></div><div class="markdown">返回 12 条订单，3 条待审批，2 条逾期跟进。</div></div>
+          <button class="quiet-btn">展开执行过程</button>
+        </div>
+        <div class="narrow-foot"><button class="attach-area">＋</button><input placeholder="继续追问" style="flex:1;height:38px;border:1px solid var(--line);border-radius:var(--radius);padding:0 8px;" /><button class="primary-btn">发送</button></div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const mask = document.getElementById('drawerMask');
+    const title = document.getElementById('drawerTitle');
+    const panels = {
+      settings: ['设置与连接', 'panel-settings'],
+      metadata: ['元数据初始化', 'panel-metadata'],
+      audit: ['审计详情', 'panel-audit'],
+      components: ['组件规范与状态', 'panel-components']
+    };
+    function openPanel(name) {
+      const target = panels[name] || panels.settings;
+      title.textContent = target[0];
+      document.querySelectorAll('.drawer-section').forEach(el => el.classList.remove('active'));
+      document.getElementById(target[1]).classList.add('active');
+      mask.classList.add('open');
+    }
+    function closePanel() { mask.classList.remove('open'); }
+    document.querySelectorAll('[data-panel]').forEach(btn => btn.addEventListener('click', () => openPanel(btn.dataset.panel)));
+    document.getElementById('closeDrawer').addEventListener('click', closePanel);
+    mask.addEventListener('click', e => { if (e.target === mask) closePanel(); });
+
+    const flow = document.getElementById('messageFlow');
+    function addMessage(kind, html) {
+      const article = document.createElement('article');
+      article.className = 'message ' + kind;
+      article.innerHTML = html;
+      flow.appendChild(article);
+      flow.scrollTop = flow.scrollHeight;
+      return article;
+    }
+    function markConfigured() {
+      document.getElementById('accountState').textContent = '已连接，密码不回显';
+      document.getElementById('metaState').textContent = '已同步 46 个应用';
+      document.getElementById('dotAccount').className = 'dot ok';
+      document.getElementById('dotMeta').className = 'dot ok';
+      addMessage('assistant', '<div class="message-head"><span class="avatar">AI</span><span>CPClaw</span><span>09:31</span></div><div class="bubble"><strong>基础配置已完成。</strong> 现在可以查询云枢业务数据。写操作仍会进入确认流程。</div>');
+    }
+    function sendQuery() {
+      addMessage('user', '<div class="message-head"><span class="avatar">我</span><span>你</span><span>09:32</span></div><div class="bubble">查询我的销售订单数据</div>');
+      addMessage('assistant', '<div class="message-head"><span class="avatar">AI</span><span>CPClaw</span><span>09:32</span></div><div class="bubble"><strong>已识别为只读查询。</strong><div class="intent-grid"><div class="mini-card"><div class="k">意图</div><div class="v">查询销售订单</div></div><div class="mini-card"><div class="k">命中应用 / 实体</div><div class="v">销售管理 / 销售订单</div></div><div class="mini-card"><div class="k">风险等级</div><div class="v"><span class="pill green">低风险</span></div></div></div><div class="plan-card"><div class="card-head">执行计划 <span class="pill blue">可审计</span></div><ol class="plan-list"><li>按当前用户身份过滤“我的订单”。</li><li>检索订单号、客户、金额、状态、创建时间。</li><li>返回摘要、表格和 Agent Run ID。</li></ol></div><div class="result-card"><div class="card-head">查询结果摘要 <span class="pill green">12 条记录</span></div><div class="markdown"><h4>摘要</h4><p>本月销售订单 12 条，总金额 2,386,400.00 元；3 条待审批，2 条存在逾期跟进。</p></div><table><thead><tr><th>订单号</th><th>客户</th><th>金额</th><th>状态</th><th>创建时间</th></tr></thead><tbody><tr><td>SO-2026-0618-009</td><td>云栖制造</td><td>¥428,000</td><td>待审批</td><td>2026-06-18</td></tr><tr><td>SO-2026-0617-014</td><td>北辰能源</td><td>¥196,500</td><td>已确认</td><td>2026-06-17</td></tr><tr><td>SO-2026-0615-006</td><td>华东零售</td><td>¥82,300</td><td>待跟进</td><td>2026-06-15</td></tr></tbody></table></div><div class="audit-row"><span class="pill blue">AGT-RUN-20260620-8451</span><button class="quiet-btn" data-panel="audit">查看审计</button></div></div>');
+      flow.querySelectorAll('[data-panel]').forEach(btn => btn.addEventListener('click', () => openPanel(btn.dataset.panel)));
+    }
+    function sendWrite() {
+      addMessage('user', '<div class="message-head"><span class="avatar">我</span><span>你</span><span>09:35</span></div><div class="bubble">给这个客户新增跟进记录：明天下午电话确认合同条款</div>');
+      addMessage('assistant', '<div class="message-head"><span class="avatar">AI</span><span>CPClaw</span><span>09:35</span></div><div class="bubble"><strong>我引用上一轮的第一条订单客户“云栖制造”。</strong> 这是写操作，需要你确认后才会执行。<div class="risk-card" id="confirmCard"><div class="card-head">高风险操作确认 <span class="pill red">写入云枢</span></div><div class="risk-body"><div class="risk-grid"><div class="risk-key">操作类型</div><div>新增客户跟进记录</div><div class="risk-key">影响对象</div><div>客户：云栖制造；关联订单：SO-2026-0618-009</div><div class="risk-key">风险等级</div><div><span class="pill red">高风险</span></div><div class="risk-key">系统将执行</div><div>调用客户管理 / 跟进记录 / create Action，写入跟进内容和计划时间。</div><div class="risk-key">执行状态</div><div><strong>确认前不会执行真实写入。</strong></div></div><div class="risk-actions"><button class="ghost-btn" id="cancelRisk">取消</button><button class="danger-btn" id="confirmRisk">确认执行</button></div></div></div></div>');
+      document.getElementById('confirmRisk').addEventListener('click', () => {
+        document.getElementById('confirmCard').querySelector('.risk-body').innerHTML = '<div class="audit-row"><span class="pill green">已确认</span><span class="pill blue">AGT-RUN-20260620-8452</span></div><p>已提交云枢 Action，写入结果进入审计详情；后续可继续追问“这条跟进记录详情”。</p>';
+      });
+      document.getElementById('cancelRisk').addEventListener('click', () => {
+        document.getElementById('confirmCard').querySelector('.risk-body').innerHTML = '<div class="audit-row"><span class="pill amber">已取消</span><span>未执行任何真实写入。</span></div>';
+      });
+    }
+    document.getElementById('sampleConfig').addEventListener('click', markConfigured);
+    document.getElementById('sampleQuery').addEventListener('click', sendQuery);
+    document.getElementById('sampleWrite').addEventListener('click', sendWrite);
+    document.getElementById('saveSettings').addEventListener('click', () => { closePanel(); markConfigured(); });
+    document.getElementById('startSync').addEventListener('click', () => {
+      document.getElementById('syncText').textContent = '同步完成：应用、实体、字段、Action 已写入检索索引';
+      document.getElementById('syncStatus').textContent = '成功';
+      document.getElementById('syncStatus').className = 'pill green';
+      document.getElementById('syncBar').style.width = '100%';
+      document.getElementById('appCount').textContent = '46';
+      document.getElementById('entityCount').textContent = '318';
+      document.getElementById('docCount').textContent = '12,480';
+      document.getElementById('syncTime').textContent = '18:45';
+    });
+    document.getElementById('newChatBtn').addEventListener('click', () => {
+      addMessage('assistant', '<div class="message-head"><span class="avatar">AI</span><span>CPClaw</span><span>现在</span></div><div class="bubble"><strong>新会话已创建。</strong> 我会保留当前用户、云枢环境和模型配置，但不会混用上一段业务上下文。</div>');
+    });
+    document.getElementById('sendBtn').addEventListener('click', () => {
+      const value = document.getElementById('composerInput').value.trim();
+      if (!value) return;
+      if (value.includes('新增') || value.includes('修改') || value.includes('删除') || value.includes('提交')) sendWrite();
+      else sendQuery();
+      document.getElementById('composerInput').value = '';
+    });
+  </script>
+</body>
+</html>

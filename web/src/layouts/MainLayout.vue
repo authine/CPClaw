@@ -1,114 +1,152 @@
 <template>
-  <el-container class="layout">
-    <el-aside width="220px" class="layout__aside">
-      <div class="layout__brand">CPClaw</div>
-      <el-menu router :default-active="$route.path" class="layout__menu">
+  <el-container :class="['layout', { 'layout--chat': isChatRoute }]">
+    <el-header v-if="!isChatRoute" class="layout__header" height="64px">
+      <RouterLink class="layout__brand" to="/" aria-label="CPClaw 对话工作台">
+        <span class="layout__brand-mark">C</span>
+        <span class="layout__brand-text">CPClaw</span>
+      </RouterLink>
+      <el-menu router mode="horizontal" :default-active="activePath" class="layout__nav" :ellipsis="false">
         <el-menu-item index="/">
           <el-icon><ChatDotRound /></el-icon>
           <span>对话</span>
         </el-menu-item>
+        <el-menu-item index="/metadata">
+          <el-icon><Collection /></el-icon>
+          <span>元数据</span>
+        </el-menu-item>
+        <el-menu-item index="/audit">
+          <el-icon><DocumentChecked /></el-icon>
+          <span>审计</span>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
-          <span>设置</span>
+          <span>账号与模型</span>
         </el-menu-item>
       </el-menu>
-    </el-aside>
-    <el-container class="layout__content">
-      <el-main class="layout__main">
-        <RouterView />
-      </el-main>
-      <nav class="layout__mobile-nav" aria-label="主导航">
-        <RouterLink to="/" :class="{ 'is-active': $route.path === '/' }">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>对话</span>
-        </RouterLink>
-        <RouterLink to="/settings" :class="{ 'is-active': $route.path === '/settings' }">
-          <el-icon><Setting /></el-icon>
-          <span>设置</span>
-        </RouterLink>
-      </nav>
-    </el-container>
+    </el-header>
+    <el-main :class="['layout__main', { 'layout__main--chat': isChatRoute }]">
+      <RouterView />
+    </el-main>
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { ChatDotRound, Setting } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { ChatDotRound, Collection, DocumentChecked, Setting } from '@element-plus/icons-vue'
+
+const route = useRoute()
+const activePath = computed(() => route.path)
+const isChatRoute = computed(() => route.name === 'chat')
 </script>
 
 <style scoped>
 .layout {
+  background: #f3f6fb;
   min-height: 100vh;
 }
 
-.layout__aside {
-  background: #101828;
-  color: #fff;
-}
-
-.layout__content {
-  min-width: 0;
+.layout__header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 24px;
+  border-bottom: 1px solid #243044;
+  background: #111827;
+  backdrop-filter: blur(12px);
 }
 
 .layout__brand {
-  height: 56px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  font-size: 20px;
-  font-weight: 700;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
 }
 
-.layout__menu {
-  border-right: none;
+.layout__brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #2e90fa;
+  color: #fff;
+  font-weight: 700;
+  place-items: center;
+}
+
+.layout__brand-text {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.layout__nav {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.layout__nav :deep(.el-menu-item) {
+  height: 64px;
+  border-bottom-width: 3px;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.layout__nav :deep(.el-menu-item:hover),
+.layout__nav :deep(.el-menu-item:focus) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.layout__nav :deep(.el-menu-item.is-active) {
+  border-bottom-color: #2e90fa;
+  background: rgba(46, 144, 250, 0.12);
+  color: #fff;
+}
+
+.layout__nav :deep(.el-menu-item.is-active .el-icon) {
+  color: #60a5fa;
 }
 
 .layout__main {
-  padding: 24px;
+  padding: 18px 20px 20px;
 }
 
-.layout__mobile-nav {
-  display: none;
+.layout__main--chat {
+  min-height: 100vh;
+  padding: 0;
+  overflow: visible;
 }
 
 @media (max-width: 760px) {
-  .layout__aside {
-    display: none;
+  .layout__header {
+    align-items: stretch;
+    flex-direction: column;
+    height: auto !important;
+    gap: 8px;
+    padding: 12px 16px 0;
+  }
+
+  .layout__nav {
+    overflow-x: auto;
+  }
+
+  .layout__nav :deep(.el-menu-item) {
+    height: 46px;
   }
 
   .layout__main {
+    padding: 12px;
+  }
+
+  .layout__main--chat {
     padding: 0;
-  }
-
-  .layout__mobile-nav {
-    position: fixed;
-    z-index: 20;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: calc(58px + env(safe-area-inset-bottom));
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding-bottom: env(safe-area-inset-bottom);
-    border-top: 1px solid #e9eaeb;
-    background: rgba(255, 255, 255, 0.98);
-  }
-
-  .layout__mobile-nav a {
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 3px;
-    color: #717680;
-    font-size: 11px;
-    text-decoration: none;
-  }
-
-  .layout__mobile-nav a .el-icon {
-    font-size: 20px;
-  }
-
-  .layout__mobile-nav a.is-active {
-    color: #175cd3;
   }
 }
 </style>

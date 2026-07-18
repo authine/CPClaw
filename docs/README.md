@@ -108,6 +108,6 @@ docs/
 - 云枢集成、元数据同步、运行态 API 或浏览器兜底变化：同步 `technical-design/details/03-cloudpivot-integration.md`。
 - 表结构、索引、审计、记忆或上下文数据变化：同步 `technical-design/details/04-data-model.md`。
 - 验收标准或回归场景变化：同步 `test-cases/`。
-- 每次任务进展、验证结论和阻塞变化：同步仓库根目录 `PROGRESS.md`；涉及团队角色状态时同步 `SUBAGENTS.md`。
+- 每次任务进展、验证结论和阻塞变化：同步 `project-management/PROGRESS.md`；涉及团队角色状态时同步 `project-management/SUBAGENTS.md`。
 
 CPClaw 的核心设计目标是足够智能地理解用户自然语言意图，能基于本地云枢元数据和会话上下文定位任务对象；信息不足时主动澄清并引导用户补充；意图明确后执行查询、分析或经确认的业务操作；执行后解释结果、依据、风险和下一步建议。

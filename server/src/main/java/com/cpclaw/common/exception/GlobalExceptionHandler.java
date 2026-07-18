@@ -2,9 +2,12 @@ package com.cpclaw.common.exception;
 
 import com.cpclaw.common.api.ApiResponse;
 import com.cpclaw.common.security.SensitiveDataMasker;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -20,6 +23,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(IllegalArgumentException exception) {
         return ResponseEntity.badRequest().body(ApiResponse.error(safeMessage(exception)));
+    }
+
+    @ExceptionHandler(IOException.class)
+    public void handleIoException(IOException exception, HttpServletResponse response) throws IOException {
+        if (!response.isCommitted()) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, masker.mask(exception.getMessage()));
+        }
+    }
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncRequestTimeout(AsyncRequestTimeoutException exception, HttpServletResponse response) throws IOException {
+        if (!response.isCommitted()) {
+            response.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "流式任务执行超时，请重试");
+        }
     }
 
     @ExceptionHandler(Exception.class)

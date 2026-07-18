@@ -35,7 +35,7 @@ public class CloudPivotRecordDisplayPolicy {
 
     public DisplayContext context(String schemaCode) {
         Map<String, String> labels = new LinkedHashMap<>();
-        entityRepository.findByEntityCode(schemaCode).stream()
+        entityRepository.findByEntityCodeIgnoreCase(schemaCode).stream()
             .map(CloudPivotEntity::getId)
             .flatMap(entityId -> dataItemRepository.findByEntityId(entityId).stream())
             .filter(item -> hasText(item.getDataItemCode()) && hasText(item.getName()))
@@ -81,33 +81,35 @@ public class CloudPivotRecordDisplayPolicy {
         if (!hasText(text)) {
             return Optional.empty();
         }
-        Optional<CloudPivotRuntimeProperties.FieldRule> rule = matchingRule(rawKey, display);
         String metadataLabel = context.labels().get(normalizedKey);
+        Optional<CloudPivotRuntimeProperties.FieldRule> rule = matchingRule(rawKey, metadataLabel, display);
         String label = hasText(metadataLabel)
             ? metadataLabel
             : rule.map(CloudPivotRuntimeProperties.FieldRule::getLabel)
                 .filter(this::hasText)
                 .orElseGet(() -> display.getFallbackLabels().getOrDefault(rawKey, rawKey));
+        if (display.getHiddenLabelContains().stream().map(this::normalize).anyMatch(normalize(label)::contains)) {
+            return Optional.empty();
+        }
         int priority = rule.map(CloudPivotRuntimeProperties.FieldRule::getPriority).orElse(display.getDefaultPriority());
         return Optional.of(new DisplayField(label, text, priority));
     }
 
     private Optional<CloudPivotRuntimeProperties.FieldRule> matchingRule(
         String key,
+        String metadataLabel,
         CloudPivotRuntimeProperties.Display display
     ) {
         String normalizedKey = normalize(key);
+        String normalizedLabel = normalize(metadataLabel);
         return display.getFieldRules().stream()
-            .filter(rule -> rule.getExact().stream().map(this::normalize).anyMatch(normalizedKey::equals)
-                || rule.getContains().stream().map(this::normalize).anyMatch(normalizedKey::contains))
+            .filter(rule -> rule.getExact().stream().map(this::normalize).anyMatch(value -> normalizedKey.equals(value) || normalizedLabel.equals(value))
+                || rule.getContains().stream().map(this::normalize).anyMatch(value -> normalizedKey.contains(value) || normalizedLabel.contains(value)))
             .findFirst();
     }
 
     private boolean isHidden(Object key, Object value, CloudPivotRuntimeProperties.Display display) {
         String normalizedKey = normalize(String.valueOf(key));
-        if (value instanceof Iterable<?> || value != null && value.getClass().isArray()) {
-            return true;
-        }
         if (display.getHiddenExact().stream().map(this::normalize).anyMatch(normalizedKey::equals)
             || display.getHiddenContains().stream().map(this::normalize).anyMatch(normalizedKey::contains)) {
             return true;
@@ -124,13 +126,40 @@ public class CloudPivotRecordDisplayPolicy {
     }
 
     private String valueText(Object value, CloudPivotRuntimeProperties.Display display) {
-        String text = value instanceof Map<?, ?> map
-            ? nestedDisplayValue(map, display)
-            : String.valueOf(value);
+        String text;
+        if (value instanceof Map<?, ?> map) {
+            text = nestedDisplayValue(map, display);
+        } else if (value instanceof Iterable<?> values) {
+            text = collectionDisplayValue(values, display);
+        } else if (value != null && value.getClass().isArray()) {
+            List<Object> values = new ArrayList<>();
+            for (int index = 0; index < java.lang.reflect.Array.getLength(value); index++) {
+                values.add(java.lang.reflect.Array.get(value, index));
+            }
+            text = collectionDisplayValue(values, display);
+        } else {
+            text = String.valueOf(value);
+        }
         if (text.length() <= display.getMaxValueLength()) {
             return text;
         }
         return text.substring(0, display.getMaxValueLength()) + "...";
+    }
+
+    private String collectionDisplayValue(Iterable<?> values, CloudPivotRuntimeProperties.Display display) {
+        List<String> readable = new ArrayList<>();
+        for (Object value : values) {
+            String item = value instanceof Map<?, ?> map
+                ? nestedDisplayValue(map, display)
+                : value == null ? "" : String.valueOf(value);
+            if (hasText(item) && !readable.contains(item)) {
+                readable.add(item);
+            }
+            if (readable.size() >= 3) {
+                break;
+            }
+        }
+        return String.join("、", readable);
     }
 
     private String nestedDisplayValue(Map<?, ?> map, CloudPivotRuntimeProperties.Display display) {

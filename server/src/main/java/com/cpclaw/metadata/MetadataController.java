@@ -2,6 +2,7 @@ package com.cpclaw.metadata;
 
 import com.cpclaw.common.api.ApiResponse;
 import com.cpclaw.metadata.dto.MetadataAppSummary;
+import com.cpclaw.metadata.dto.MetadataModelResponse;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.metadata.dto.MetadataSyncResponse;
 import com.cpclaw.search.MetadataSearchService;
@@ -27,6 +28,11 @@ public class MetadataController {
     @GetMapping("/apps")
     public ApiResponse<List<MetadataAppSummary>> listApps() {
         return ApiResponse.ok(metadataService.listApps());
+    }
+
+    @GetMapping("/model")
+    public ApiResponse<MetadataModelResponse> model() {
+        return ApiResponse.ok(metadataService.metadataModel());
     }
 
     @GetMapping("/search")

@@ -6,5 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CloudPivotEntityRepository extends JpaRepository<CloudPivotEntity, String> {
     List<CloudPivotEntity> findByAppId(String appId);
-    List<CloudPivotEntity> findByEntityCode(String entityCode);
+
+    List<CloudPivotEntity> findByEntityCodeIgnoreCase(String entityCode);
 }

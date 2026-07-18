@@ -1,7 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '../layouts/MainLayout.vue'
-import ChatView from '../views/ChatView.vue'
-import SettingsView from '../views/SettingsView.vue'
+
+const ChatView = () => import('../views/ChatView.vue')
+const SettingsView = () => import('../views/SettingsView.vue')
+const MetadataView = () => import('../views/MetadataView.vue')
+const AuditView = () => import('../views/AuditView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -11,6 +14,8 @@ const router = createRouter({
       component: MainLayout,
       children: [
         { path: '', name: 'chat', component: ChatView },
+        { path: 'metadata', name: 'metadata', component: MetadataView },
+        { path: 'audit', name: 'audit', component: AuditView },
         { path: 'settings', name: 'settings', component: SettingsView }
       ]
     },

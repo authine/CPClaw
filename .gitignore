@@ -50,6 +50,11 @@ mysql-data/
 browser-state/
 playwright-report/
 test-results/
+server/storage/
+
+# Codex local validation state
+.codex/
+.playwright-cli/
 
 # Temporary files
 *.tmp
