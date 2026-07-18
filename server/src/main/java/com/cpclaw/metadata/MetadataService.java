@@ -12,6 +12,9 @@ import com.cpclaw.metadata.entity.CloudPivotDataItem;
 import com.cpclaw.metadata.entity.CloudPivotEntity;
 import com.cpclaw.metadata.entity.CloudPivotEntityRelation;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
+import com.cpclaw.metadata.graph.MetadataGraphProjector;
+import com.cpclaw.metadata.graph.MetadataGraphProperties;
+import com.cpclaw.metadata.graph.MetadataGraphService;
 import com.cpclaw.metadata.repository.CloudPivotApiEndpointRepository;
 import com.cpclaw.metadata.repository.CloudPivotAppRepository;
 import com.cpclaw.metadata.repository.CloudPivotDataItemRepository;
@@ -51,6 +54,8 @@ public class MetadataService {
     private final CredentialService credentialService;
     private final CloudPivotConnector cloudPivotConnector;
     private final MetadataVectorSearch metadataVectorSearch;
+    private final MetadataGraphService metadataGraphService;
+    private final MetadataGraphProperties metadataGraphProperties;
 
     public MetadataService(
         CloudPivotApiEndpointRepository apiEndpointRepository,
@@ -62,7 +67,9 @@ public class MetadataService {
         SystemSettingsRepository settingsRepository,
         CredentialService credentialService,
         CloudPivotConnector cloudPivotConnector,
-        MetadataVectorSearch metadataVectorSearch
+        MetadataVectorSearch metadataVectorSearch,
+        MetadataGraphService metadataGraphService,
+        MetadataGraphProperties metadataGraphProperties
     ) {
         this.apiEndpointRepository = apiEndpointRepository;
         this.appRepository = appRepository;
@@ -74,6 +81,8 @@ public class MetadataService {
         this.credentialService = credentialService;
         this.cloudPivotConnector = cloudPivotConnector;
         this.metadataVectorSearch = metadataVectorSearch;
+        this.metadataGraphService = metadataGraphService;
+        this.metadataGraphProperties = metadataGraphProperties;
     }
 
     public List<MetadataAppSummary> listApps() {
@@ -456,7 +465,7 @@ public class MetadataService {
                 sourceEntity.getId(),
                 name,
                 relation.getRelationType(),
-                app.getName() + " " + sourceEntity.getName() + "关联" + targetEntity.getName() + " " + name + " 鍏宠仈琛ㄥ崟 鍏宠仈鍏崇郴 璺ㄥ疄浣?鏌ヨ 鍒嗘瀽",
+                app.getName() + " " + sourceEntity.getName() + "关联" + targetEntity.getName() + " " + name + " 关联表单 关联关系 跨实体 查询 分析",
                 app.getName() + " / " + sourceEntity.getName() + " / " + name + " -> " + targetEntity.getName(),
                 riskLevelByCode(snapshot, sourceEntity.getEntityCode()),
                 syncId,
@@ -470,7 +479,25 @@ public class MetadataService {
             log.info("metadata vector index skipped: {}", exception.getMessage());
         }
 
-        return new MetadataSyncResponse(syncId, "cloudpivot-metadata-initialized", apps.size(), entities.size(), dataItems.size(), relations.size(), (int) searchDocumentRepository.count(), now.toString());
+        MetadataGraphProjector.ProjectionResult graphResult = metadataGraphProperties.isRebuildOnMetadataSync()
+            ? metadataGraphService.rebuild(syncId, syncId, now, apps, entities, dataItems, relations, apiEndpoints)
+            : new MetadataGraphProjector.ProjectionResult(syncId, syncId, 0, 0, 0, 0, 0, now);
+        String graphExportPath = metadataGraphService.exportPath(graphResult.snapshotId());
+        return new MetadataSyncResponse(
+            syncId,
+            "cloudpivot-metadata-initialized",
+            apps.size(),
+            entities.size(),
+            dataItems.size(),
+            relations.size(),
+            (int) searchDocumentRepository.count(),
+            graphResult.nodeCount(),
+            graphResult.edgeCount(),
+            graphResult.applicationCount(),
+            graphResult.coverageRate(),
+            graphExportPath,
+            now.toString()
+        );
     }
 
     private CloudPivotApiEndpoint createApiEndpoint(CloudPivotMetadataSnapshot.ApiEndpointMetadata metadata, Instant now) {

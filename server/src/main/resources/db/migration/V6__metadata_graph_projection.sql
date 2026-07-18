@@ -1,0 +1,61 @@
+CREATE TABLE metadata_graph_snapshots (
+    id VARCHAR(64) PRIMARY KEY,
+    source_sync_id VARCHAR(64) NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    application_count INT NOT NULL DEFAULT 0,
+    node_count INT NOT NULL DEFAULT 0,
+    edge_count INT NOT NULL DEFAULT 0,
+    unresolved_edge_count INT NOT NULL DEFAULT 0,
+    coverage_rate DECIMAL(10, 6) NOT NULL DEFAULT 0,
+    export_path VARCHAR(1024),
+    started_at TIMESTAMP(6) NOT NULL,
+    completed_at TIMESTAMP(6),
+    error_message TEXT,
+    INDEX idx_metadata_graph_snapshot_status (status, completed_at),
+    INDEX idx_metadata_graph_snapshot_source_sync (source_sync_id)
+);
+
+CREATE TABLE metadata_graph_nodes (
+    id VARCHAR(64) PRIMARY KEY,
+    snapshot_id VARCHAR(64) NOT NULL,
+    stable_key VARCHAR(512) NOT NULL,
+    node_type VARCHAR(64) NOT NULL,
+    object_type VARCHAR(64) NOT NULL,
+    object_id VARCHAR(64),
+    app_id VARCHAR(64),
+    app_code VARCHAR(255),
+    entity_id VARCHAR(64),
+    code VARCHAR(255),
+    name VARCHAR(512) NOT NULL,
+    confidence VARCHAR(32) NOT NULL,
+    community INT NOT NULL DEFAULT 0,
+    source_uri VARCHAR(1024),
+    attributes_json LONGTEXT,
+    created_at TIMESTAMP(6) NOT NULL,
+    UNIQUE KEY uk_metadata_graph_node_key (snapshot_id, stable_key),
+    INDEX idx_metadata_graph_node_object (snapshot_id, object_type, object_id),
+    INDEX idx_metadata_graph_node_app (snapshot_id, app_id),
+    INDEX idx_metadata_graph_node_entity (snapshot_id, entity_id),
+    INDEX idx_metadata_graph_node_code (snapshot_id, code)
+);
+
+CREATE TABLE metadata_graph_edges (
+    id VARCHAR(64) PRIMARY KEY,
+    snapshot_id VARCHAR(64) NOT NULL,
+    stable_key VARCHAR(512) NOT NULL,
+    edge_type VARCHAR(64) NOT NULL,
+    label VARCHAR(512),
+    source_node_key VARCHAR(512) NOT NULL,
+    target_node_key VARCHAR(512) NOT NULL,
+    confidence VARCHAR(32) NOT NULL,
+    weight DECIMAL(10, 6) NOT NULL DEFAULT 1,
+    source_data_item_id VARCHAR(64),
+    source_uri VARCHAR(1024),
+    attributes_json LONGTEXT,
+    created_at TIMESTAMP(6) NOT NULL,
+    UNIQUE KEY uk_metadata_graph_edge_key (snapshot_id, stable_key),
+    INDEX idx_metadata_graph_edge_source (snapshot_id, source_node_key),
+    INDEX idx_metadata_graph_edge_target (snapshot_id, target_node_key),
+    INDEX idx_metadata_graph_edge_type (snapshot_id, edge_type)
+);

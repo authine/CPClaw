@@ -8,6 +8,11 @@ public record MetadataSyncResponse(
     int dataItemCount,
     int relationCount,
     int searchDocumentCount,
+    int graphNodeCount,
+    int graphEdgeCount,
+    int graphApplicationCount,
+    double graphCoverageRate,
+    String graphExportPath,
     String createdAt
 ) {
 }

@@ -47,6 +47,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -57,7 +58,8 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
-    "cpclaw.cloudpivot.allow-metadata-fallback=true"
+    "cpclaw.cloudpivot.allow-metadata-fallback=true",
+    "cpclaw.metadata.graphify.output-directory=${java.io.tmpdir}/cpclaw-test-graphify"
 })
 @AutoConfigureMockMvc
 class CpClawApiTests {
@@ -76,6 +78,9 @@ class CpClawApiTests {
 
     @Autowired
     private CloudPivotEntityRelationRepository relationRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void mvpApiFlowWorks() throws Exception {
@@ -136,7 +141,11 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.status").value("cloudpivot-metadata-initialized"))
             .andExpect(jsonPath("$.data.entityCount").value(6))
             .andExpect(jsonPath("$.data.dataItemCount").value(10))
-            .andExpect(jsonPath("$.data.relationCount").value(1));
+            .andExpect(jsonPath("$.data.relationCount").value(1))
+            .andExpect(jsonPath("$.data.graphApplicationCount").value(4))
+            .andExpect(jsonPath("$.data.graphNodeCount").value(22))
+            .andExpect(jsonPath("$.data.graphEdgeCount").value(30))
+            .andExpect(jsonPath("$.data.graphCoverageRate").value(1.0));
 
         assertEquals(10, dataItemRepository.count());
         assertEquals(1, relationRepository.count());
@@ -169,6 +178,79 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.apps[0].entities[0].apiActions[3].method").value("PUT"))
             .andExpect(jsonPath("$.data.apps[0].entities[0].apiActions[4].method").value("GET"))
             .andExpect(jsonPath("$.data.apps[0].entities[0].apiActions[4].path").value("/api/api/runtime/business_rule/zlcsstcrm/int_bu_oppor/Load/{bizObjectId}"));
+
+        mockMvc.perform(get("/api/metadata/graph/overview"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.provider").value("graphify-v8-compatible"))
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+            .andExpect(jsonPath("$.data.applicationCount").value(4))
+            .andExpect(jsonPath("$.data.coveredApplicationCount").value(4))
+            .andExpect(jsonPath("$.data.coverageRate").value(1.0))
+            .andExpect(jsonPath("$.data.nodeCount").value(22))
+            .andExpect(jsonPath("$.data.edgeCount").value(30))
+            .andExpect(jsonPath("$.data.nodesByType.application").value(4))
+            .andExpect(jsonPath("$.data.nodesByType.entity").value(6))
+            .andExpect(jsonPath("$.data.nodesByType.data_item").value(10))
+            .andExpect(jsonPath("$.data.edgesByType.APP_CONTAINS_ENTITY").value(6))
+            .andExpect(jsonPath("$.data.edgesByType.ENTITY_HAS_DATA_ITEM").value(10))
+            .andExpect(jsonPath("$.data.applications.length()").value(4));
+
+        mockMvc.perform(get("/api/metadata/graph/neighborhood")
+                .param("nodeId", "entity:zlcsstcrm:int_bu_oppor")
+                .param("depth", "1")
+                .param("limit", "100"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.center.code").value("int_bu_oppor"))
+            .andExpect(jsonPath("$.data.center.name").value("商机"))
+            .andExpect(jsonPath("$.data.nodes.length()").value(9))
+            .andExpect(jsonPath("$.data.edges[*].type", hasItem("APP_CONTAINS_ENTITY")))
+            .andExpect(jsonPath("$.data.edges[*].type", hasItem("ENTITY_HAS_DATA_ITEM")))
+            .andExpect(jsonPath("$.data.edges[*].type", hasItem("ENTITY_RELATES_TO_ENTITY")))
+            .andExpect(jsonPath("$.data.edges[*].type", hasItem("API_OPERATES_ON_ENTITY")));
+
+        mockMvc.perform(get("/api/metadata/graph/neighborhood")
+                .param("nodeId", "entity:zlcsstcrm:int_bu_oppor")
+                .param("depth", "2")
+                .param("limit", "100"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.nodes.length()").value(11))
+            .andExpect(jsonPath("$.data.truncated").value(false))
+            .andExpect(jsonPath("$.data.nodes[*].code", not(hasItem("pm_project"))))
+            .andExpect(jsonPath("$.data.nodes[*].code", not(hasItem("business_opportunity"))));
+
+        mockMvc.perform(get("/api/metadata/graph/export"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.directed").value(true))
+            .andExpect(jsonPath("$.multigraph").value(false))
+            .andExpect(jsonPath("$.graph.provider").value("graphify-v8-compatible"))
+            .andExpect(jsonPath("$.nodes.length()").value(22))
+            .andExpect(jsonPath("$.links.length()").value(30))
+            .andExpect(jsonPath("$.nodes[0].file_type").value("cloudpivot_metadata"));
+
+        List<String> graphNodeKeysBefore = jdbcTemplate.queryForList(
+            "SELECT stable_key FROM metadata_graph_nodes WHERE snapshot_id = (SELECT id FROM metadata_graph_snapshots WHERE status = 'ACTIVE') ORDER BY stable_key",
+            String.class
+        );
+        List<String> graphEdgeKeysBefore = jdbcTemplate.queryForList(
+            "SELECT stable_key FROM metadata_graph_edges WHERE snapshot_id = (SELECT id FROM metadata_graph_snapshots WHERE status = 'ACTIVE') ORDER BY stable_key",
+            String.class
+        );
+        mockMvc.perform(post("/api/metadata/graph/rebuild"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.nodeCount").value(22))
+            .andExpect(jsonPath("$.data.edgeCount").value(30))
+            .andExpect(jsonPath("$.data.coverageRate").value(1.0));
+        List<String> graphNodeKeysAfter = jdbcTemplate.queryForList(
+            "SELECT stable_key FROM metadata_graph_nodes WHERE snapshot_id = (SELECT id FROM metadata_graph_snapshots WHERE status = 'ACTIVE') ORDER BY stable_key",
+            String.class
+        );
+        List<String> graphEdgeKeysAfter = jdbcTemplate.queryForList(
+            "SELECT stable_key FROM metadata_graph_edges WHERE snapshot_id = (SELECT id FROM metadata_graph_snapshots WHERE status = 'ACTIVE') ORDER BY stable_key",
+            String.class
+        );
+        assertEquals(graphNodeKeysBefore, graphNodeKeysAfter);
+        assertEquals(graphEdgeKeysBefore, graphEdgeKeysAfter);
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM metadata_graph_snapshots", Integer.class));
 
         mockMvc.perform(get("/api/metadata/search").param("query", "元数据对象"))
             .andExpect(status().isOk())

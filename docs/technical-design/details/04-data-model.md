@@ -266,6 +266,22 @@
 - `raw_json`
 - `synced_at`
 
+### 5.8 metadata_graph_snapshots
+
+保存 Graphify 全应用图谱版本。`status` 使用 `BUILDING / ACTIVE / STALE`，查询只读取当前 `ACTIVE` 版本。核心字段包括来源同步批次、应用数、节点数、边数、未解析边数、覆盖率、导出路径和构建时间。默认保留最近两个版本。
+
+### 5.9 metadata_graph_nodes
+
+保存当前图快照的应用、实体、数据项和 API 节点。`stable_key` 使用应用编码、实体编码和数据项编码组成，与每次元数据同步重新生成的数据库 UUID 解耦；同一快照内 `snapshot_id + stable_key` 唯一。
+
+节点同时保存对象类型、本地对象 ID、应用/实体范围、来源 URI、Graphify community、置信度和扩展属性 JSON。
+
+### 5.10 metadata_graph_edges
+
+保存应用包含实体、实体包含字段、字段引用实体、实体关系和 API 能力边。边通过稳定节点键连接，支持按来源、目标和边类型查询。云枢明确关系标为 `EXTRACTED`，通用 API 适用关系标为 `INFERRED`；未解析引用不生成悬空边，而计入快照完整性指标。
+
+详细投影、接口和配置参见 `09-graphify-all-applications-knowledge-graph.md`。
+
 ## 6. 检索索引数据
 
 ### 6.1 metadata_search_documents

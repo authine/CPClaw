@@ -64,6 +64,7 @@ docs/
 - `details/04-data-model.md`：数据模型详细设计，描述 MySQL 表结构、应用级知识图谱、检索索引、附件、记忆和审计。
 - `details/05-security.md`：安全详细设计，描述凭据存储、环境变量、日志脱敏、Prompt 安全、操作确认、附件安全和 GitHub 安全要求。
 - `details/06-key-technical-strategy.md`：关键技术策略，固化配置持久化、云枢元数据驱动意图匹配、非向量检索、澄清收敛、流式输出和真实数据原则。
+- `details/09-graphify-all-applications-knowledge-graph.md`：Graphify 全应用元数据图谱设计，描述版本化图投影、稳定键、可信边、邻域查询、兼容导出和全应用验收标准。
 
 阅读方式：先读技术设计蓝图，理解项目整体技术路径；再按组件或专项进入详细设计。
 
@@ -73,6 +74,7 @@ docs/
 
 - `07-test-plan.md`：测试计划，描述单元测试、集成测试、E2E 测试、安全验收和 MVP 验收标准。
 - `08-mvp-test-cases.md`：MVP 测试用例，按可执行用例拆分 MVP 验收项。
+- `14-graphify-all-applications-validation-2026-07-18.md`：Graphify 全应用元数据图谱的自动化、真实 MySQL、稳定键、跨应用关系和兼容导出验收记录。
 - `09-mvp-validation-record.md`：MVP 验证执行记录，记录后端测试、前端构建、运行态验证和提交推送状态。
 
 ## 推荐阅读顺序

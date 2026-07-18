@@ -111,6 +111,17 @@ cpclaw:
           - label: 更新时间
             priority: 20
             contains: [modified, updated, 更新时间]
+  metadata:
+    graphify:
+      enabled: ${CPCLAW_GRAPHIFY_ENABLED:true}
+      rebuild-on-metadata-sync: ${CPCLAW_GRAPHIFY_REBUILD_ON_SYNC:true}
+      include-api-endpoints: ${CPCLAW_GRAPHIFY_INCLUDE_API_ENDPOINTS:true}
+      write-export: ${CPCLAW_GRAPHIFY_WRITE_EXPORT:true}
+      output-directory: ${CPCLAW_GRAPHIFY_OUTPUT_DIR:./storage/graphify-out}
+      batch-size: ${CPCLAW_GRAPHIFY_BATCH_SIZE:500}
+      max-depth: ${CPCLAW_GRAPHIFY_MAX_DEPTH:3}
+      max-nodes: ${CPCLAW_GRAPHIFY_MAX_NODES:500}
+      snapshot-retention: ${CPCLAW_GRAPHIFY_SNAPSHOT_RETENTION:2}
   vector:
     enabled: ${CPCLAW_VECTOR_ENABLED:false}
     jdbc-url: ${CPCLAW_VECTOR_JDBC_URL:jdbc:postgresql://localhost:5432/CPClaw}

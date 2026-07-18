@@ -145,6 +145,8 @@ Vue 3 Web UI
 
 Agent 检索和规划必须先定位应用，再在应用图谱内定位实体、字段、关系路径和操作能力。
 
+当前实现将全部已同步应用投影为 MySQL 版本化图快照，并生成 Graphify v8 Node-Link JSON。图节点使用稳定业务键，显式云枢关系与推断能力边分级保存；新快照完成覆盖率和完整性校验后才原子切换为 `ACTIVE`。应用/API 节点在多跳邻域中作为终止节点，避免通过公共父节点形成无意义的伪路径。详见 `details/09-graphify-all-applications-knowledge-graph.md`。
+
 ## 6. 当前混合检索技术路径
 
 当前阶段基于 MySQL Metadata Index 和 PostgreSQL pgvector 实现确定性优先、语义增强、可解释、可降级的混合检索：

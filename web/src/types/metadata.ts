@@ -14,6 +14,11 @@ export interface MetadataSyncResponse {
   dataItemCount: number
   relationCount: number
   searchDocumentCount: number
+  graphNodeCount: number
+  graphEdgeCount: number
+  graphApplicationCount: number
+  graphCoverageRate: number
+  graphExportPath?: string
   createdAt: string
 }
 
@@ -100,4 +105,65 @@ export interface MetadataApiAction {
   dataScope?: string
   applicableObjectType?: string
   syncedAt?: string
+}
+
+export interface MetadataGraphOverview {
+  provider: string
+  status: string
+  syncId?: string
+  generatedAt?: string
+  applicationCount: number
+  coveredApplicationCount: number
+  coverageRate: number
+  nodeCount: number
+  edgeCount: number
+  unresolvedEdgeCount: number
+  nodesByType: Record<string, number>
+  edgesByType: Record<string, number>
+  applications: MetadataGraphApplicationCoverage[]
+  exportPath?: string
+}
+
+export interface MetadataGraphApplicationCoverage {
+  appId: string
+  appCode: string
+  name: string
+  entityCount: number
+  dataItemCount: number
+  edgeCount: number
+  coverageRate: number
+  status: string
+}
+
+export interface MetadataGraphNode {
+  id: string
+  type: string
+  objectType: string
+  objectId?: string
+  appId?: string
+  appCode?: string
+  entityId?: string
+  name: string
+  code?: string
+  confidence: string
+}
+
+export interface MetadataGraphEdge {
+  id: string
+  type: string
+  label?: string
+  source: string
+  target: string
+  confidence: string
+  weight: number
+  sourceDataItemId?: string
+}
+
+export interface MetadataGraphNeighborhood {
+  center: MetadataGraphNode
+  nodes: MetadataGraphNode[]
+  edges: MetadataGraphEdge[]
+  depth: number
+  truncated: boolean
+  totalNeighborCount: number
 }
