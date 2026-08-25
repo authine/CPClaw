@@ -41,6 +41,7 @@
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, ElTag } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { useTheme } from '../composables/useTheme'
 import { ArrowLeft, ArrowRight, CircleCheck, CollectionTag, Connection, Cpu, DataAnalysis, Finished, Lock, Menu, Plus, Refresh, UserFilled, Share } from '@element-plus/icons-vue'
 import MetadataBrowserPanel from '../components/settings/MetadataBrowserPanel.vue'
 import MetadataSyncPanel from '../components/settings/MetadataSyncPanel.vue'
@@ -51,7 +52,7 @@ import MemorySettingsPanel from '../components/settings/MemorySettingsPanel.vue'
 import { deleteModelConfig, getSettings, saveAdminSettings, saveModelConfig, saveUserSettings, testAdminCloudPivotConnection, testModelConnection, testUnsavedModelConnection, testUserCloudPivotConnection, updateModelConfig } from '../services/settingsApi'
 import type { ConnectionTestResponse, ModelConfigSummary, ModelConnectionTestResponse, SaveAdminSettingsRequest, SaveUserSettingsRequest, SettingsResponse } from '../types/settings'
 
-const router = useRouter(); const route = useRoute(); const settings = ref<SettingsResponse>(); const loading = ref(false); const savingUser = ref(false); const savingAdmin = ref(false); const savingModel = ref(false); const testingUser = ref(false); const testingAdmin = ref(false); const testingNewModel = ref(false); const testingModelId = ref(''); const deletingModelId = ref(''); const editingModelId = ref(''); const errorMessage = ref(''); const activeSection = ref('user-cloudpivot'); const metadataVersion = ref(0); const darkMode = ref(window.localStorage.getItem('cpclaw-theme') === 'dark'); const settingsSidebarOpen = ref(window.innerWidth > 900); const PASSWORD_MASK = '********'
+const router = useRouter(); const route = useRoute(); const settings = ref<SettingsResponse>(); const loading = ref(false); const savingUser = ref(false); const savingAdmin = ref(false); const savingModel = ref(false); const testingUser = ref(false); const testingAdmin = ref(false); const testingNewModel = ref(false); const testingModelId = ref(''); const deletingModelId = ref(''); const editingModelId = ref(''); const errorMessage = ref(''); const activeSection = ref('user-cloudpivot'); const metadataVersion = ref(0); const { darkMode } = useTheme(); const settingsSidebarOpen = ref(window.innerWidth > 900); const PASSWORD_MASK = '********'
 const navigationGroups = [{ title: '云枢环境连接', items: [{ id: 'user-cloudpivot', title: '个人云枢账号', description: '问数与业务操作', icon: UserFilled }, { id: 'admin-cloudpivot', title: '管理员云枢环境', description: '元数据同步连接', icon: CollectionTag }] }, { title: '元数据管理', items: [{ id: 'metadata-sync', title: '元数据同步', description: '同步云枢应用与能力', icon: Refresh }, { id: 'metadata-browser', title: '元数据查看', description: '应用、字段、关联与 API', icon: DataAnalysis }] }, { title: '集成与发布', items: [{ id: 'mcp-cloudpivot', title: '云枢 MCP 服务', description: 'OpenClaw 客户端接入与能力发布', icon: Share }] }, { title: '智能与安全', items: [{ id: 'memory', title: '记忆设置', description: '个人记忆与系统全局记忆', icon: UserFilled }, { id: 'models', title: 'Agent 模型', description: '模型配置与连通性验证', icon: Cpu }, { id: 'usage-dashboard', title: '用量看板', description: 'Token 趋势与模型分布', icon: DataAnalysis }, { id: 'log-analytics', title: '调用明细', description: '筛选、审计与调用详情', icon: DataAnalysis }, { id: 'security', title: '安全控制台', description: '状态、确认与部署边界', icon: CircleCheck }] }]
 const userForm = reactive({ cloudPivotUsername: '', cloudPivotPassword: '' }); const adminForm = reactive({ targetBaseUrl: '', username: '', password: '', searchEngineType: 'mysql', searchEndpoint: '' }); const modelForm = reactive({ modelDisplayName: '', modelName: '', modelApiBaseUrl: '', modelApiKey: '', supportsThinking: false, defaultThinkingEnabled: false }); const models = computed<ModelConfigSummary[]>(() => settings.value?.models ?? [])
 const userFormVersion = ref(0); const testedUserFormVersion = ref(-1); const userTestResult = ref<ConnectionTestResponse>(); const canSaveUser = computed(() => userTestResult.value?.success === true && testedUserFormVersion.value === userFormVersion.value); const userTestMessage = computed(() => connectionTestMessage(userTestResult.value, testedUserFormVersion.value, userFormVersion.value)); const userTestType = computed(() => connectionTestType(userTestResult.value, testedUserFormVersion.value, userFormVersion.value)); const adminFormVersion = ref(0); const testedAdminFormVersion = ref(-1); const adminTestResult = ref<ConnectionTestResponse>(); const canSaveAdmin = computed(() => adminTestResult.value?.success === true && testedAdminFormVersion.value === adminFormVersion.value); const adminTestMessage = computed(() => connectionTestMessage(adminTestResult.value, testedAdminFormVersion.value, adminFormVersion.value)); const adminTestType = computed(() => connectionTestType(adminTestResult.value, testedAdminFormVersion.value, adminFormVersion.value)); const modelFormVersion = ref(0); const testedModelFormVersion = ref(-1); const newModelTestResult = ref<ModelConnectionTestResponse>(); const canSaveModel = computed(() => newModelTestResult.value?.success === true && testedModelFormVersion.value === modelFormVersion.value); const modelTestMessage = computed(() => { if (!newModelTestResult.value) return ''; if (testedModelFormVersion.value !== modelFormVersion.value) return '连接字段已变更，请重新测试后保存'; const message = newModelTestResult.value.message; return newModelTestResult.value.latencyMs > 0 ? `${message}（${newModelTestResult.value.latencyMs}ms）` : message }); const modelTestType = computed(() => testedModelFormVersion.value !== modelFormVersion.value ? 'info' : newModelTestResult.value?.success ? 'success' : 'warning')
@@ -82,62 +83,18 @@ function restorePasswordMask(scope: 'user' | 'admin') { if (scope === 'user' && 
 
 <style scoped>
 .settings-workbench {
-  /* Shared CPClaw shell tokens: keep Settings and Chat as two content modes
-     inside the same application frame. */
-  --settings-page: #f7f8fa;
-  --settings-sidebar: #eef1f5;
-  --settings-surface: #fff;
-  --settings-surface-soft: #f2f4f7;
-  --settings-line: rgba(18, 28, 45, .08);
-  --settings-line-strong: rgba(18, 28, 45, .14);
-  --settings-text: #171c2b;
-  --settings-secondary: #657084;
-  --settings-tertiary: #98a2b3;
-  --settings-brand: #4f6ef7;
-  --settings-brand-strong: #3f5ce0;
-  --settings-brand-soft: rgba(79, 110, 247, .10);
-  --settings-radius: 12px;
-  --settings-content-width: 1120px;
-  --settings-section-gap: 24px;
-  --settings-header-height: 56px;
-  /* Match the conversation shell so the settings route feels like the same
-     product surface, not a separate admin application. */
-  --settings-sidebar-width: 288px;
+  --settings-surface-soft: var(--cp-bg-subtle);
+  --settings-line-strong: var(--cp-border-strong);
+  --settings-brand-strong: var(--cp-brand-hover);
+  --settings-brand-soft: var(--cp-brand-soft);
+  --settings-section-gap: var(--cp-space-6);
+  --settings-header-height: var(--cp-header-height);
+  --settings-sidebar-width: var(--cp-sidebar-width);
   --settings-footer-height: 60px;
   display: flex;
   min-height: 100vh;
   background: var(--settings-page);
   color: var(--settings-text);
-}
-.settings-workbench--dark {
-  --settings-page:#0f141d;
-  --settings-sidebar:#111722;
-  --settings-surface:#171e29;
-  --settings-surface-soft:#1b2330;
-  --settings-line:rgba(255,255,255,.07);
-  --settings-line-strong:rgba(255,255,255,.13);
-  --settings-text:#eef2f7;
-  --settings-secondary:#a6afbe;
-  --settings-tertiary:#727d8e;
-  --settings-brand:#6f89ff;
-  --settings-brand-strong:#8da1ff;
-  --settings-brand-soft:rgba(111,137,255,.13);
-  --el-bg-color:#171e29;
-  --el-bg-color-overlay:#1b2330;
-  --el-fill-color-blank:#171e29;
-  --el-fill-color:#1b2330;
-  --el-fill-color-light:#202a39;
-  --el-fill-color-lighter:#263142;
-  --el-fill-color-dark:#111722;
-  --el-border-color:#2a3546;
-  --el-border-color-light:#253142;
-  --el-border-color-lighter:#202a39;
-  --el-text-color-primary:#eef2f7;
-  --el-text-color-regular:#c2cad6;
-  --el-text-color-secondary:#a6afbe;
-  --el-text-color-placeholder:#727d8e;
-  --el-disabled-bg-color:#141b25;
-  --el-disabled-text-color:#626d7d;
 }
 .settings-panel { display:flex; flex:0 0 var(--settings-sidebar-width); flex-direction:column; border-right:1px solid var(--settings-line); background:var(--settings-sidebar); }
 .settings-panel__header, .settings-toolbar { display:flex; height:var(--settings-header-height); min-height:var(--settings-header-height); align-items:center; border-bottom:1px solid var(--settings-line); }

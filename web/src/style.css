@@ -1,113 +1,31 @@
-html,
-body,
-#app {
-  width: 100%;
-  height: 100%;
-  margin: 0;
+/* CPClaw UI Design System: the single source of truth for themes and shared contracts. */
+:root {
+  color-scheme: light;
+  --cp-space-1:4px; --cp-space-2:8px; --cp-space-3:12px; --cp-space-4:16px; --cp-space-5:20px; --cp-space-6:24px; --cp-space-7:32px; --cp-space-8:40px; --cp-space-9:48px;
+  --cp-font-xs:12px; --cp-font-sm:13px; --cp-font-body:14px; --cp-font-body-lg:16px; --cp-font-title-sm:18px; --cp-font-title:28px; --cp-font-display:34px;
+  --cp-line-xs:18px; --cp-line-sm:20px; --cp-line-body:22px; --cp-line-body-lg:24px; --cp-line-title-sm:26px; --cp-line-title:36px; --cp-line-display:42px;
+  --cp-radius-sm:6px; --cp-radius-md:8px; --cp-radius-lg:12px; --cp-radius-xl:16px; --cp-radius-pill:999px;
+  --cp-shadow-sm:0 1px 2px rgba(16,24,40,.05); --cp-shadow-md:0 8px 24px rgba(16,24,40,.08);
+  --cp-header-height:56px; --cp-sidebar-width:272px; --cp-content-max:1200px; --cp-content-pad:clamp(16px,3vw,48px); --cp-transition:180ms ease;
+  --cp-bg-page:#f5f7fa; --cp-bg-sidebar:#eef2f7; --cp-bg-surface:#fff; --cp-bg-subtle:#f8fafc; --cp-bg-elevated:#fff; --cp-bg-hover:#f1f5f9; --cp-bg-active:#eef2ff;
+  --cp-text-primary:#172033; --cp-text-secondary:#5f6b7a; --cp-text-tertiary:#8b96a8; --cp-border:#e3e8f0; --cp-border-strong:#cbd5e1;
+  --cp-brand:#4f6ef7; --cp-brand-hover:#3f5ce0; --cp-brand-soft:#eef2ff; --cp-success:#16a34a; --cp-warning:#d97706; --cp-danger:#dc2626; --cp-info:#2563eb;
+  --cp-success-soft:#ecfdf3; --cp-warning-soft:#fffbeb; --cp-danger-soft:#fef2f2; --cp-info-soft:#eff6ff;
+  --el-color-primary:var(--cp-brand); --el-color-primary-light-3:#7189f8; --el-color-primary-light-5:#94a5fb; --el-color-primary-light-7:#b7c2fd; --el-color-primary-light-8:#d0d8fe; --el-color-primary-light-9:var(--cp-brand-soft);
+  --el-bg-color:var(--cp-bg-surface); --el-bg-color-page:var(--cp-bg-page); --el-bg-color-overlay:var(--cp-bg-elevated); --el-fill-color-blank:var(--cp-bg-surface); --el-fill-color:var(--cp-bg-subtle); --el-fill-color-light:var(--cp-bg-hover); --el-fill-color-lighter:var(--cp-bg-subtle);
+  --el-text-color-primary:var(--cp-text-primary); --el-text-color-regular:var(--cp-text-primary); --el-text-color-secondary:var(--cp-text-secondary); --el-text-color-placeholder:var(--cp-text-tertiary);
+  --el-border-color:var(--cp-border); --el-border-color-light:var(--cp-border); --el-border-color-lighter:var(--cp-border); --el-table-bg-color:var(--cp-bg-surface); --el-table-tr-bg-color:var(--cp-bg-surface); --el-table-header-bg-color:var(--cp-bg-subtle); --el-table-row-hover-bg-color:var(--cp-bg-hover); --el-table-border-color:var(--cp-border); --el-table-text-color:var(--cp-text-primary); --el-table-header-text-color:var(--cp-text-secondary);
+  --settings-page:var(--cp-bg-page); --settings-sidebar:var(--cp-bg-sidebar); --settings-surface:var(--cp-bg-surface); --settings-text:var(--cp-text-primary); --settings-secondary:var(--cp-text-secondary); --settings-brand:var(--cp-brand); --settings-line:var(--cp-border); --settings-radius:var(--cp-radius-lg); --settings-content-width:1200px;
+  --chat-page:var(--cp-bg-page); --chat-surface:var(--cp-bg-surface); --chat-text:var(--cp-text-primary); --chat-muted:var(--cp-text-secondary); --chat-line:var(--cp-border); --chat-brand:var(--cp-brand);
 }
-
-body {
-  background: #f5f7fb;
-  color: #1f2937;
-  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
-}
-
-/* Theme is placed on <html>, not a view container: Element Plus menus,
-   dialogs, messages and tooltips are teleported to <body>. */
 html.cpclaw-theme-dark {
-  color-scheme: dark;
-  --el-color-primary: #6f89ff;
-  --el-color-primary-light-3: #8da1ff;
-  --el-color-primary-light-5: #9dacff;
-  --el-color-primary-light-7: #b9c4ff;
-  --el-color-primary-light-8: #ced5ff;
-  --el-color-primary-light-9: #e2e6ff;
-  --el-bg-color: #171e29;
-  --el-bg-color-page: #0f141d;
-  --el-bg-color-overlay: #1b2330;
-  --el-fill-color-blank: #171e29;
-  --el-fill-color: #1b2330;
-  --el-fill-color-light: #202a39;
-  --el-fill-color-lighter: #263142;
-  --el-fill-color-extra-light: #1b2330;
-  --el-fill-color-dark: #111722;
-  --el-text-color-primary: #eef2f7;
-  --el-text-color-regular: #c2cad6;
-  --el-text-color-secondary: #a6afbe;
-  --el-text-color-placeholder: #727d8e;
-  --el-border-color: #2a3546;
-  --el-border-color-light: #253142;
-  --el-border-color-lighter: #202a39;
-  --el-border-color-extra-light: #1b2330;
-  --el-disabled-bg-color: #141b25;
-  --el-disabled-text-color: #626d7d;
-  --el-mask-color: rgba(5, 9, 16, 0.68);
-  --el-table-bg-color: #171e29;
-  --el-table-tr-bg-color: #171e29;
-  --el-table-header-bg-color: #1b2330;
-  --el-table-row-hover-bg-color: #202a39;
-  --el-table-current-row-bg-color: #202a39;
-  --el-table-border-color: #2a3546;
-  --el-table-text-color: #eef2f7;
-  --el-table-header-text-color: #a6afbe;
+  color-scheme:dark;
+  --cp-bg-page:#0f141d; --cp-bg-sidebar:#111722; --cp-bg-surface:#171e29; --cp-bg-subtle:#1b2330; --cp-bg-elevated:#202a39; --cp-bg-hover:#263142; --cp-bg-active:rgba(111,137,255,.14);
+  --cp-text-primary:#eef2f7; --cp-text-secondary:#a6afbe; --cp-text-tertiary:#727d8e; --cp-border:#2a3546; --cp-border-strong:#3a4658; --cp-brand:#6f89ff; --cp-brand-hover:#8da1ff; --cp-brand-soft:rgba(111,137,255,.14); --cp-success:#4ade80; --cp-warning:#fbbf24; --cp-danger:#f87171; --cp-info:#60a5fa; --cp-success-soft:rgba(74,222,128,.14); --cp-warning-soft:rgba(251,191,36,.14); --cp-danger-soft:rgba(248,113,113,.14); --cp-info-soft:rgba(96,165,250,.14);
+  --el-color-primary:var(--cp-brand); --el-color-primary-light-3:#8da1ff; --el-color-primary-light-5:#9dacff; --el-color-primary-light-7:#b9c4ff; --el-color-primary-light-8:#ced5ff; --el-color-primary-light-9:var(--cp-brand-soft); --el-bg-color:var(--cp-bg-surface); --el-bg-color-page:var(--cp-bg-page); --el-bg-color-overlay:var(--cp-bg-elevated); --el-fill-color-blank:var(--cp-bg-surface); --el-fill-color:var(--cp-bg-subtle); --el-fill-color-light:var(--cp-bg-hover); --el-fill-color-lighter:var(--cp-bg-hover); --el-fill-color-dark:var(--cp-bg-sidebar); --el-text-color-primary:var(--cp-text-primary); --el-text-color-regular:var(--cp-text-primary); --el-text-color-secondary:var(--cp-text-secondary); --el-text-color-placeholder:var(--cp-text-tertiary); --el-border-color:var(--cp-border); --el-border-color-light:var(--cp-border); --el-border-color-lighter:var(--cp-border); --el-table-bg-color:var(--cp-bg-surface); --el-table-tr-bg-color:var(--cp-bg-surface); --el-table-header-bg-color:var(--cp-bg-subtle); --el-table-row-hover-bg-color:var(--cp-bg-hover); --el-table-border-color:var(--cp-border); --el-table-text-color:var(--cp-text-primary); --el-table-header-text-color:var(--cp-text-secondary);
 }
-
-html.cpclaw-theme-dark body {
-  background: #0f141d;
-  color: #eef2f7;
-}
-
-html.cpclaw-theme-dark .el-select__popper,
-html.cpclaw-theme-dark .el-picker__popper,
-html.cpclaw-theme-dark .el-dropdown__popper,
-html.cpclaw-theme-dark .el-cascader__dropdown,
-html.cpclaw-theme-dark .el-autocomplete__popper,
-html.cpclaw-theme-dark .el-popover.el-popper,
-html.cpclaw-theme-dark .el-popper.is-light,
-html.cpclaw-theme-dark .el-message-box,
-html.cpclaw-theme-dark .el-message,
-html.cpclaw-theme-dark .el-notification,
-html.cpclaw-theme-dark .el-dialog,
-html.cpclaw-theme-dark .el-drawer {
-  border-color: #2a3546;
-  background: #1b2330;
-  color: #eef2f7;
-}
-
-html.cpclaw-theme-dark .el-select-dropdown__item,
-html.cpclaw-theme-dark .el-dropdown-menu__item,
-html.cpclaw-theme-dark .el-cascader-node,
-html.cpclaw-theme-dark .el-picker-panel,
-html.cpclaw-theme-dark .el-message-box__title,
-html.cpclaw-theme-dark .el-message-box__message,
-html.cpclaw-theme-dark .el-dialog__title,
-html.cpclaw-theme-dark .el-drawer__title,
-html.cpclaw-theme-dark .el-notification__title,
-html.cpclaw-theme-dark .el-notification__content {
-  color: #eef2f7;
-}
-
-html.cpclaw-theme-dark .el-select-dropdown__item:hover,
-html.cpclaw-theme-dark .el-select-dropdown__item.is-hovering,
-html.cpclaw-theme-dark .el-dropdown-menu__item:not(.is-disabled):hover,
-html.cpclaw-theme-dark .el-cascader-node:not(.is-disabled):hover {
-  background: #263142;
-}
-
-html.cpclaw-theme-dark .el-select-dropdown__item.is-selected {
-  color: #8da1ff;
-}
-
-html.cpclaw-theme-dark .el-dialog__header,
-html.cpclaw-theme-dark .el-drawer__header,
-html.cpclaw-theme-dark .el-message-box__header {
-  border-color: #2a3546;
-}
-
-html.cpclaw-theme-dark .el-loading-mask {
-  background: rgba(15, 20, 29, 0.72);
-}
-
-* {
-  box-sizing: border-box;
-}
+html,body,#app{width:100%;min-height:100%;margin:0} body{background:var(--cp-bg-page);color:var(--cp-text-primary);font-family:Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif;font-size:var(--cp-font-body);line-height:var(--cp-line-body);transition:background-color var(--cp-transition),color var(--cp-transition)} *{box-sizing:border-box} button,input,textarea,select{font:inherit} :focus-visible{outline:2px solid var(--cp-brand);outline-offset:2px}
+.cp-page{width:min(100%,var(--cp-content-max));margin:0 auto;padding:var(--cp-space-6) var(--cp-content-pad)} .cp-page-header,.page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--cp-space-6);margin-bottom:var(--cp-space-6)} .cp-page-header h1,.page-header h1{margin:0;color:var(--cp-text-primary);font-size:var(--cp-font-title);line-height:var(--cp-line-title);font-weight:700;letter-spacing:-.02em}.cp-page-header p,.page-header p{margin:var(--cp-space-2) 0 0;color:var(--cp-text-secondary);font-size:var(--cp-font-body);line-height:var(--cp-line-body)} .cp-actions,.cp-toolbar,.toolbar-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:var(--cp-space-2)}
+.cp-card,.el-card{border:1px solid var(--cp-border);border-radius:var(--cp-radius-lg);background:var(--cp-bg-surface);box-shadow:var(--cp-shadow-sm);color:var(--cp-text-primary)} .cp-card__header,.card-header{display:flex;align-items:center;justify-content:space-between;gap:var(--cp-space-4);padding:var(--cp-space-5) var(--cp-space-6);border-bottom:1px solid var(--cp-border)} .cp-card__body{padding:var(--cp-space-6)} .cp-empty{min-height:120px;display:grid;place-items:center;padding:var(--cp-space-6);color:var(--cp-text-secondary);text-align:center}
+.el-button{min-height:36px;border-radius:var(--cp-radius-md);font-weight:500;transition:background-color var(--cp-transition),border-color var(--cp-transition),color var(--cp-transition)} .el-button--small{min-height:32px}.el-button--large{min-height:40px}.el-button+.el-button{margin-left:0}.el-button--primary{--el-button-bg-color:var(--cp-brand);--el-button-border-color:var(--cp-brand);--el-button-hover-bg-color:var(--cp-brand-hover);--el-button-hover-border-color:var(--cp-brand-hover)} .el-input__wrapper,.el-select__wrapper,.el-textarea__inner{border-radius:var(--cp-radius-md)} .el-card__header{border-bottom-color:var(--cp-border)} .el-table{--el-table-header-bg-color:var(--cp-bg-subtle);--el-table-row-hover-bg-color:var(--cp-bg-hover)} .el-table th.el-table__cell{height:44px;color:var(--cp-text-secondary);font-size:var(--cp-font-xs)} .el-table td.el-table__cell{height:52px}.el-table .cell{padding:0 var(--cp-space-4)} .el-message,.el-notification,.el-dialog,.el-drawer,.el-popper.is-light{border-color:var(--cp-border);background:var(--cp-bg-elevated);color:var(--cp-text-primary)} html.cpclaw-theme-dark .el-loading-mask{background:rgba(15,20,29,.72)}
+@media(max-width:900px){.cp-page{padding:var(--cp-space-5) var(--cp-space-4)}.cp-page-header,.page-header{flex-direction:column;gap:var(--cp-space-4)}.cp-actions,.cp-toolbar,.toolbar-actions{width:100%;justify-content:flex-start}} @media(max-width:620px){.cp-page-header h1,.page-header h1{font-size:24px;line-height:32px}.el-button{min-height:40px}.cp-card__header,.card-header,.cp-card__body{padding:var(--cp-space-4)}} @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}

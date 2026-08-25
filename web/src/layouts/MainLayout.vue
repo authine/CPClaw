@@ -43,7 +43,7 @@ const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'set
 
 <style scoped>
 .layout {
-  background: #f3f6fb;
+  background: var(--cp-bg-page);
   min-height: 100vh;
 }
 
@@ -53,34 +53,34 @@ const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'set
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 28px;
-  padding: 0 24px;
-  border-bottom: 1px solid #243044;
-  background: #111827;
+  gap: var(--cp-space-7);
+  padding: 0 var(--cp-space-6);
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-bg-surface);
   backdrop-filter: blur(12px);
 }
 
 .layout__brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #fff;
+  gap: var(--cp-space-3);
+  color: var(--cp-text-primary);
   text-decoration: none;
 }
 
 .layout__brand-mark {
   display: grid;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: #2e90fa;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cp-radius-md);
+  background: var(--cp-brand);
   color: #fff;
   font-weight: 700;
   place-items: center;
 }
 
 .layout__brand-text {
-  font-size: 18px;
+  font-size: var(--cp-font-body-lg);
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -93,30 +93,30 @@ const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'set
 }
 
 .layout__nav :deep(.el-menu-item) {
-  height: 64px;
-  border-bottom-width: 3px;
-  color: #cbd5e1;
+  height: var(--cp-header-height);
+  border-bottom-width: 2px;
+  color: var(--cp-text-secondary);
   font-weight: 600;
 }
 
 .layout__nav :deep(.el-menu-item:hover),
 .layout__nav :deep(.el-menu-item:focus) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--cp-bg-hover);
+  color: var(--cp-text-primary);
 }
 
 .layout__nav :deep(.el-menu-item.is-active) {
-  border-bottom-color: #2e90fa;
-  background: rgba(46, 144, 250, 0.12);
-  color: #fff;
+  border-bottom-color: var(--cp-brand);
+  background: var(--cp-brand-soft);
+  color: var(--cp-text-primary);
 }
 
 .layout__nav :deep(.el-menu-item.is-active .el-icon) {
-  color: #60a5fa;
+  color: var(--cp-brand);
 }
 
 .layout__main {
-  padding: 18px 20px 20px;
+  padding: var(--cp-space-6) var(--cp-content-pad);
 }
 
 .layout__main--chat {

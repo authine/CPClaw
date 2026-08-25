@@ -1,4 +1,5 @@
 <template>
+  <main class="cp-page">
   <PageHeader title="审计" description="查看 Agent 执行、工具调用、确认记录和脱敏错误摘要。" />
 
   <el-alert v-if="errorMessage" class="page-error" type="error" show-icon :closable="false" :title="errorMessage" />
@@ -36,6 +37,7 @@
       </template>
     </div>
   </el-card>
+  </main>
 </template>
 
 <script setup lang="ts">
@@ -76,7 +78,7 @@ async function loadAudit() {
 .card-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--cp-space-2);
 }
 
 .card-header {
@@ -88,11 +90,11 @@ async function loadAudit() {
 }
 
 .page-error {
-  margin-bottom: 16px;
+  margin-bottom: var(--cp-space-4);
 }
 
 .table {
-  margin-top: 16px;
+  margin-top: var(--cp-space-4);
 }
 
 @media (max-width: 760px) {

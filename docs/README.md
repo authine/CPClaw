@@ -22,6 +22,8 @@ docs/
   README.md
   CLAUDE.md
   project-overview.md
+  design/
+    ui-design-system.md
   product-design/
     00-product-blueprint.md
     details/
@@ -75,6 +77,7 @@ docs/
 - `details/04-system-settings-workbench.md`：系统设置工作台的信息架构、连接测试、元数据分层查看和日志分析入口。
 - `details/05-persistent-configuration-and-metadata.md`：配置、凭据、元数据与图谱的持久化边界及重启验收标准。
 - `details/06-architecture-review-and-real-data-validation.md`：架构评审、自动化测试和真实环境验证的流程与证据规则。
+- `design/ui-design-system.md`：跨页面信息层级、操作位置、双主题令牌和响应式验收规范。
 
 阅读方式：先读产品设计蓝图，理解项目要解决什么问题、面向哪些用户、核心体验是什么；再进入需求和产品规划细节。
 
@@ -97,6 +100,7 @@ docs/
 - `details/12-persistent-database-runtime.md`：MySQL 运行时门禁、Flyway、密钥稳定性和安全迁移恢复方案。
 - `details/11-system-settings-workbench.md`：系统设置工作台接口契约、模型预检与已保存模型复测实现。
 - `details/13-architecture-review-and-real-data-validation.md`：真实环境验证的技术门禁、证据要求和停止条件。
+- `details/19-ui-design-system-implementation.md`：全局 UI 令牌、主题桥接、组件契约和迁移策略。
 
 阅读方式：先读技术设计蓝图，理解项目整体技术路径；再按组件或专项进入详细设计。
 

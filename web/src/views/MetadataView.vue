@@ -1,4 +1,5 @@
 <template>
+<main class="cp-page">
   <PageHeader title="云枢元数据" description="查看已同步到本地的云枢实体模型、数据项、关联关系和可执行 API 动作。" />
 
   <el-alert v-if="errorMessage" class="page-error" type="error" show-icon :closable="false" :title="errorMessage" />
@@ -263,6 +264,7 @@
       <el-table-column prop="reason" label="匹配原因" min-width="220" show-overflow-tooltip />
     </el-table>
   </section>
+  </main>
 </template>
 
 <script setup lang="ts">

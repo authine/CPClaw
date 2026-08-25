@@ -1,10 +1,13 @@
 <template>
-  <div class="page-header">
-    <div>
+  <header class="page-header">
+    <div class="page-header__content">
       <h1>{{ title }}</h1>
       <p v-if="description">{{ description }}</p>
     </div>
-  </div>
+    <div v-if="$slots.actions" class="page-header__actions">
+      <slot name="actions" />
+    </div>
+  </header>
 </template>
 
 <script setup lang="ts">
@@ -15,17 +18,6 @@ defineProps<{
 </script>
 
 <style scoped>
-.page-header {
-  margin-bottom: 20px;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 24px;
-}
-
-.page-header p {
-  margin: 8px 0 0;
-  color: #667085;
-}
+.page-header__content { min-width: 0; }
+.page-header__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--cp-space-2); }
 </style>

@@ -286,6 +286,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useTheme } from '../composables/useTheme'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowRight, CopyDocument, Delete, Expand, Fold, MagicStick, Moon, Plus, Promotion, Refresh, Setting, Sunny, Timer } from '@element-plus/icons-vue'
 import MarkdownMessage from '../components/chat/MarkdownMessage.vue'
@@ -336,7 +337,7 @@ const deletingConversationId = ref('')
 const errorMessage = ref('')
 const feedbackSubmittingMessageId = ref('')
 const historyCollapsed = ref(false)
-const darkMode = ref(window.localStorage.getItem('cpclaw-theme') === 'dark')
+const { darkMode } = useTheme()
 
 const quickPrompts = [
   { title: '开始对话', question: '请帮我梳理一个合同管理方案的设计重点。' },
@@ -425,12 +426,6 @@ watch(selectedModelId, (modelId) => {
     return
   }
   thinkingEnabled.value = model.defaultThinkingEnabled
-})
-
-watch(darkMode, (enabled) => {
-  window.localStorage.setItem('cpclaw-theme', enabled ? 'dark' : 'light')
-  document.documentElement.classList.toggle('cpclaw-theme-dark', enabled)
-  window.dispatchEvent(new Event('cpclaw-theme-change'))
 })
 
 watch(
@@ -3308,26 +3303,26 @@ function messageFromError(error: unknown) {
 
 /* UI v2 confirmed layout. Keep these rules last until the legacy style block is split. */
 .chat-workbench {
-  --chat-sidebar-width: 288px;
-  --chat-header-height: 56px;
+  --chat-sidebar-width: var(--cp-sidebar-width);
+  --chat-header-height: var(--cp-header-height);
   --chat-footer-height: 60px;
-  --chat-page: #f7f8fa;
-  --chat-sidebar: #eef1f5;
-  --chat-main: #fbfcfd;
-  --chat-surface: #fff;
-  --chat-surface-soft: #f2f4f7;
-  --chat-surface-hover: #e8ecf2;
-  --chat-surface-active: #dfe5ef;
-  --chat-composer: #f3f5f9;
-  --chat-line: rgba(18, 28, 45, 0.08);
-  --chat-line-strong: rgba(18, 28, 45, 0.14);
-  --chat-text: #171c2b;
-  --chat-text-secondary: #657084;
-  --chat-text-tertiary: #98a2b3;
-  --chat-brand: #4f6ef7;
-  --chat-brand-strong: #3f5ce0;
-  --chat-brand-soft: rgba(79, 110, 247, 0.1);
-  --chat-brand-line: rgba(79, 110, 247, 0.34);
+  --chat-page: var(--cp-bg-page);
+  --chat-sidebar: var(--cp-bg-sidebar);
+  --chat-main: var(--cp-bg-page);
+  --chat-surface: var(--cp-bg-surface);
+  --chat-surface-soft: var(--cp-bg-subtle);
+  --chat-surface-hover: var(--cp-bg-hover);
+  --chat-surface-active: var(--cp-bg-active);
+  --chat-composer: var(--cp-bg-subtle);
+  --chat-line: var(--cp-border);
+  --chat-line-strong: var(--cp-border-strong);
+  --chat-text: var(--cp-text-primary);
+  --chat-text-secondary: var(--cp-text-secondary);
+  --chat-text-tertiary: var(--cp-text-tertiary);
+  --chat-brand: var(--cp-brand);
+  --chat-brand-strong: var(--cp-brand-hover);
+  --chat-brand-soft: var(--cp-brand-soft);
+  --chat-brand-line: var(--cp-brand);
   display: grid;
   grid-template-columns: var(--chat-sidebar-width) minmax(0, 1fr);
   gap: 0;
@@ -3339,26 +3334,6 @@ function messageFromError(error: unknown) {
   color: var(--chat-text);
   /* Do not tween the content column: responsive reports redraw on each frame. */
   transition: none;
-}
-
-.chat-workbench--dark {
-  --chat-page: #0c1017;
-  --chat-sidebar: #111722;
-  --chat-main: #0f141d;
-  --chat-surface: #171e29;
-  --chat-surface-soft: #1b2330;
-  --chat-surface-hover: #202a38;
-  --chat-surface-active: #253143;
-  --chat-composer: #171e29;
-  --chat-line: rgba(255, 255, 255, 0.07);
-  --chat-line-strong: rgba(255, 255, 255, 0.13);
-  --chat-text: #eef2f7;
-  --chat-text-secondary: #a6afbe;
-  --chat-text-tertiary: #727d8e;
-  --chat-brand: #6f89ff;
-  --chat-brand-strong: #8da1ff;
-  --chat-brand-soft: rgba(111, 137, 255, 0.13);
-  --chat-brand-line: rgba(111, 137, 255, 0.38);
 }
 
 .chat-workbench--history-collapsed {

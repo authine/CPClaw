@@ -50,3 +50,49 @@ async function remove(id: string, scope: 'USER' | 'SYSTEM') { try { await ElMess
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN') : '—' }
 onMounted(() => { void load() })
 </script>
+
+<style scoped>
+.memory-settings-panel :deep(.el-card__header) {
+  padding: var(--cp-space-5) var(--cp-space-6);
+}
+
+.memory-settings-panel .card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cp-space-4);
+}
+
+.memory-settings-panel .card-title-row > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--cp-space-1);
+}
+
+.memory-settings-panel .card-title-row strong {
+  color: var(--cp-text-primary);
+  font-size: var(--cp-font-body-lg);
+  line-height: var(--cp-line-body-lg);
+}
+
+.memory-settings-panel .card-title-row small {
+  color: var(--cp-text-secondary);
+  font-size: var(--cp-font-sm);
+  line-height: var(--cp-line-sm);
+}
+
+.memory-settings-panel .card-title-row > .el-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 620px) {
+  .memory-settings-panel .card-title-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memory-settings-panel .card-title-row > .el-button {
+    width: 100%;
+  }
+}
+</style>
