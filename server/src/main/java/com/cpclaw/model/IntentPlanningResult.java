@@ -22,9 +22,10 @@ public record IntentPlanningResult(
     boolean requiresConfirmation,
     String reasoning,
     boolean clarificationNeeded,
-    double confidence
+    double confidence,
+    String businessIntent
 ) {
     public static IntentPlanningResult empty() {
-        return new IntentPlanningResult("", "", "", "", "", List.of(), List.of(), List.of(), "", List.of(), List.of(), List.of(), List.of(), List.of(), 0, false, "", false, 0D);
+        return new IntentPlanningResult("", "", "", "", "", List.of(), List.of(), List.of(), "", List.of(), List.of(), List.of(), List.of(), List.of(), 0, false, "", false, 0D, "");
     }
 }

@@ -1,10 +1,16 @@
 # CPClaw Agent 详细设计
 
+> 文档类型：专项技术设计｜状态：核心查询/分析、受限模型规划、记录引用和会话级持久记忆已实现；统一语义任务运行时以 MCP 为首个适配入口实施中，通用 DAG、多工具循环、组织身份模型和长期治理仍为规划。总体边界见 `../00-technical-blueprint.md`。
+
 > 本文是 Agent 专项详细设计。整体技术路径见 `../00-technical-blueprint.md`。
 
 ## 1. 设计目标
 
 CPClaw Agent 负责把用户自然语言转换为可审计、可确认、可执行的云枢应用操作。Agent 的匹配和规划只基于本地已同步的 Metadata Index、应用级知识图谱、记忆和会话上下文，不实时连接云枢做应用能力检索。
+
+运行时不以固定业务意图列表驱动用户体验。它先以规则、上下文、元数据候选和按需模型补强形成动态业务理解，再将结果映射到允许的执行能力。明确、低风险的读取请求不得因为模型规划不可用而失败；歧义、跨对象分析或需要自然语言总结的请求可使用模型补强，但模型不拥有连接器、凭据或执行授权。
+
+通用对话是 Agent 的一级运行模式：统一路由协议一次判断并生成回答，直接对话不经过 Skill、元数据和业务任务链；不得通过不断增加问候词或闲聊词特判来实现该能力。
 
 Agent 的目标不是被动关键词匹配，而是尽可能理解用户想完成的业务任务：能识别查询、分析、统计、写入、流程、附件填单等意图；能根据本地元数据定位任务对象；能在信息不足时发起澄清；能在意图明确后执行查询、分析或经确认的业务操作；能在执行后解释结果、依据、风险和下一步建议。
 
@@ -12,7 +18,9 @@ Agent 的目标不是被动关键词匹配，而是尽可能理解用户想完�
 
 CPClaw 采用 ReAct + Reflection，并将 Agent 拆成多阶段流水线，而不是单个大 Prompt。
 
-当前后端已落地 ReAct + Reflection MVP：每次对话会显式经过 `Observe -> Think -> Act -> Reflect` 四段，并把阶段化计划写入 `agent_runs.plan_json`，把反思检查写入 `agent_runs.reflection_json`。响应步骤也会返回 Observe、Think、Act、Reflect 四个阶段。当前 MVP 仍以规则和本地元数据检索为主，尚未完成模型驱动结构化意图、DAG 多节点计划、多工具循环和完整上下文引用对象表。
+当前后端已落地受限 ReAct + Reflection：`AgentOrchestrator` 召回会话上下文和持久记忆，调用 `ModelGateway.planIntent` 生成受约束的意图、范围、维度和任务步骤，再由元数据、字段、权限、风险与 API 规则裁决。结构化 `IntentPlanningResult`、查询结果引用和 `agent_memories` 已落地。模型规划不是执行授权，模型不可用、超时或输出不合规时退回确定性计划。
+
+`Observe / Think / Act / Reflect` 仅用于内部审计与程序控制，用户界面不显示固定四段或私有推理。业务时间线只展示模型结合本轮目标、上下文、元数据和工具能力自主生成且真实发生的业务步骤，步骤名称、数量和顺序不预设固定模板；记忆、`schemaCode`、API 路径、Prompt、原始请求/响应均不对业务用户展示。
 
 ```text
 User Message + Attachments + Conversation Context
@@ -32,7 +40,20 @@ User Message + Attachments + Conversation Context
   -> Memory Writer
 ```
 
-## 3. 意图类型
+### 2.1 统一语义任务运行时与宿主适配
+
+对话网页和 MCP 终端共用 `SemanticTaskRuntime` 的计划与受控执行边界，分别由 Conversation Adapter 和 MCP Adapter 处理会话、凭据和传输协议。运行时的输出是版本化 `TaskExperienceEnvelope`，包含：任务状态、业务理解摘要、经过脱敏的可见任务轨迹、可直接呈现的业务结果/卡片/报告，以及澄清或确认交互。它不是原始思维链，也不是云枢 API 响应。
+
+```text
+Host input -> SemanticTaskRequest -> SemanticTaskPlanner -> Skill Registry / Executor
+           <- TaskExperienceEnvelope <- Task state + visible events + safe output
+```
+
+任务状态仅表示运行生命周期：`accepted`、`running`、`completed`、`needs_input`、`confirmation_required`、`failed`、`cancelled`。业务状态必须仍由云枢数据字段表达，二者不可混用。MCP 的最终响应另给出宿主动作（直接答复、向用户追问、打开确认页或报告失败），以避免宿主基于技术结果再次调用原子接口。
+
+## 3. 内部执行分类（不是业务意图枚举）
+
+以下字段是安全策略、计划校验和 API 白名单使用的内部执行分类，目的是约束“能否执行、是否需要确认”，不是限制 Agent 对用户目标的业务理解。用户的业务意图由模型结合上下文和元数据动态生成，单独写入 `businessIntent` / 审计展示字段；新增业务意图不需要修改此处枚举，但必须映射到已准入的内部执行能力，否则进入澄清或阻断。
 
 - `query_data`：查询数据。
 - `analyze_data`：查询运行态数据后进行业务分析，输出结论、关键发现、风险信号和下一步建议。
@@ -153,28 +174,28 @@ ReAct + Reflection MVP 中，`Think` 阶段会识别原始意图、匹配元数�
 
 | 阶段 | 当前职责 | 输出位置 |
 | --- | --- | --- |
-| Observe | 读取用户目标、最近会话上下文、最近运行态对象、是否引用上一轮结果 | `steps[0]`、`plan_json.observe` |
-| Think | 识别原始意图、最终意图、元数据候选、缺失槽位、置信度 | `steps[1]`、`plan_json.think` |
-| Act | 执行元数据检索、云枢运行态查询、分析回答、澄清或创建确认 | `steps[2]`、工具调用审计 |
-| Reflect | 检查对象、风险、工具结果、是否需要用户输入、是否等待确认 | `steps[3]`、`reflection_json` |
+| Observe | 读取用户目标、最近会话上下文、最近运行态对象、是否引用上一轮结果 | 仅内部审计与计划摘要 |
+| Think | 识别原始意图、最终意图、元数据候选、缺失槽位、置信度 | 仅内部审计与计划摘要 |
+| Act | 执行元数据检索、云枢运行态查询、分析回答、澄清或创建确认 | 工具调用审计与业务事件 |
+| Reflect | 检查对象、风险、工具结果、是否需要用户输入、是否等待确认 | `reflection_json` 与业务事件 |
 
 为了让业务用户聚焦结果，读数据类回答正文默认只展示结论、分析和建议，不再直接展示执行过程。业务问答的强制主线仍然是：用户自然语言 -> 抽取动作、业务对象、维度、筛选条件 -> 从真实云枢 Metadata Index 匹配应用/模型 -> 使用真实 `schemaCode` 查询运行态数据 -> 基于真实返回数据做统计、聚合或大模型分析 -> 输出结论。
 
 当前 MVP 的可审计执行过程保留在调试和审计数据中，而不是默认混入助手正文：
 
-- `AgentResponse.steps`：返回 Observe、Think、Act、Reflect 阶段摘要，供调试视图或开发排查使用。
+- `AgentResponse.steps`：内部阶段摘要只供调试视图或开发排查使用；对话 SSE 只映射为业务事件。
 - `agent_runs.plan_json`：记录原始目标、结构化意图、候选对象、计划动作和风险判断。
 - `agent_runs.reflection_json`：记录执行结果、反思检查、是否需要用户补充和是否等待确认。
 - `tool_calls`：记录脱敏后的工具输入输出、运行态来源、total、returned、原始摘要和错误信息。
 - `assistantMessage.metadataJson.agentRunId`：每条 CPClaw 助手回复必须持久化对应 Agent Run ID；运行态查询回复仍保留 `source=runtime-query`、`entityName`、真实 `schemaCode` 等上下文字段，保证多轮继承不被破坏。
 
-每轮助手消息在正式回答上方恢复真实执行链：当前会话新回复优先使用 SSE 的 `thought / execution` 事件；刷新或打开历史会话后，从助手消息 `metadataJson.executionTimeline` 恢复同一时间线，审计页仍可通过 `agentRunId` 查看 `plan_json`、`reflection_json` 和工具调用记录。历史消息若没有完整时间线，但仍有 `source=runtime-query`、`schemaCode`、total 等旧 metadata，只展示有限运行态摘要，不补造未发生的步骤。
+每轮助手消息在正式回答上方恢复真实的业务执行链：当前会话新回复使用 SSE 业务事件；刷新或打开历史会话后，从助手消息 `metadataJson.executionTimeline` 恢复同一时间线。审计页仍可通过 `agentRunId` 查看受权限保护的计划、反思和工具调用记录。历史消息若没有完整时间线，只展示有限业务摘要，不补造未发生的步骤。
 
-这些内容是对执行链的可审计摘要，不是模型不可验证的隐藏思维。对话流按真实事件展示可核验的步骤过程与结论；更完整的输入输出、对象编码和工具调用仍从审计页、Agent Run 和工具调用记录查看。
+这些内容是对执行链的可审计摘要，不是模型不可验证的隐藏思维。对话流按真实事件展示业务过程与结论；对象编码、完整输入输出和工具调用仅在受权限保护的审计记录中查看。
 
 助手正文使用 Markdown 作为标准格式，前端必须解析并安全渲染标题、列表、加粗、代码和表格。历史消息中如果已经包含旧版 `### 执行过程` 前置块，前端展示层需要兼容隐藏，只保留业务结论部分。
 
-长耗时任务的前端反馈必须先于最终回答。用户提交后，前端插入不落库的 CPClaw 占位回复，随后只展示后端实时发送的真实 `thought / execution` 事件；所有执行和校验事件结束后，才接收 `answer_start / answer_delta / answer_end` 流式正文，最后由 `final` 回填持久化消息。前端不得预置固定步骤，也不得伪造 `schemaCode`、工具结果或模型结论。
+长耗时任务的前端反馈必须先于最终回答。用户提交后，前端插入不落库的 CPClaw 占位回复，随后只展示后端实时发送的真实 `thought / execution` 事件；所有执行和校验事件结束后，才接收 `answer_start / answer_delta / answer_end` 流式正文，最后由 `final` 回填持久化消息。前端不得预置固定步骤，也不得把内部阶段映射成固定业务标题；不得伪造 `schemaCode`、工具结果或模型结论。模型规划不可用时只展示一次明确的安全规则降级说明。
 
 本地 fallback 只能用于连接、同步流程或测试保护，不得作为业务问答的数据来源。在 `sourceEndpoint=local-fallback` 时，Agent 必须停止生成业务数量、分析结论或建议，并提示用户配置真实云枢地址、账号并重新同步元数据。`system_opportunity`、`system_customer` 等演示编码不得出现在用户业务答案中，也不得被描述为真实云枢 `schemaCode`。
 
@@ -266,7 +287,7 @@ ReAct + Reflection MVP 中，`Think` 阶段会识别原始意图、匹配元数�
 
 ## 9. 多轮上下文解析
 
-当前 MVP 已落地对象级上下文继承：当上一轮助手消息来自真实云枢运行态查询时，助手消息会保存最近命中的业务对象、真实 `schemaCode`、运行态 total、returned 和来源。下一轮如果用户输入“分别在什么阶段？”“都处于什么阶段？”“按负责人看一下”“金额分布呢？”这类缺少显式业务对象但明显承接上一轮结果的追问，`Observe` 会从最近助手消息的 metadata 中取出上一轮运行态对象，并生成有效目标，例如：
+当前实现已落地对象级上下文继承及结果集记录引用。助手消息保存最近命中的业务对象、运行态数量和来源；`query_result_references` 另外保存 `conversationId / messageId / agentRunId / appCode / schemaCode / recordId / rowIndex / display snapshot / expiresAt`。下一轮如果用户输入“分别在什么阶段？”“都处于什么阶段？”“按负责人看一下”“金额分布呢？”这类缺少显式业务对象但明显承接上一轮结果的追问，内部观察阶段会恢复上一轮运行态对象，并生成有效目标，例如：
 
 ```text
 上一轮：系统有多少商机？ -> 命中 商机 / int_bu_oppor
@@ -286,7 +307,7 @@ ReAct + Reflection MVP 中，`Think` 阶段会识别原始意图、匹配元数�
 
 连续追问性能策略：普通列表追问只返回少量摘要并不补详情；省份、阶段、新老客户等维度追问优先轻量列表样本；只有明确需要详情且样本量受控时才调用详情接口。任何新维度都必须先考虑响应时间上限和字段缺失兜底，避免第三轮、第四轮对话因为详情补齐或大模型泛分析卡住。
 
-当前尚未完成的是记录级上下文引用：例如“第一条”“刚才那个客户”“给它上传附件”需要绑定到具体记录 ID、行号、过期时间和权限范围。记录级引用仍按下方可引用对象表设计推进。
+“第一条”“刚才那个客户”等引用已绑定记录 ID、行号和过期时间，并用于当前删除确认路径。权限范围哈希、记录版本、跨会话引用以及新增/更新/附件场景的统一校验仍未完成，因此继续按专项准入处理。
 
 系统维护可引用对象表：
 

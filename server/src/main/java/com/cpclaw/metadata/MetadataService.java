@@ -3,6 +3,7 @@ package com.cpclaw.metadata;
 import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.credential.CredentialService;
+import com.cpclaw.credential.CredentialUnavailableException;
 import com.cpclaw.metadata.dto.MetadataAppSummary;
 import com.cpclaw.metadata.dto.MetadataModelResponse;
 import com.cpclaw.metadata.dto.MetadataSyncResponse;
@@ -27,6 +28,7 @@ import com.cpclaw.vector.MetadataVectorSearch;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -349,14 +351,25 @@ public class MetadataService {
         String syncId = UUID.randomUUID().toString();
         SystemSettings settings = settingsRepository.findById(SETTINGS_ID)
             .orElseThrow(() -> new IllegalStateException("请先配置管理员云枢连接信息"));
-        String password = credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, ADMIN_CLOUDPIVOT_PASSWORD)
-            .orElseThrow(() -> new IllegalStateException("请先配置管理员云枢密码"));
+        String password;
+        try {
+            password = credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, ADMIN_CLOUDPIVOT_PASSWORD)
+                .orElseThrow(() -> new IllegalStateException("请先配置管理员云枢密码"));
+        } catch (CredentialUnavailableException exception) {
+            throw new IllegalStateException(exception.getMessage(), exception);
+        }
         CloudPivotMetadataSnapshot snapshot = cloudPivotConnector.fetchMetadata(
             settings.getAdminCloudPivotBaseUrl(),
             settings.getAdminCloudPivotUsername(),
             password
         );
+        if (snapshot == null || isEmptySnapshot(snapshot)) {
+            throw new IllegalStateException("云枢元数据同步返回空快照，已保留现有元数据；请检查管理员权限和云枢接口响应");
+        }
 
+        Map<String, CloudPivotApiEndpoint> verifiedWorkflowContracts = apiEndpointRepository.findAll().stream()
+            .filter(this::isVerifiedWorkflowContract)
+            .collect(java.util.stream.Collectors.toMap(CloudPivotApiEndpoint::getApiCode, item -> item, (left, right) -> left, LinkedHashMap::new));
         searchDocumentRepository.deleteAllInBatch();
         apiEndpointRepository.deleteAllInBatch();
         relationRepository.deleteAllInBatch();
@@ -389,9 +402,19 @@ public class MetadataService {
             .toList();
         relationRepository.saveAll(relations);
 
-        List<CloudPivotApiEndpoint> apiEndpoints = snapshot.apiEndpoints().stream()
-            .map(api -> createApiEndpoint(api, now))
-            .toList();
+        List<CloudPivotApiEndpoint> apiEndpoints = new ArrayList<>(snapshot.apiEndpoints().stream()
+            .map(api -> createApiEndpoint(api, now, verifiedWorkflowContracts.get(api.apiCode())))
+            .toList());
+        // A transient/partial metadata response must not erase a previously
+        // verified workflow read contract. Keep those contracts in the new
+        // snapshot until a later authenticated probe explicitly replaces them.
+        LinkedHashSet<String> snapshotApiCodes = apiEndpoints.stream()
+            .map(CloudPivotApiEndpoint::getApiCode)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        verifiedWorkflowContracts.values().stream()
+            .filter(endpoint -> !snapshotApiCodes.contains(endpoint.getApiCode()))
+            .map(this::copyEndpoint)
+            .forEach(apiEndpoints::add);
         apiEndpointRepository.saveAll(apiEndpoints);
 
         List<MetadataSearchDocument> searchDocuments = new ArrayList<>();
@@ -500,7 +523,21 @@ public class MetadataService {
         );
     }
 
-    private CloudPivotApiEndpoint createApiEndpoint(CloudPivotMetadataSnapshot.ApiEndpointMetadata metadata, Instant now) {
+    /**
+     * An empty response is not a valid replacement for an existing metadata catalogue.
+     * Treating it as authoritative would delete all persisted metadata after a transient
+     * upstream failure or an incorrectly scoped administrator account.
+     */
+    private boolean isEmptySnapshot(CloudPivotMetadataSnapshot snapshot) {
+        return snapshot.apps().isEmpty()
+            && snapshot.entities().isEmpty()
+            && snapshot.dataItems().isEmpty()
+            && snapshot.relations().isEmpty()
+            && snapshot.apiEndpoints().isEmpty();
+    }
+
+
+    private CloudPivotApiEndpoint createApiEndpoint(CloudPivotMetadataSnapshot.ApiEndpointMetadata metadata, Instant now, CloudPivotApiEndpoint verifiedWorkflowContract) {
         CloudPivotApiEndpoint endpoint = new CloudPivotApiEndpoint();
         endpoint.setId(UUID.randomUUID().toString());
         endpoint.setApiCode(metadata.apiCode());
@@ -517,7 +554,41 @@ public class MetadataService {
         endpoint.setApplicableObjectType(metadata.applicableObjectType());
         endpoint.setRawJson(hasText(metadata.rawJson()) ? metadata.rawJson() : "{\"source\":\"cloudpivot-api-endpoint\"}");
         endpoint.setSyncedAt(now);
+        if (verifiedWorkflowContract != null) {
+            endpoint.setMethod(verifiedWorkflowContract.getMethod());
+            endpoint.setPath(verifiedWorkflowContract.getPath());
+            endpoint.setInputSchemaJson(verifiedWorkflowContract.getInputSchemaJson());
+            endpoint.setOutputSchemaJson(verifiedWorkflowContract.getOutputSchemaJson());
+            endpoint.setRawJson(verifiedWorkflowContract.getRawJson());
+            endpoint.setSyncedAt(verifiedWorkflowContract.getSyncedAt());
+        }
         return endpoint;
+    }
+
+    private boolean isVerifiedWorkflowContract(CloudPivotApiEndpoint endpoint) {
+        return "workflow_center".equals(endpoint.getCategory())
+            && endpoint.getRawJson() != null
+            && endpoint.getRawJson().contains("\"verified\":true");
+    }
+
+    private CloudPivotApiEndpoint copyEndpoint(CloudPivotApiEndpoint source) {
+        CloudPivotApiEndpoint copy = new CloudPivotApiEndpoint();
+        copy.setId(source.getId());
+        copy.setApiCode(source.getApiCode());
+        copy.setName(source.getName());
+        copy.setMethod(source.getMethod());
+        copy.setPath(source.getPath());
+        copy.setCategory(source.getCategory());
+        copy.setOperationType(source.getOperationType());
+        copy.setRiskLevel(source.getRiskLevel());
+        copy.setRequiresConfirmation(source.isRequiresConfirmation());
+        copy.setInputSchemaJson(source.getInputSchemaJson());
+        copy.setOutputSchemaJson(source.getOutputSchemaJson());
+        copy.setDataScope(source.getDataScope());
+        copy.setApplicableObjectType(source.getApplicableObjectType());
+        copy.setRawJson(source.getRawJson());
+        copy.setSyncedAt(source.getSyncedAt());
+        return copy;
     }
 
     private String apiSearchText(CloudPivotApiEndpoint endpoint) {

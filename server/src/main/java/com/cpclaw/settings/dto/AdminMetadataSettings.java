@@ -5,6 +5,7 @@ public record AdminMetadataSettings(
     String username,
     String searchEngineType,
     String searchEndpoint,
-    boolean hasPassword
+    boolean hasPassword,
+    String credentialStatus
 ) {
 }

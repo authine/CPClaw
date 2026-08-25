@@ -5,6 +5,7 @@
         <span class="report-heading__eyebrow">智能问数报告</span>
         <h2>{{ report.title || report.subject || '数据洞察' }}</h2>
         <p v-if="report.subject">{{ report.subject }}</p>
+        <span v-if="report.skillName" class="report-skill-badge">本次采用：{{ report.skillName }}<template v-if="report.templateVersion"> · v{{ report.templateVersion }}</template></span>
       </div>
       <div class="report-confidence">
         <span>置信度</span>
@@ -285,6 +286,18 @@ function linePoints(chart: InsightChart) {
   color: #667085;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.report-skill-badge {
+  display: inline-flex;
+  margin-top: 10px;
+  padding: 4px 9px;
+  border: 1px solid #d8e4ff;
+  border-radius: 999px;
+  background: #f3f7ff;
+  color: #2458c6;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .report-confidence {

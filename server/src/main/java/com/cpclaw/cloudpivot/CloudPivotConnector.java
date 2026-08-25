@@ -25,4 +25,16 @@ public interface CloudPivotConnector {
     default CloudPivotOperationResult deleteRecord(String baseUrl, String username, String password, String appCode, String schemaCode, String bizObjectId) {
         throw new UnsupportedOperationException("CloudPivot delete operation is not implemented");
     }
+
+    default WorkflowContractProbeResult probeWorkflowReadContracts(String baseUrl, String username, String password) {
+        throw new UnsupportedOperationException("CloudPivot workflow contract probing is not implemented");
+    }
+
+    default WorkflowReadResult queryWorkflowRead(String baseUrl, String username, String password, String apiCode, String method, String path, int pageSize) {
+        throw new UnsupportedOperationException("CloudPivot workflow read is not implemented");
+    }
+
+    default WorkflowReadResult queryWorkflowRead(String baseUrl, String username, String password, String apiCode, String method, String path, int pageSize, List<String> requestKeys) {
+        return queryWorkflowRead(baseUrl, username, password, apiCode, method, path, pageSize);
+    }
 }

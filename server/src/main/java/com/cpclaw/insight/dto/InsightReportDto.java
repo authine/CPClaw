@@ -3,6 +3,9 @@ package com.cpclaw.insight.dto;
 import java.util.List;
 
 public record InsightReportDto(
+    String skillId,
+    String skillName,
+    int templateVersion,
     String title,
     String subject,
     String periodLabel,
@@ -15,6 +18,22 @@ public record InsightReportDto(
     List<String> dataSources,
     List<String> warnings
 ) {
+    public InsightReportDto(
+        String title,
+        String subject,
+        String periodLabel,
+        String scopeLabel,
+        String confidence,
+        List<Kpi> kpis,
+        List<Chart> charts,
+        List<Section> sections,
+        List<String> relatedQuestions,
+        List<String> dataSources,
+        List<String> warnings
+    ) {
+        this("", "", 0, title, subject, periodLabel, scopeLabel, confidence, kpis, charts, sections, relatedQuestions, dataSources, warnings);
+    }
+
     public record Kpi(
         String label,
         String value,

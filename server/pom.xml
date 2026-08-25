@@ -71,6 +71,16 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <CPC_ENCRYPTION_KEY>cpclaw-test-only-encryption-key</CPC_ENCRYPTION_KEY>
+                        <CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED>false</CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>

@@ -1,5 +1,8 @@
 package com.cpclaw.cloudpivot;
 
+import java.util.List;
+import java.util.Map;
+
 public record CloudPivotQueryAnswer(
     String entityName,
     String schemaCode,
@@ -9,6 +12,7 @@ public record CloudPivotQueryAnswer(
     String sourceEndpoint,
     String actionSummary,
     String rawDataSummary,
-    String conclusionSummary
+    String conclusionSummary,
+    List<Map<String, Object>> displayedRecords
 ) {
 }

@@ -8,6 +8,7 @@ public record ModelConfigResponse(
     boolean supportsThinking,
     boolean defaultThinkingEnabled,
     boolean enabled,
-    boolean hasApiKey
+    boolean hasApiKey,
+    String credentialStatus
 ) {
 }

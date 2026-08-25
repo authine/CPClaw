@@ -1,6 +1,6 @@
 <template>
-  <el-container :class="['layout', { 'layout--chat': isChatRoute }]">
-    <el-header v-if="!isChatRoute" class="layout__header" height="64px">
+  <el-container :class="['layout', { 'layout--chat': isWorkbenchRoute }]">
+    <el-header v-if="!isWorkbenchRoute" class="layout__header" height="64px">
       <RouterLink class="layout__brand" to="/" aria-label="CPClaw 对话工作台">
         <span class="layout__brand-mark">C</span>
         <span class="layout__brand-text">CPClaw</span>
@@ -14,17 +14,17 @@
           <el-icon><Collection /></el-icon>
           <span>元数据</span>
         </el-menu-item>
-        <el-menu-item index="/audit">
+        <el-menu-item index="/settings?section=log-analytics">
           <el-icon><DocumentChecked /></el-icon>
-          <span>审计</span>
+          <span>日志分析</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
-          <span>账号与模型</span>
+          <span>系统设置</span>
         </el-menu-item>
       </el-menu>
     </el-header>
-    <el-main :class="['layout__main', { 'layout__main--chat': isChatRoute }]">
+    <el-main :class="['layout__main', { 'layout__main--chat': isWorkbenchRoute }]">
       <RouterView />
     </el-main>
   </el-container>
@@ -38,6 +38,7 @@ import { ChatDotRound, Collection, DocumentChecked, Setting } from '@element-plu
 const route = useRoute()
 const activePath = computed(() => route.path)
 const isChatRoute = computed(() => route.name === 'chat')
+const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'settings')
 </script>
 
 <style scoped>

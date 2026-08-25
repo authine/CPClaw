@@ -22,6 +22,29 @@ export interface MetadataSyncResponse {
   createdAt: string
 }
 
+export interface MetadataSyncLog {
+  id: string
+  syncId: string
+  status: 'running' | 'succeeded' | 'failed' | 'incomplete'
+  startedAt: string
+  completedAt?: string
+  durationMs?: number
+  appCount: number
+  entityCount: number
+  dataItemCount: number
+  relationCount: number
+  detailedCountsRecorded: boolean
+  searchDocumentCount: number
+  graphNodeCount: number
+  graphEdgeCount: number
+  errorMessage?: string
+}
+
+export interface MetadataSyncLogOverview {
+  latestSuccessfulAt?: string
+  items: MetadataSyncLog[]
+}
+
 export interface MetadataSearchResult {
   objectType: string
   objectId: string

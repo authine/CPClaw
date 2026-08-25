@@ -372,7 +372,7 @@ public class MetadataExecutionPlanner {
             return new MetadataExecutionPlan(originalCandidate, executableMatch, fieldHints, relations.stream().limit(6).toList(), apiHints, reasoning, executable);
         }
 
-        String summary() {
+        public String summary() {
             String fields = fieldHints.isEmpty() ? "no field hints" : fieldHints.stream().map(FieldHint::displayName).limit(5).reduce((left, right) -> left + ", " + right).orElse("no field hints");
             String relations = relationHints.isEmpty() ? "no relation hints" : relationHints.stream().map(RelationHint::summary).limit(3).reduce((left, right) -> left + "; " + right).orElse("no relation hints");
             String apis = apiHints.isEmpty() ? "no api hints" : apiHints.stream().map(ApiHint::summary).limit(3).reduce((left, right) -> left + "; " + right).orElse("no api hints");
@@ -385,14 +385,14 @@ public class MetadataExecutionPlanner {
     }
 
     public record FieldHint(String name, String code, String dataType, boolean reference, String description) {
-        String displayName() { return name + "(" + code + ")"; }
+        public String displayName() { return name + "(" + code + ")"; }
     }
 
     public record ApiHint(String apiCode, String name, String method, String path, String operationType, String riskLevel, boolean requiresConfirmation, String dataScope) {
-        String summary() { return name + "(" + operationType + ", " + method + " " + path + ")"; }
+        public String summary() { return name + "(" + operationType + ", " + method + " " + path + ")"; }
     }
 
     public record RelationHint(String sourceEntityName, String sourceSchemaCode, String targetEntityName, String targetSchemaCode, String relationName, String relationType, String sourceDataItemId) {
-        String summary() { return sourceEntityName + " -> " + targetEntityName + "(" + relationName + ")"; }
+        public String summary() { return sourceEntityName + " -> " + targetEntityName + "(" + relationName + ")"; }
     }
 }

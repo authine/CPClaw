@@ -5,6 +5,7 @@ import com.cpclaw.metadata.entity.MetadataSearchDocument;
 import com.cpclaw.metadata.repository.MetadataSearchDocumentRepository;
 import com.cpclaw.vector.MetadataVectorSearch;
 import com.cpclaw.vector.VectorSearchCandidate;
+import com.cpclaw.skill.SkillQuestionSemantics;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -14,48 +15,37 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class MetadataSearchService {
 
     private static final Logger log = LoggerFactory.getLogger(MetadataSearchService.class);
 
-    private static final List<String> CORE_BUSINESS_TERMS = List.of("商机", "客户", "线索", "联系人", "销售订单", "订单", "合同", "跟进记录", "回款", "项目", "报价", "发票", "待办", "任务", "流程", "审批");
-    private static final Map<String, List<String>> BUSINESS_ALIASES = Map.ofEntries(
-        Map.entry("商机", List.of("销售机会", "客户机会", "项目机会", "机会", "opportunity", "oppor")),
-        Map.entry("客户", List.of("客户信息", "客户档案", "企业客户", "公司客户", "customer")),
-        Map.entry("线索", List.of("销售线索", "客户线索", "市场线索", "潜在线索", "潜在客户", "潜客", "lead", "leads")),
-        Map.entry("联系人", List.of("客户联系人", "联系人员", "contact")),
-        Map.entry("销售订单", List.of("订单", "销售单", "sales order", "order")),
-        Map.entry("合同", List.of("销售合同", "合同信息", "contract")),
-        Map.entry("跟进记录", List.of("跟进", "拜访记录", "沟通记录", "follow", "followup")),
-        Map.entry("回款", List.of("收款", "到账", "payment")),
-        Map.entry("项目", List.of("project")),
-        Map.entry("报价", List.of("报价单", "quote")),
-        Map.entry("发票", List.of("开票", "invoice")),
-        Map.entry("待办", List.of("todo", "待处理")),
-        Map.entry("任务", List.of("task")),
-        Map.entry("流程", List.of("工作流", "workflow")),
-        Map.entry("审批", List.of("审核", "approval"))
-    );
     private static final List<String> NOISE_WORDS = List.of(
         "帮我", "请", "一下", "系统中的", "系统中", "系统内", "系统", "信息", "数据", "情况", "怎么样", "怎么", "如何", "列表", "明细",
         "进行", "处理", "操作", "做", "全部", "所有", "相关", "下面", "下的", "对应", "关联", "分析", "洞察", "诊断", "趋势", "查询", "查看",
         "统计", "汇总", "数量", "量", "总计", "了解", "新增", "创建", "写入", "修改", "提交", "删除", "作废", "填写", "给", "第一条",
         "第二条", "第三条", "上一条", "刚才", "这个", "它", "写一条", "每年", "按年", "年度", "年份", "年", "一共", "总共", "共有",
-        "中的", "的", "里", "有哪些", "有哪", "多少", "几条", "几个", "吗", "呢", "嘛"
+        "中的", "的", "里", "有哪些", "有哪", "多少", "几条", "几个", "吗", "呢", "嘛", "一个", "一条", "一项", "整体", "经营", "概况", "报告", "全面", "综合"
     );
-    private static final List<String> CRM_HINTS = List.of("crm", "客户关系", "销售管理");
     private static final List<String> SECONDARY_OBJECT_MARKERS = List.of(
-        "管理", "分配", "变更", "转移", "统计", "报表", "滚动", "持续", "查询", "修正", "基础信息", "池", "test", "测试"
+        "管理", "分配", "变更", "转移", "统计", "报表", "滚动", "持续", "查询", "修正", "基础信息", "池", "来源", "规则", "原因", "分类", "层级", "test", "测试"
     );
 
     private final MetadataSearchDocumentRepository searchDocumentRepository;
     private final MetadataVectorSearch metadataVectorSearch;
+    private final SkillQuestionSemantics questionSemantics;
 
-    public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository, MetadataVectorSearch metadataVectorSearch) {
+    @Autowired
+    public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository, MetadataVectorSearch metadataVectorSearch, SkillQuestionSemantics questionSemantics) {
         this.searchDocumentRepository = searchDocumentRepository;
         this.metadataVectorSearch = metadataVectorSearch;
+        this.questionSemantics = questionSemantics;
+    }
+
+    public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository, MetadataVectorSearch metadataVectorSearch) {
+        this(searchDocumentRepository, metadataVectorSearch, new com.cpclaw.skill.YunshuQuestionSemantics());
     }
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {
@@ -117,7 +107,7 @@ public class MetadataSearchService {
         String normalized = safeQuery.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
         List<String> terms = businessTerms(safeQuery, normalized);
         List<String> expandedTerms = expandedTerms(terms);
-        List<String> appHints = appHints(normalized);
+        List<String> appHints = List.of();
         String targetTerm = targetBusinessTerm(safeQuery, normalized, terms);
         List<String> searchQueries = searchQueries(safeQuery, terms, appHints);
         return new SearchQuery(safeQuery, safeQuery.toLowerCase(Locale.ROOT), normalized, terms, expandedTerms, appHints, targetTerm, searchQueries);
@@ -134,27 +124,7 @@ public class MetadataSearchService {
         List<String> terms = new ArrayList<>();
         for (String part : parts) {
             String term = part.trim();
-            if (term.length() >= 2) {
-                addDistinct(terms, canonicalTerm(term));
-            }
-        }
-        for (String term : CORE_BUSINESS_TERMS) {
-            if (queryContains(query, term)) {
-                addDistinct(terms, term);
-            }
-        }
-        BUSINESS_ALIASES.forEach((canonical, aliases) -> {
-            for (String alias : aliases) {
-                if (queryContains(query, alias)) {
-                    addDistinct(terms, canonical);
-                }
-            }
-        });
-        if (containsAny(normalized, "商机", "机会", "销售机会", "客户机会", "项目机会")) {
-            addDistinct(terms, "商机");
-        }
-        if (containsAny(normalized, "线索", "销售线索", "客户线索")) {
-            addDistinct(terms, "线索");
+            if (term.length() >= 2) addDistinct(terms, canonicalTerm(term));
         }
         return terms;
     }
@@ -163,22 +133,14 @@ public class MetadataSearchService {
         List<String> expanded = new ArrayList<>();
         for (String term : terms) {
             addDistinct(expanded, term);
-            String canonical = canonicalTerm(term);
-            addDistinct(expanded, canonical);
-            BUSINESS_ALIASES.getOrDefault(canonical, List.of()).forEach(alias -> addDistinct(expanded, alias));
+            addDistinct(expanded, canonicalTerm(term));
         }
+        questionSemantics.expandSearchTerms(terms).forEach(term -> addDistinct(expanded, term));
         return expanded;
     }
 
     private List<String> appHints(String normalized) {
-        List<String> hints = new ArrayList<>();
-        if (containsAny(normalized, CRM_HINTS.toArray(String[]::new))) {
-            addDistinct(hints, "crm");
-        }
-        if (containsAny(normalized, "商机", "机会", "销售机会", "客户机会", "项目机会", "线索", "销售线索", "客户线索")) {
-            addDistinct(hints, "crm");
-        }
-        return hints;
+        return List.of();
     }
 
     private List<String> searchQueries(String raw, List<String> terms, List<String> appHints) {
@@ -194,37 +156,14 @@ public class MetadataSearchService {
     }
 
     private String canonicalTerm(String term) {
-        for (Map.Entry<String, List<String>> entry : BUSINESS_ALIASES.entrySet()) {
-            if (entry.getKey().equals(term) || entry.getValue().stream().anyMatch(alias -> alias.equalsIgnoreCase(term))) {
-                return entry.getKey();
-            }
-        }
         return term;
     }
 
     private String targetBusinessTerm(String query, String normalized, List<String> terms) {
-        String target = "";
-        int lastIndex = -1;
-        for (String term : CORE_BUSINESS_TERMS) {
-            int index = query == null ? -1 : query.lastIndexOf(term);
-            if (index > lastIndex) {
-                lastIndex = index;
-                target = term;
-            }
-        }
-        for (Map.Entry<String, List<String>> entry : BUSINESS_ALIASES.entrySet()) {
-            for (String alias : entry.getValue()) {
-                int index = normalized.lastIndexOf(alias.toLowerCase(Locale.ROOT));
-                if (index > lastIndex) {
-                    lastIndex = index;
-                    target = entry.getKey();
-                }
-            }
-        }
-        if (!target.isBlank()) {
-            return target;
-        }
-        return terms.isEmpty() ? "" : canonicalTerm(terms.getLast());
+        if (terms.isEmpty()) return "";
+        String last = canonicalTerm(terms.getLast());
+        List<String> expanded = questionSemantics.expandSearchTerms(List.of(last));
+        return expanded.isEmpty() ? last : expanded.getLast();
     }
 
     private ScoredDocument scoreDocument(SearchQuery query, MetadataSearchDocument document, boolean directHit, VectorSearchCandidate vectorCandidate) {
@@ -258,6 +197,10 @@ public class MetadataSearchService {
         if (directHit) {
             score += 35;
             reasons.add("全文/编码直接召回");
+        }
+        if (hasText(query.raw()) && (query.raw().contains(name) || searchText.contains(query.raw()))) {
+            score += 220;
+            reasons.add("原始查询与元数据名称/描述匹配");
         }
         if (hasText(code) && query.lower().contains(code.toLowerCase(Locale.ROOT))) {
             score += 180;
@@ -327,7 +270,7 @@ public class MetadataSearchService {
             }
         }
         if (hasText(query.targetTerm()) && name.equals(query.targetTerm())) {
-            score += 120;
+            score += 520;
             reasons.add("目标业务对象精确匹配:" + query.targetTerm());
         }
 
@@ -337,29 +280,6 @@ public class MetadataSearchService {
         }
 
         score += explicitAppPathScore(query, graphPath, reasons);
-
-        if (isCrmCoreQuery(query, terms)) {
-            if (graphPath.toLowerCase(Locale.ROOT).startsWith("zlcsstcrm /")) {
-                score += 120;
-                reasons.add("CRM核心应用优先");
-            }
-            if (haystack.contains("zlcsstcrm") || code.toLowerCase(Locale.ROOT).contains("crm")) {
-                score += 80;
-                reasons.add("CRM编码/路径优先");
-            }
-        } else if (query.lower().contains("crm") && haystack.contains("crm")) {
-            score += 80;
-            reasons.add("应用路径匹配:CRM");
-        }
-
-        if (terms.contains("商机") && "int_bu_oppor".equalsIgnoreCase(code)) {
-            score += 140;
-            reasons.add("已知真实商机主对象优先");
-        }
-        if (terms.contains("客户") && "crm_customer".equalsIgnoreCase(code)) {
-            score += 140;
-            reasons.add("已知真实客户主对象优先");
-        }
 
         for (String secondary : SECONDARY_OBJECT_MARKERS) {
             if (name.toLowerCase(Locale.ROOT).contains(secondary.toLowerCase(Locale.ROOT)) || code.toLowerCase(Locale.ROOT).contains(secondary.toLowerCase(Locale.ROOT))) {
@@ -382,19 +302,8 @@ public class MetadataSearchService {
         return score;
     }
 
-    private boolean isCrmCoreQuery(SearchQuery query, List<String> terms) {
-        return query.normalized().contains("crm")
-            || query.appHints().contains("crm")
-            || terms.stream().anyMatch(term -> List.of("商机", "客户", "线索", "联系人", "销售订单", "合同").contains(term));
-    }
-
     private boolean hasCompoundBusinessTerms(SearchQuery query) {
-        long count = query.terms().stream()
-            .map(this::canonicalTerm)
-            .filter(CORE_BUSINESS_TERMS::contains)
-            .distinct()
-            .count();
-        return count >= 2;
+        return query.terms().stream().map(this::canonicalTerm).distinct().count() >= 2;
     }
 
     private boolean containsPathSegment(String graphPath, String term) {
@@ -466,11 +375,59 @@ public class MetadataSearchService {
     }
 
     public MetadataSearchResult bestMatch(String query) {
+        SearchQuery searchQuery = analyzeQuery(query);
         List<MetadataSearchResult> results = searchLocalMetadata(query);
+        MetadataSearchResult entityMatch = bestBusinessEntityMatch(searchQuery);
+        if (entityMatch != null) {
+            return entityMatch;
+        }
         if (!results.isEmpty()) {
             return results.getFirst();
         }
         return new MetadataSearchResult("unknown", "", "未匹配到本地元数据", "", "", "low", "本地 Metadata Index 暂无匹配，请先初始化云枢元数据");
+    }
+
+    /**
+     * A business request targets a form, not an identically named field on a
+     * different form. Prefer a semantically matching executable entity.
+     */
+    private MetadataSearchResult bestBusinessEntityMatch(SearchQuery query) {
+        if (query.targetTerm().isBlank()) {
+            return null;
+        }
+        return searchDocumentRepository.findAll().stream()
+            .filter(document -> "entity".equals(document.getObjectType()))
+            .map(document -> scoreDocument(query, document, false, null))
+            .filter(item -> item.score() > 0 && entityMatchesTarget(item.document(), query.targetTerm()))
+            .max(Comparator.comparingInt(item -> primaryEntityScore(item, query.targetTerm())))
+            .map(item -> new MetadataSearchResult(
+                item.document().getObjectType(),
+                item.document().getObjectId(),
+                item.document().getName(),
+                item.document().getCode(),
+                item.document().getGraphPath(),
+                item.document().getRiskLevel(),
+                matchReason(query, item) + "；已优先选择可执行业务对象"
+            ))
+            .orElse(null);
+    }
+
+    private boolean entityMatchesTarget(MetadataSearchDocument document, String targetTerm) {
+        String name = safe(document.getName()).toLowerCase(Locale.ROOT);
+        String code = safe(document.getCode()).toLowerCase(Locale.ROOT);
+        String target = targetTerm.toLowerCase(Locale.ROOT);
+        return name.contains(target) || code.contains(target);
+    }
+
+    private int primaryEntityScore(ScoredDocument item, String targetTerm) {
+        MetadataSearchDocument document = item.document();
+        String name = safe(document.getName()).toLowerCase(Locale.ROOT);
+        String target = targetTerm.toLowerCase(Locale.ROOT);
+        int score = item.score() + (name.equals(target) ? 340 : 220);
+        if (SECONDARY_OBJECT_MARKERS.stream().anyMatch(marker -> name.contains(marker.toLowerCase(Locale.ROOT)))) {
+            score -= 220;
+        }
+        return score;
     }
 
     public List<MetadataSearchResult> suggestAvailableMetadata(int limit) {

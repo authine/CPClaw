@@ -5,21 +5,41 @@ spring:
     async:
       request-timeout: ${ASYNC_REQUEST_TIMEOUT:180000}
   datasource:
-    url: ${DATABASE_URL:jdbc:mysql://localhost:3306/CPClaw?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
-    username: ${DATABASE_USERNAME:root}
+    # Running CPClaw requires explicit persistent database credentials. Do not add an H2 fallback here.
+    url: ${DATABASE_URL:}
+    username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
+    hikari:
+      initialization-fail-timeout: 10000
   jpa:
     hibernate:
       ddl-auto: none
     open-in-view: false
   flyway:
     enabled: true
+    validate-on-migrate: true
 
 server:
   port: ${SERVER_PORT:8080}
 
 cpclaw:
+  identity:
+    default-id: ${CPCLAW_DEFAULT_USER_ID:huangj}
+    default-name: ${CPCLAW_DEFAULT_USER_NAME:黄杰}
+    default-phone: ${CPCLAW_DEFAULT_USER_PHONE:18124691161}
+    default-tenant: ${CPCLAW_DEFAULT_TENANT:default}
+    default-super-admin: ${CPCLAW_DEFAULT_USER_SUPER_ADMIN:true}
+  task:
+    continuation-secret: ${CPCLAW_TASK_CONTINUATION_SECRET:change-me-in-production}
+    continuation-ttl-seconds: ${CPCLAW_TASK_CONTINUATION_TTL_SECONDS:900}
+  # This must be stable across restarts; it protects values in encrypted_credentials.
   encryption-key: ${CPC_ENCRYPTION_KEY:}
+  # Public CPClaw origin used by the SSE MCP configuration returned to clients.
+  # Set this to the externally reachable HTTPS origin behind the reverse proxy.
+  mcp:
+    public-base-url: ${CPCLAW_MCP_PUBLIC_BASE_URL:http://localhost:8080}
+  persistence:
+    runtime-guard-enabled: ${CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED:true}
   storage-root: ${CPC_STORAGE_ROOT:./storage}
   conversation:
     stream-timeout-ms: ${CPCLAW_STREAM_TIMEOUT_MS:600000}

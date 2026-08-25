@@ -11,12 +11,15 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,17 +29,24 @@ import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.cloudpivot.CloudPivotOperationResult;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
 import com.cpclaw.cloudpivot.RuntimeQueryFilter;
+import com.cpclaw.cloudpivot.WorkflowContractProbeResult;
+import com.cpclaw.cloudpivot.WorkflowReadResult;
 import com.cpclaw.metadata.entity.CloudPivotDataItem;
 import com.cpclaw.metadata.entity.CloudPivotEntityRelation;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
 import com.cpclaw.metadata.repository.CloudPivotDataItemRepository;
 import com.cpclaw.metadata.repository.CloudPivotEntityRelationRepository;
+import com.cpclaw.conversation.repository.QueryResultReferenceRepository;
+import com.cpclaw.conversation.repository.MessageFeedbackEventRepository;
+import com.cpclaw.memory.repository.AgentMemoryRepository;
+import com.cpclaw.model.repository.ModelConfigRepository;
 import com.cpclaw.vector.MetadataVectorSearch;
 import com.cpclaw.vector.VectorSearchCandidate;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +68,8 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
+    // This suite intentionally uses an isolated in-memory store; production startup must keep the guard enabled.
+    "cpclaw.persistence.runtime-guard-enabled=false",
     "cpclaw.cloudpivot.allow-metadata-fallback=true",
     "cpclaw.metadata.graphify.output-directory=${java.io.tmpdir}/cpclaw-test-graphify"
 })
@@ -81,6 +93,111 @@ class CpClawApiTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private QueryResultReferenceRepository queryResultReferenceRepository;
+
+    @Autowired
+    private AgentMemoryRepository agentMemoryRepository;
+
+    @Autowired
+    private ModelConfigRepository modelConfigRepository;
+
+    @Autowired
+    private MessageFeedbackEventRepository messageFeedbackEventRepository;
+
+    @Test
+    void messageFeedbackCanBeSetSwitchedClearedAndRestored() throws Exception {
+        String conversationId = "feedback-conversation";
+        String messageId = "feedback-assistant-message";
+        // Keep this state-transition test independent from the other API flow test
+        // when JUnit changes method execution order within the shared Spring context.
+        messageFeedbackEventRepository.deleteAll();
+        jdbcTemplate.update(
+            "INSERT INTO conversations (id, title, default_thinking_enabled, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            conversationId, "反馈测试", false
+        );
+        jdbcTemplate.update(
+            "INSERT INTO messages (id, conversation_id, role, content, thinking_enabled, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            messageId, conversationId, "assistant", "测试回答", false, "{\"agentRunId\":\"run-feedback\"}"
+        );
+
+        mockMvc.perform(put("/api/conversations/messages/" + messageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":\"like\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.messageId").value(messageId))
+            .andExpect(jsonPath("$.data.feedbackType").value("like"));
+        assertEquals(1, messageFeedbackEventRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).size());
+
+        mockMvc.perform(put("/api/conversations/messages/" + messageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":\"like\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.feedbackType").value("like"));
+        assertEquals(1, messageFeedbackEventRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).size());
+
+        mockMvc.perform(get("/api/conversations/" + conversationId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.messages[0].feedbackType").value("like"));
+
+        mockMvc.perform(put("/api/conversations/messages/" + messageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":\"dislike\",\"reason\":\"apiKey=secret\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.feedbackType").value("dislike"));
+        assertEquals(2, messageFeedbackEventRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).size());
+        assertEquals("apiKey=***", jdbcTemplate.queryForObject(
+            "SELECT reason FROM message_feedback_events WHERE message_id = ? ORDER BY created_at DESC LIMIT 1", String.class, messageId
+        ));
+
+        mockMvc.perform(put("/api/conversations/messages/" + messageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":null}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.feedbackType").doesNotExist());
+        assertEquals(3, messageFeedbackEventRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).size());
+
+        mockMvc.perform(get("/api/conversations/" + conversationId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.messages[0].feedbackType").doesNotExist());
+    }
+
+    @Test
+    void messageFeedbackRapidSwitchesKeepLatestStateAndRejectUserMessage() throws Exception {
+        String conversationId = "rapid-feedback-conversation";
+        String assistantMessageId = "rapid-feedback-assistant";
+        String userMessageId = "rapid-feedback-user";
+        jdbcTemplate.update(
+            "INSERT INTO conversations (id, title, default_thinking_enabled, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            conversationId, "快速反馈切换测试", false
+        );
+        jdbcTemplate.update(
+            "INSERT INTO messages (id, conversation_id, role, content, thinking_enabled, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            assistantMessageId, conversationId, "assistant", "测试回答", false, "{}"
+        );
+        jdbcTemplate.update(
+            "INSERT INTO messages (id, conversation_id, role, content, thinking_enabled, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            userMessageId, conversationId, "user", "测试问题", false, "{}"
+        );
+
+        for (String feedbackType : new String[] {"like", "like", "dislike", "dislike", "like", null}) {
+            String body = feedbackType == null ? "{\"feedbackType\":null}" : "{\"feedbackType\":\"" + feedbackType + "\"}";
+            mockMvc.perform(put("/api/conversations/messages/" + assistantMessageId + "/feedback")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+                .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(get("/api/conversations/" + conversationId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.messages[0].feedbackType").doesNotExist());
+
+        mockMvc.perform(put("/api/conversations/messages/" + userMessageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":\"like\"}"))
+            .andExpect(status().isBadRequest());
+    }
 
     @Test
     void mvpApiFlowWorks() throws Exception {
@@ -128,11 +245,21 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.length()").value(1));
 
-        mockMvc.perform(post("/api/settings/cloudpivot/test"))
+        String modelId = modelConfigRepository.findAll().getFirst().getId();
+        mockMvc.perform(post("/api/settings/models/" + modelId + "/test"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.success").value(false))
+            .andExpect(jsonPath("$.data.message").value("本地模拟地址不执行真实模型验证，请配置可访问的模型服务地址"));
+
+        mockMvc.perform(post("/api/settings/cloudpivot/test")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cloudPivotBaseUrl\":\"https://cloudpivot.example.local\",\"cloudPivotUsername\":\"demo-user\",\"cloudPivotPassword\":\"test-value\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.success").value(true));
 
-        mockMvc.perform(post("/api/settings/metadata-cloudpivot/test"))
+        mockMvc.perform(post("/api/settings/metadata-cloudpivot/test")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetBaseUrl\":\"https://cloudpivot-admin.example.local\",\"username\":\"admin-user\",\"password\":\"test-value\",\"searchEngineType\":\"mysql\",\"searchEndpoint\":\"\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.success").value(true));
 
@@ -146,6 +273,13 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.graphNodeCount").value(22))
             .andExpect(jsonPath("$.data.graphEdgeCount").value(30))
             .andExpect(jsonPath("$.data.graphCoverageRate").value(1.0));
+
+        mockMvc.perform(get("/api/metadata/sync-logs"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.latestSuccessfulAt").exists())
+            .andExpect(jsonPath("$.data.items").isArray())
+            .andExpect(jsonPath("$.data.items[0].status").value("succeeded"))
+            .andExpect(jsonPath("$.data.items[0].appCount").isNumber());
 
         assertEquals(10, dataItemRepository.count());
         assertEquals(1, relationRepository.count());
@@ -322,6 +456,113 @@ class CpClawApiTests {
         String body = conversation.getResponse().getContentAsString();
         String conversationId = body.replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
 
+        mockMvc.perform(post("/api/metadata/workflow/probe"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.verifiedCount").value(3))
+            .andExpect(jsonPath("$.data.attemptedCount").value(6));
+
+        MvcResult workflowConversation = mockMvc.perform(post("/api/conversations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"流程只读验证\",\"thinkingEnabled\":false}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        String workflowConversationId = workflowConversation.getResponse().getContentAsString()
+            .replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+        MvcResult workflowReadResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"我有多少个待办？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(workflowConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_workflow"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("共 **2** 条")))
+            .andReturn();
+        assertFalse(workflowReadResult.getResponse().getContentAsString(StandardCharsets.UTF_8).contains("接口契约未验证"));
+
+        MvcResult contractConversationResult = mockMvc.perform(post("/api/conversations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"合同设计连续对话\",\"thinkingEnabled\":false}"))
+            .andExpect(status().isOk())
+            .andReturn();
+        String contractConversationId = contractConversationResult.getResponse().getContentAsString(StandardCharsets.UTF_8)
+            .replaceAll(".*\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        MvcResult contractDesignResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"如果让你来设计一个合同管理系统，你会怎么设计？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(contractConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andReturn();
+        String contractDesignBody = contractDesignResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String contractAssistantMessageId = contractDesignBody.replaceAll(".*\\\"assistantMessage\\\":\\{.*?\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        mockMvc.perform(put("/api/conversations/messages/" + contractAssistantMessageId + "/feedback")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"feedbackType\":\"dislike\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.feedbackType").value("dislike"));
+        MvcResult contractFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"再详细设计一下",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(contractConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("direct-conversation")))
+            .andReturn();
+        String contractFollowUpBody = contractFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String contractFollowUpRunId = contractFollowUpBody.replaceAll(".*\\\"agentRunId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        mockMvc.perform(get("/api/audit/agent-runs/" + contractFollowUpRunId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.planJson").value(containsString("contextualGoal")))
+            .andExpect(jsonPath("$.data.planJson").value(containsString("上一轮反馈")));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"我有多少个已办？",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(workflowConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_workflow"))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("我的已办")));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"同意第一条待办",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(workflowConversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("workflow_action"))
+            .andExpect(jsonPath("$.data.riskLevel").value("high"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("本轮不会执行任何流程写操作")));
+
         MvcResult streamRequest = mockMvc.perform(post("/api/conversations/messages/stream")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
@@ -339,13 +580,11 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andReturn();
         String streamBody = streamResponse.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(streamBody.contains("event:thought"));
         assertTrue(streamBody.contains("event:execution"));
         assertTrue(streamBody.contains("event:answer_start"));
         assertTrue(streamBody.contains("event:answer_delta"));
         assertTrue(streamBody.contains("event:answer_end"));
         assertTrue(streamBody.contains("event:final"));
-        assertTrue(streamBody.indexOf("event:thought") < streamBody.indexOf("event:execution"));
         assertTrue(streamBody.indexOf("event:execution") < streamBody.indexOf("event:answer_start"));
         assertTrue(streamBody.indexOf("event:answer_start") < streamBody.indexOf("event:answer_delta"));
         assertTrue(streamBody.indexOf("event:answer_delta") < streamBody.indexOf("event:final"));
@@ -392,7 +631,8 @@ class CpClawApiTests {
             .andReturn();
         String insightStreamBody = insightStreamResponse.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(insightStreamBody.contains("event:thought"));
-        assertTrue(insightStreamBody.contains("构建业务元数据图"));
+        assertTrue(insightStreamBody.contains("拆解分析任务"));
+        assertFalse(insightStreamBody.contains("召回会话记忆"));
         assertTrue(insightStreamBody.contains("event:execution"));
         assertTrue(insightStreamBody.contains("cloudpivot_insight_report") || insightStreamBody.contains("insightReport"));
         assertTrue(insightStreamBody.contains("stage-distribution"));
@@ -435,8 +675,23 @@ class CpClawApiTests {
                       "attachmentIds":[]
                     }
                     """.formatted(conversationId)))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message").value("请输入要处理的内容"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("请输入要处理的内容"));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"你好",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.steps").isEmpty())
+            .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("direct-conversation")));
 
         mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -480,10 +735,8 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
             .andExpect(jsonPath("$.data.steps").isArray())
-            .andExpect(jsonPath("$.data.steps[0].kind").value("thought"))
-            .andExpect(jsonPath("$.data.steps[?(@.kind == 'thought')]").isNotEmpty())
             .andExpect(jsonPath("$.data.steps[?(@.kind == 'execution')]").isNotEmpty())
-            .andExpect(jsonPath("$.data.steps[?(@.title == '云枢数据返回')]").isNotEmpty())
+            .andExpect(jsonPath("$.data.steps[?(@.title == '核验数据范围')]").isNotEmpty())
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **237** 条")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("### 执行过程"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("schemaCode=`int_bu_oppor`"))))
@@ -491,11 +744,16 @@ class CpClawApiTests {
         String countOpportunityBody = countOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countOpportunityBody.contains("总计 **237** 条"));
         assertFalse(countOpportunityBody.contains("### 执行过程"));
-        assertTrue(countOpportunityBody.contains("schemaCode=int_bu_oppor"));
-        assertTrue(countOpportunityBody.contains("/api/runtime/query/listSkipQueryListV2"));
+        assertFalse(countOpportunityBody.contains("拆解当前任务"));
+        assertFalse(countOpportunityBody.contains("理解用户问题"));
+        assertFalse(countOpportunityBody.contains("召回会话记忆"));
         assertFalse(countOpportunityBody.contains("system_opportunity"));
         assertFalse(countOpportunityBody.contains("local-fallback"));
         assertFalse(countOpportunityBody.contains("演示编码"));
+        assertTrue(agentMemoryRepository.findAll().stream().anyMatch(memory ->
+            "successful_metadata_mapping".equals(memory.getMemoryType())
+                && memory.getConfidence() >= 0.9D
+        ));
 
         MvcResult currentOpportunityCountResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -527,7 +785,7 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("负责人/销售=张三"))))
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("张三")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("张三")))
             .andReturn();
         String ownerFilteredCountBody = ownerFilteredCountResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -578,15 +836,12 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("本轮承接上一轮业务对象"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
             .andReturn();
         String stageFollowUpBody = stageFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(stageFollowUpBody.contains("方案确认"));
         assertTrue(stageFollowUpBody.contains("需求沟通"));
         assertTrue(stageFollowUpBody.contains("合同审批"));
-        assertTrue(stageFollowUpBody.contains("schemaCode=int_bu_oppor"));
-        assertFalse(stageFollowUpBody.contains("schemaCode=crm_customer"));
 
         MvcResult amountRankingResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -601,7 +856,6 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("本轮承接上一轮业务对象"))))
             .andReturn();
         String amountRankingBody = amountRankingResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(amountRankingBody.contains("金额最高的商机"));
@@ -647,15 +901,11 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("商机"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("本轮承接上一轮业务对象"))))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("business_opportunity"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按阶段分布")))
             .andReturn();
         String explicitPathFollowUpBody = explicitPathFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(explicitPathFollowUpBody.contains("项目立项"));
         assertTrue(explicitPathFollowUpBody.contains("资源确认"));
-        assertTrue(explicitPathFollowUpBody.contains("schemaCode=business_opportunity"));
-        assertFalse(explicitPathFollowUpBody.contains("schemaCode=int_bu_oppor"));
 
         MvcResult projectConversation = mockMvc.perform(post("/api/conversations")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -693,13 +943,9 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.candidates[0].name").value("\u9879\u76ee"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("pm_project"))))
             .andReturn();
         String projectAmountBody = projectAmountFollowUp.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(projectAmountBody.contains("schemaCode=pm_project"));
         assertTrue(projectAmountBody.contains("2100000") || projectAmountBody.contains("2,100,000") || projectAmountBody.contains("2100000.0"));
-        assertFalse(projectAmountBody.contains("schemaCode=int_bu_oppor"));
-        assertFalse(projectAmountBody.contains("schemaCode=crm_customer"));
 
         MvcResult colloquialOpportunityResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -723,7 +969,6 @@ class CpClawApiTests {
         String colloquialOpportunityBody = colloquialOpportunityResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(colloquialOpportunityBody.contains("237"));
         assertTrue(colloquialOpportunityBody.contains("北京菲斯曼供热"));
-        assertTrue(colloquialOpportunityBody.contains("schemaCode=int_bu_oppor"));
         assertFalse(colloquialOpportunityBody.contains("前 10 条记录摘要"));
 
         MvcResult opportunitySituationResult = mockMvc.perform(post("/api/conversations/messages")
@@ -744,7 +989,6 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("前 10 条记录摘要"))))
             .andReturn();
         String opportunitySituationBody = opportunitySituationResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(opportunitySituationBody.contains("schemaCode=int_bu_oppor"));
         assertFalse(opportunitySituationBody.contains("名称：北京菲斯曼供热，名称：北京菲斯曼供热"));
 
         MvcResult countCustomerResult = mockMvc.perform(post("/api/conversations/messages")
@@ -761,7 +1005,7 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("query_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[*].title").value(hasItem("校验执行结果")))
+            .andExpect(jsonPath("$.data.steps[*].title").value(not(hasItem("核验执行结果"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("总计 **58** 条")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("### 执行过程"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("schemaCode=`crm_customer`"))))
@@ -769,7 +1013,6 @@ class CpClawApiTests {
         String countCustomerBody = countCustomerResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(countCustomerBody.contains("总计 **58** 条"));
         assertFalse(countCustomerBody.contains("### 执行过程"));
-        assertTrue(countCustomerBody.contains("schemaCode=crm_customer"));
         assertFalse(countCustomerBody.contains("system_customer"));
         assertFalse(countCustomerBody.contains("local-fallback"));
         assertFalse(countCustomerBody.contains("总计 **237** 条"));
@@ -810,15 +1053,11 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("本轮承接上一轮业务对象"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按省份分布")))
             .andReturn();
         String provinceFollowUpBody = provinceFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(provinceFollowUpBody.contains("schemaCode=crm_customer"));
         assertTrue(provinceFollowUpBody.contains("广东省：2 个客户"));
         assertTrue(provinceFollowUpBody.contains("上海市：1 个客户"));
-        assertFalse(provinceFollowUpBody.contains("schemaCode=system_customer"));
-        assertFalse(provinceFollowUpBody.contains("schemaCode=Test009"));
 
         MvcResult customerLifecycleFollowUpResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -834,17 +1073,11 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("本轮承接上一轮业务对象"))))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("分析维度"))))
-            .andExpect(jsonPath("$.data.steps[*].status").value(hasItem(containsString("新老客户"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("新老客户对比")))
             .andReturn();
         String customerLifecycleFollowUpBody = customerLifecycleFollowUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(customerLifecycleFollowUpBody.contains("schemaCode=crm_customer"));
         assertTrue(customerLifecycleFollowUpBody.contains("新客户：2 个客户"));
         assertTrue(customerLifecycleFollowUpBody.contains("老客户：2 个客户"));
-        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=system_customer"));
-        assertFalse(customerLifecycleFollowUpBody.contains("schemaCode=Test009"));
 
         MvcResult yearlyCustomerResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -860,8 +1093,8 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("analyze_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates[0].name").value("客户"))
-            .andExpect(jsonPath("$.data.steps[*].title").value(hasItem("理解用户问题")))
-            .andExpect(jsonPath("$.data.steps[*].title").value(hasItem("校验执行结果")))
+            .andExpect(jsonPath("$.data.steps[*].title").value(not(hasItem("理解用户问题"))))
+            .andExpect(jsonPath("$.data.steps[*].title").value(not(hasItem("核验执行结果"))))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("按年客户量分析")))
             .andExpect(jsonPath("$.data.assistantMessage.content").value(not(containsString("原始数据摘要"))))
             .andReturn();
@@ -869,7 +1102,6 @@ class CpClawApiTests {
         assertTrue(yearlyCustomerBody.contains("按年客户量分析"));
         assertTrue(yearlyCustomerBody.contains("2023 年：2 个客户"));
         assertTrue(yearlyCustomerBody.contains("趋势判断"));
-        assertTrue(yearlyCustomerBody.contains("schemaCode=crm_customer"));
 
         MvcResult analysisResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -915,6 +1147,13 @@ class CpClawApiTests {
         assertTrue(opportunityDetailBody.contains("\u5317\u4eac\u83f2\u65af\u66fc\u4f9b\u70ed\u6280\u672f\u6709\u9650\u516c\u53f8"));
         assertFalse(opportunityDetailBody.contains("QL20250324009026"));
         assertFalse(opportunityDetailBody.contains("operator"));
+        String detailAgentRunId = opportunityDetailBody.replaceAll(".*\\\"agentRunId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        assertTrue(queryResultReferenceRepository.findAll().stream().anyMatch(reference ->
+            detailAgentRunId.equals(reference.getAgentRunId())
+                && "int_bu_oppor".equals(reference.getSchemaCode())
+                && "opp-001".equals(reference.getRecordId())
+                && reference.getRowIndex() == 1
+        ));
 
         MvcResult clarificationResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -966,11 +1205,43 @@ class CpClawApiTests {
         assertTrue(queryAuditBody.contains("react-reflection-mvp"));
         assertTrue(queryAuditBody.contains("reflectionJson"));
         assertFalse(queryAuditBody.contains("plain-text-secret"));
+
+        mockMvc.perform(get("/api/audit/analytics"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.summary.invocations").isNumber())
+            .andExpect(jsonPath("$.data.items").isArray())
+            .andExpect(jsonPath("$.data.intentOptions").doesNotExist())
+            .andExpect(jsonPath("$.data.items[0].inputSummary").exists())
+            .andExpect(jsonPath("$.data.items[0].businessIntent").exists())
+            .andExpect(jsonPath("$.data.items[0].toolCallCount").isNumber());
+
+        mockMvc.perform(get("/api/audit/analytics/usage"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.summary.totalTokens").isNumber())
+            .andExpect(jsonPath("$.data.daily").isArray())
+            .andExpect(jsonPath("$.data.weekly").isArray())
+            .andExpect(jsonPath("$.data.monthly").isArray())
+            .andExpect(jsonPath("$.data.models").isArray());
         assertFalse(queryAuditBody.contains("\\\"json-secret\\\""));
 
         mockMvc.perform(get("/api/conversations/" + conversationId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.messages.length()").value(2));
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"创建元数据对象",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("create_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(true))
+            .andExpect(jsonPath("$.data.planSummary").value(containsString("新增数据")));
 
         MvcResult writeResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1021,7 +1292,35 @@ class CpClawApiTests {
             .andReturn();
         String followUpBody = followUpResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(followUpBody.contains("跟进内容"));
-        assertTrue(followUpBody.contains("理解用户问题"));
+        assertFalse(followUpBody.contains("理解用户问题"));
+        assertFalse(followUpBody.contains("召回会话记忆"));
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"删除第一条商机",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("delete_data"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.confirmationId").isEmpty());
+
+        mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"列出商机列表",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("query_data"));
         MvcResult deleteResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -1042,7 +1341,33 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("executed"))
             .andExpect(jsonPath("$.data.executed").value(true));
-        verify(cloudPivotConnector).deleteRecord(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        mockMvc.perform(post("/api/audit/confirmations/" + deleteConfirmationId + "/confirm"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("executed"))
+            .andExpect(jsonPath("$.data.executed").value(false));
+
+        MvcResult tamperDeleteResult = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"%s",
+                      "content":"删除第一条商机",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """.formatted(conversationId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(true))
+            .andReturn();
+        String tamperConfirmationId = tamperDeleteResult.getResponse().getContentAsString(StandardCharsets.UTF_8)
+            .replaceAll(".*\\\"confirmationId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+        jdbcTemplate.update("UPDATE confirmations SET changes_json_masked = ? WHERE id = ?", "{\"operation\":\"delete_data\",\"appCode\":\"zlcsstcrm\",\"schemaCode\":\"int_bu_oppor\",\"bizObjectId\":\"opp-999\",\"referenceId\":\"tampered\"}", tamperConfirmationId);
+        mockMvc.perform(post("/api/audit/confirmations/" + tamperConfirmationId + "/confirm"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("failed"))
+            .andExpect(jsonPath("$.data.executed").value(false))
+            .andExpect(jsonPath("$.data.message").value(containsString("完整性校验失败")));
+        verify(cloudPivotConnector, times(1)).deleteRecord(anyString(), anyString(), anyString(), eq("zlcsstcrm"), eq("int_bu_oppor"), eq("opp-001"));
     }
 
     private void configureCloudPivotMock() {
@@ -1082,6 +1407,25 @@ class CpClawApiTests {
                 "/api/api/runtime/business_rule/" + invocation.getArgument(3) + "/" + invocation.getArgument(4) + "/Delete/" + invocation.getArgument(5),
                 "删除接口已执行",
                 Map.of("mock", true)
+            ));
+        when(cloudPivotConnector.probeWorkflowReadContracts(anyString(), anyString(), anyString()))
+            .thenReturn(new WorkflowContractProbeResult(List.of(
+                new WorkflowContractProbeResult.Contract("workflow_list_pending", true, "POST", "/api/api/runtime/workflow/list_workitems", List.of("page", "size"), Map.of("itemFields", List.of("title", "status")), null),
+                new WorkflowContractProbeResult.Contract("workflow_list_finished", true, "POST", "/api/api/runtime/workflow/list_finished_workitems", List.of("page", "size"), Map.of(), null),
+                new WorkflowContractProbeResult.Contract("workflow_list_started", true, "POST", "/api/api/runtime/workflow/list_my_instances", List.of("page", "size"), Map.of(), null),
+                new WorkflowContractProbeResult.Contract("workflow_list_instances", false, "UNKNOWN", "/api/runtime/workflow/list_instances", List.of(), Map.of(), "403"),
+                new WorkflowContractProbeResult.Contract("workflow_instance_detail", false, "UNKNOWN", "/api/runtime/workflow/get_instance_baseinfo", List.of(), Map.of(), "需要流程实例 ID"),
+                new WorkflowContractProbeResult.Contract("workflow_list_activity", false, "UNKNOWN", "/api/runtime/workflow/list_workflow_instance_activity", List.of(), Map.of(), "需要流程实例 ID")
+            ), Instant.parse("2026-08-22T12:00:00Z")));
+        when(cloudPivotConnector.queryWorkflowRead(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
+            .thenAnswer(invocation -> new WorkflowReadResult(
+                invocation.getArgument(3), invocation.getArgument(4) + " " + invocation.getArgument(5), 2,
+                List.of(Map.of("title", "合同审批", "status", "待处理", "createdTime", "2026-08-22")), Map.of("itemFields", List.of("title", "status"))
+            ));
+        when(cloudPivotConnector.queryWorkflowRead(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyInt(), anyList()))
+            .thenAnswer(invocation -> new WorkflowReadResult(
+                invocation.getArgument(3), invocation.getArgument(4) + " " + invocation.getArgument(5), 2,
+                List.of(Map.of("title", "合同审批", "status", "待处理", "createdTime", "2026-08-22")), Map.of("itemFields", List.of("title", "status"))
             ));
     }
 

@@ -1,8 +1,9 @@
 package com.cpclaw.settings.dto;
 
 public record UserCloudPivotSettings(
-    String baseUrl,
+    boolean environmentConfigured,
     String username,
-    boolean hasPassword
+    boolean hasPassword,
+    String credentialStatus
 ) {
 }

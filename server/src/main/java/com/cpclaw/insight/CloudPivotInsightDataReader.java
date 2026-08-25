@@ -3,6 +3,7 @@ package com.cpclaw.insight;
 import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
 import com.cpclaw.credential.CredentialService;
+import com.cpclaw.credential.CredentialUnavailableException;
 import com.cpclaw.metadata.entity.CloudPivotEntity;
 import com.cpclaw.settings.entity.SystemSettings;
 import com.cpclaw.settings.repository.SystemSettingsRepository;
@@ -47,15 +48,24 @@ public class CloudPivotInsightDataReader {
         int maxRecords,
         List<RuntimeQueryFilter> filters
     ) {
-        SystemSettings settings = settingsRepository.findById(SETTINGS_ID)
-            .orElseThrow(() -> new IllegalArgumentException("请先配置云枢普通用户账号"));
-        String password = credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, USER_CLOUDPIVOT_PASSWORD)
-            .orElseThrow(() -> new IllegalArgumentException("请先配置云枢普通用户密码"));
+        return query(defaultAccess(), entity, enrichDetails, maxRecords, filters);
+    }
+
+    public CloudPivotRuntimeQueryResult query(
+        InsightDataAccess access,
+        CloudPivotEntity entity,
+        boolean enrichDetails,
+        int maxRecords,
+        List<RuntimeQueryFilter> filters
+    ) {
+        if (access == null || !access.usable()) {
+            throw new IllegalArgumentException("云枢访问上下文不完整，无法执行智能问数");
+        }
         int recordLimit = Math.max(1, Math.min(MAX_RECORDS, maxRecords));
         CloudPivotRuntimeQueryResult result = connector.queryRecords(
-            settings.getCloudPivotBaseUrl(),
-            settings.getCloudPivotUsername(),
-            password,
+            access.baseUrl(),
+            access.username(),
+            access.password(),
             entity.getEntityCode(),
             PAGE_SIZE,
             enrichDetails,
@@ -66,6 +76,19 @@ public class CloudPivotInsightDataReader {
             throw new IllegalStateException("智能问数报告不能使用本地演示数据源");
         }
         return result;
+    }
+
+    private InsightDataAccess defaultAccess() {
+        SystemSettings settings = settingsRepository.findById(SETTINGS_ID)
+            .orElseThrow(() -> new IllegalArgumentException("请先配置云枢普通用户账号"));
+        String password;
+        try {
+            password = credentialService.revealCredential(OWNER_SYSTEM, SETTINGS_ID, USER_CLOUDPIVOT_PASSWORD)
+                .orElseThrow(() -> new IllegalArgumentException("请先配置云枢普通用户密码"));
+        } catch (CredentialUnavailableException exception) {
+            throw new IllegalArgumentException(exception.getMessage(), exception);
+        }
+        return new InsightDataAccess(settings.getAdminCloudPivotBaseUrl(), settings.getCloudPivotUsername(), password);
     }
 
     public String configuredUsername() {

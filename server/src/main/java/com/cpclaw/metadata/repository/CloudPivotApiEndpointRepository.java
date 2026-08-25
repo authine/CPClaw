@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CloudPivotApiEndpointRepository extends JpaRepository<CloudPivotApiEndpoint, String> {
     List<CloudPivotApiEndpoint> findByOperationTypeIn(List<String> operationTypes);
+    java.util.Optional<CloudPivotApiEndpoint> findByApiCode(String apiCode);
 }

@@ -8,6 +8,8 @@ import com.cpclaw.conversation.dto.ConversationDetail;
 import com.cpclaw.conversation.dto.ConversationSummary;
 import com.cpclaw.conversation.dto.CreateConversationRequest;
 import com.cpclaw.conversation.dto.MessageItem;
+import com.cpclaw.conversation.dto.MessageFeedbackRequest;
+import com.cpclaw.conversation.dto.MessageFeedbackResult;
 import com.cpclaw.conversation.dto.SendMessageRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,17 +34,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ConversationController {
 
     private final ConversationService conversationService;
+    private final MessageFeedbackService messageFeedbackService;
     private final ConversationExecutionRegistry executionRegistry;
     private final ObjectMapper objectMapper;
     private final long streamTimeoutMs;
 
     public ConversationController(
         ConversationService conversationService,
+        MessageFeedbackService messageFeedbackService,
         ConversationExecutionRegistry executionRegistry,
         ObjectMapper objectMapper,
         @Value("${cpclaw.conversation.stream-timeout-ms:600000}") long streamTimeoutMs
     ) {
         this.conversationService = conversationService;
+        this.messageFeedbackService = messageFeedbackService;
         this.executionRegistry = executionRegistry;
         this.objectMapper = objectMapper;
         this.streamTimeoutMs = streamTimeoutMs;
@@ -77,6 +83,14 @@ public class ConversationController {
     @GetMapping("/{id}/messages")
     public ApiResponse<List<MessageItem>> messages(@PathVariable String id) {
         return ApiResponse.ok(conversationService.listMessages(id));
+    }
+
+    @PutMapping("/messages/{messageId}/feedback")
+    public ApiResponse<MessageFeedbackResult> updateFeedback(
+        @PathVariable String messageId,
+        @RequestBody(required = false) MessageFeedbackRequest request
+    ) {
+        return ApiResponse.ok(messageFeedbackService.update(messageId, request));
     }
 
     @PostMapping("/messages")

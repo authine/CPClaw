@@ -1,0 +1,2 @@
+ALTER TABLE message_feedback_events
+    MODIFY COLUMN created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);

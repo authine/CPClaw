@@ -3,8 +3,6 @@ import MainLayout from '../layouts/MainLayout.vue'
 
 const ChatView = () => import('../views/ChatView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
-const MetadataView = () => import('../views/MetadataView.vue')
-const AuditView = () => import('../views/AuditView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,8 +12,10 @@ const router = createRouter({
       component: MainLayout,
       children: [
         { path: '', name: 'chat', component: ChatView },
-        { path: 'metadata', name: 'metadata', component: MetadataView },
-        { path: 'audit', name: 'audit', component: AuditView },
+        { path: 'metadata', name: 'metadata', redirect: '/settings?section=metadata-browser' },
+        // Keep legacy audit links inside the unified system-settings experience.
+        // The former standalone page exposed raw run IDs and duplicated the log-analysis capability.
+        { path: 'audit', name: 'audit', redirect: '/settings?section=log-analytics' },
         { path: 'settings', name: 'settings', component: SettingsView }
       ]
     },

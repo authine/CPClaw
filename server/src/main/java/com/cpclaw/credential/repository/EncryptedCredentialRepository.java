@@ -11,4 +11,10 @@ public interface EncryptedCredentialRepository extends JpaRepository<EncryptedCr
         String credentialOwnerId,
         String credentialType
     );
+
+    long deleteByCredentialOwnerTypeAndCredentialOwnerIdAndCredentialType(
+        String credentialOwnerType,
+        String credentialOwnerId,
+        String credentialType
+    );
 }

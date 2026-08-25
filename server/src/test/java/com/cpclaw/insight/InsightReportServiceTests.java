@@ -74,6 +74,7 @@ class InsightReportServiceTests {
             oppLead,
             field("opp-created", "opp-id", "createdTime", "创建时间", "DATETIME"),
             field("opp-owner", "opp-id", "owner", "商机跟进人", "STAFF_SELECTOR"),
+            field("opp-system-status", "opp-id", "sequenceStatus", "单据状态", "TEXT"),
             field("opp-stage", "opp-id", "sales_stage", "销售阶段", "TEXT"),
             field("opp-amount", "opp-id", "pre_sign_dam_yuan", "预计签约金额", "NUMBER"),
             field("opp-sign", "opp-id", "sign_time", "实际签约时间", "DATETIME")
@@ -101,9 +102,9 @@ class InsightReportServiceTests {
         )).thenReturn(Optional.empty());
         when(dataReader.configuredUsername()).thenReturn("18124691161");
         CloudPivotRuntimeQueryResult opportunityResult = result("int_bu_oppor", List.of(
-            record("opp-1", Map.of("createdTime", "2024-01-10", "owner", Map.of("name", "张三"), "sales_stage", "方案确认", "pre_sign_dam_yuan", 800000, "sign_time", "2024-05-20", "clues_id", Map.of("id", "lead-1"))),
-            record("opp-2", Map.of("createdTime", "2024-03-12", "owner", Map.of("name", "李四"), "sales_stage", "需求沟通", "pre_sign_dam_yuan", 400000, "clues_id", Map.of("id", "lead-2"))),
-            record("opp-3", Map.of("createdTime", "2024-09-01", "owner", Map.of("name", "王五"), "sales_stage", "初步接洽", "pre_sign_dam_yuan", 100000)),
+            record("opp-1", Map.of("createdTime", "2024-01-10", "owner", Map.of("name", "张三"), "sequenceStatus", "COMPLETED", "sales_stage", "方案确认", "pre_sign_dam_yuan", 800000, "sign_time", "2024-05-20", "clues_id", Map.of("id", "lead-1"))),
+            record("opp-2", Map.of("createdTime", "2024-03-12", "owner", Map.of("name", "李四"), "sequenceStatus", "COMPLETED", "sales_stage", "需求沟通", "pre_sign_dam_yuan", 400000, "clues_id", Map.of("id", "lead-2"))),
+            record("opp-3", Map.of("createdTime", "2024-09-01", "owner", Map.of("name", "王五"), "sequenceStatus", "COMPLETED", "sales_stage", "初步接洽", "pre_sign_dam_yuan", 100000)),
             recordWithNullDate("opp-4"),
             recordWithTopLevelDate("opp-5")
         ));
@@ -155,6 +156,10 @@ class InsightReportServiceTests {
             && "funnel".equals(chart.type())
             && chart.labels().equals(List.of("需求沟通", "方案确认"))
             && chart.description().contains("不代表")));
+        assertTrue(report.charts().stream()
+            .filter(chart -> "stage-distribution".equals(chart.id()))
+            .flatMap(chart -> chart.labels().stream())
+            .noneMatch("COMPLETED"::equals));
         assertTrue(report.sections().getFirst().findings().stream().anyMatch(value -> value.contains("其中 2 条通过关联字段确认")));
         assertTrue(report.sections().getFirst().findings().stream().anyMatch(value -> value.contains("已有 1 条销售合同")));
         assertTrue(report.relatedQuestions().stream().anyMatch(question -> question.contains("没有转化")));
@@ -175,6 +180,23 @@ class InsightReportServiceTests {
         assertFalse(result.report().warnings().isEmpty());
         assertTrue(result.report().warnings().stream().anyMatch(value -> value.contains("未匹配当前账号")));
         assertTrue(result.report().sections().get(1).findings().stream().anyMatch(value -> value.contains("数据口径提示")));
+    }
+
+    @Test
+    void letsUserNarrowTheGenericInsightSkillOutput() {
+        InsightExecutionResult result = service.execute(
+            match(),
+            "只看商机金额和阶段，不要风险和建议",
+            "model-id",
+            true,
+            AgentProgressListener.NOOP
+        );
+
+        assertEquals("yunshu-intelligent-inquiry", result.report().skillId());
+        assertTrue(result.report().charts().stream().anyMatch(chart -> "stage-distribution".equals(chart.id())));
+        assertFalse(result.report().charts().stream().anyMatch(chart -> "business-flow".equals(chart.id())));
+        assertTrue(result.report().sections().stream().noneMatch(section -> "问题与风险".equals(section.title())));
+        assertTrue(result.report().sections().stream().noneMatch(section -> "建议动作".equals(section.title())));
     }
 
     @Test
@@ -200,6 +222,25 @@ class InsightReportServiceTests {
         assertTrue(result.report().kpis().stream().anyMatch(kpi -> "私海线索数".equals(kpi.label()) && "3".equals(kpi.value())));
         assertTrue(result.report().warnings().stream().anyMatch(value -> value.contains("读取完整列表并按日期字段计算")));
         verify(dataReader).query(eq(lead), eq(false), eq(20_000), eq(List.of()));
+    }
+
+    @Test
+    void usesRequestScopedAccessForMcpInsightWithoutReadingConfiguredIdentity() {
+        InsightDataAccess access = new InsightDataAccess("https://cloudpivot.example", "mcp-alice", "ephemeral-password");
+        when(dataReader.query(eq(access), any(CloudPivotEntity.class), anyBoolean(), eq(20_000), anyList()))
+            .thenAnswer(invocation -> result(invocation.getArgument(1, CloudPivotEntity.class).getEntityCode(), List.of()));
+
+        service.execute(
+            match(),
+            "我的商机整体情况怎么样？",
+            "model-id",
+            true,
+            AgentProgressListener.NOOP,
+            access
+        );
+
+        verify(dataReader).query(eq(access), eq(opportunity), anyBoolean(), eq(20_000), anyList());
+        org.mockito.Mockito.verify(dataReader, org.mockito.Mockito.never()).configuredUsername();
     }
 
     private MetadataSearchResult match() {

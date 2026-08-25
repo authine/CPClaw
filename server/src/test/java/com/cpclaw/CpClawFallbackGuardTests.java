@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
+    "cpclaw.persistence.runtime-guard-enabled=false",
     "cpclaw.cloudpivot.allow-metadata-fallback=true"
 })
 @AutoConfigureMockMvc
@@ -29,6 +30,94 @@ class CpClawFallbackGuardTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    void highConfidenceGreetingUsesConversationModeWithoutMetadataLookup() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"HI",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.candidates").isEmpty())
+            .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(body.contains("通用问题"));
+        assertFalse(body.contains("真实云枢数据"));
+    }
+
+    @Test
+    void designDiscussionWithBusinessNounsUsesConversationMode() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"请给出合同管理系统详细设计大纲，列出业务对象、流程和关键控制点。",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertFalse(body.contains("案件管理"));
+    }
+
+    @Test
+    void greetingNeverFallsBackToBusinessClarificationWhenRouterIsUnavailable() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"hello",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.planSummary").value("已按通用对话模式直接回答，未调用云枢业务能力。"))
+            .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertFalse(body.contains("我需要再确认一下你的意图"));
+        assertFalse(body.contains("元数据中匹配到"));
+    }
+
+    @Test
+    void nonBusinessQuestionUsesConversationModeWithoutCloudPivotLookup() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/conversations/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "conversationId":"",
+                      "content":"今天天气怎么样",
+                      "thinkingEnabled":false,
+                      "attachmentIds":[]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.candidates").isEmpty())
+            .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(body.contains("天气"));
+        assertFalse(body.contains("我需要再确认一下你的意图"));
+        assertFalse(body.contains("云枢元数据"));
+    }
 
     @Test
     void fallbackMetadataMustNotAnswerBusinessQuestionsAsRealCloudPivotData() throws Exception {
@@ -64,7 +153,7 @@ class CpClawFallbackGuardTests {
 
         mockMvc.perform(post("/api/metadata/sync"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.entityCount").value(5));
+            .andExpect(jsonPath("$.data.entityCount").value(9));
 
         MvcResult result = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)

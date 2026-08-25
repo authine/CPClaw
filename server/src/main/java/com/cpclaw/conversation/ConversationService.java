@@ -3,6 +3,7 @@ package com.cpclaw.conversation;
 import com.cpclaw.agent.AgentOrchestrator;
 import com.cpclaw.agent.AgentProgressListener;
 import com.cpclaw.agent.AgentExecutionCancelledException;
+import com.cpclaw.audit.AuditService;
 import com.cpclaw.agent.dto.AgentResponse;
 import com.cpclaw.agent.dto.ExecutionStepDto;
 import com.cpclaw.common.security.SensitiveDataMasker;
@@ -17,6 +18,13 @@ import com.cpclaw.conversation.repository.ConversationRepository;
 import com.cpclaw.conversation.repository.MessageRepository;
 import com.cpclaw.model.ModelUsageContext;
 import com.cpclaw.model.TokenUsage;
+import com.cpclaw.memory.MemoryService;
+import com.cpclaw.identity.PrincipalContextService;
+import com.cpclaw.task.TaskGateway;
+import com.cpclaw.task.dto.SemanticTaskRequest;
+import com.cpclaw.task.dto.TaskExperienceEnvelope;
+import com.cpclaw.task.dto.TaskProgressEvent;
+import com.cpclaw.task.dto.TaskSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,25 +45,43 @@ public class ConversationService {
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
+    private final QueryResultReferenceService queryResultReferenceService;
+    private final MessageFeedbackService messageFeedbackService;
+    private final MemoryService memoryService;
     private final AgentOrchestrator agentOrchestrator;
     private final ObjectMapper objectMapper;
     private final SensitiveDataMasker sensitiveDataMasker;
     private final ModelUsageContext modelUsageContext;
+    private final AuditService auditService;
+    private final TaskGateway taskGateway;
+    private final PrincipalContextService principalContextService;
 
     public ConversationService(
         ConversationRepository conversationRepository,
         MessageRepository messageRepository,
+        QueryResultReferenceService queryResultReferenceService,
+        MessageFeedbackService messageFeedbackService,
+        MemoryService memoryService,
         @Lazy AgentOrchestrator agentOrchestrator,
         ObjectMapper objectMapper,
         SensitiveDataMasker sensitiveDataMasker,
-        ModelUsageContext modelUsageContext
+        ModelUsageContext modelUsageContext,
+        AuditService auditService,
+        TaskGateway taskGateway,
+        PrincipalContextService principalContextService
     ) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
+        this.queryResultReferenceService = queryResultReferenceService;
+        this.messageFeedbackService = messageFeedbackService;
+        this.memoryService = memoryService;
         this.agentOrchestrator = agentOrchestrator;
         this.objectMapper = objectMapper;
         this.sensitiveDataMasker = sensitiveDataMasker;
         this.modelUsageContext = modelUsageContext;
+        this.auditService = auditService;
+        this.taskGateway = taskGateway;
+        this.principalContextService = principalContextService;
     }
 
     public List<ConversationSummary> listConversations() {
@@ -85,11 +112,15 @@ public class ConversationService {
             throw new IllegalArgumentException("Conversation not found");
         }
         messageRepository.deleteByConversationId(id);
+        messageFeedbackService.deleteByConversationId(id);
+        queryResultReferenceService.deleteByConversationId(id);
+        memoryService.deleteByConversationId(id);
         conversationRepository.deleteById(id);
     }
 
     public List<MessageItem> listMessages(String conversationId) {
-        return messageRepository.findByConversationIdInDisplayOrder(conversationId).stream().map(this::toMessageItem).toList();
+        List<MessageItem> items = messageRepository.findByConversationIdInDisplayOrder(conversationId).stream().map(this::toMessageItem).toList();
+        return messageFeedbackService.enrich(conversationId, items);
     }
 
     @Transactional
@@ -114,21 +145,21 @@ public class ConversationService {
         messageRepository.save(userMessage);
 
         Message assistantMessage = createMessage(conversation.getId(), "assistant", "", request.modelConfigId(), request.thinkingEnabled(), "{\"source\":\"runtime-agent\"}", now.plusMillis(1));
-        List<MessageItem> conversationContext = messageRepository.findByConversationIdInDisplayOrder(conversation.getId()).stream()
-            .map(this::toMessageItem)
-            .toList();
+        // The Agent needs the same enriched history that the user sees. In particular,
+        // the current feedback state on the previous assistant answer is a context signal
+        // for follow-up requests such as “再详细设计一下”.
+        List<MessageItem> conversationContext = listMessages(conversation.getId());
         modelUsageContext.beginCapture();
         AgentResponse response;
         TokenUsage tokenUsage;
         boolean cancelled = false;
         try {
-            response = agentOrchestrator.handleMessage(
-                conversation.getId(),
-                userMessage.getId(),
+            response = executeWebTurnThroughTaskGateway(
+                conversation,
+                userMessage,
                 content,
-                request.modelConfigId(),
-                request.thinkingEnabled(),
-                toMessageItem(assistantMessage),
+                request,
+                assistantMessage,
                 conversationContext,
                 progress
             );
@@ -148,12 +179,24 @@ public class ConversationService {
             response = cancelledResponse(toMessageItem(assistantMessage), !streamedAnswer.isEmpty(), executionStartedAtNanos);
         }
         List<ExecutionStepDto> rawTimelineSnapshot = timelineSnapshot(executionTimeline);
-        List<ExecutionStepDto> timelineSnapshot = maskTimeline(cancelled ? cancelledTimeline(rawTimelineSnapshot) : rawTimelineSnapshot);
+        List<ExecutionStepDto> timelineSnapshot = "conversation".equalsIgnoreCase(response.intent())
+            ? List.of()
+            : maskTimeline(cancelled ? cancelledTimeline(rawTimelineSnapshot) : rawTimelineSnapshot);
         MessageItem responseMessage = withExecutionTimeline(withTokenUsage(response.assistantMessage(), tokenUsage), timelineSnapshot);
         AgentResponse responseWithTimeline = withExecutionTimeline(response, responseMessage, timelineSnapshot);
         assistantMessage.setContent(responseMessage.content());
         assistantMessage.setMetadataJson(responseMessage.metadataJson());
         messageRepository.save(assistantMessage);
+        auditService.finalizeAgentRun(
+            response.agentRunId(),
+            assistantMessage.getId(),
+            request.modelConfigId(),
+            content,
+            responseMessage.content(),
+            tokenUsage,
+            response.thinkingElapsedMs() + response.answerElapsedMs(),
+            cancelled ? "cancelled" : null
+        );
 
         conversation.setTitle(buildConversationTitle(conversation.getTitle(), content));
         conversation.setUpdatedAt(Instant.now());
@@ -166,6 +209,79 @@ public class ConversationService {
         }
 
         return responseWithTimeline;
+    }
+
+    /**
+     * Web is a transport adapter too.  Keep the existing AgentResponse contract
+     * for the UI while routing lifecycle, persistence and future idempotency
+     * through the channel-neutral TaskGateway.
+     *
+     * The web adapter intentionally does not expose the TaskExperienceEnvelope
+     * to the UI yet; that is a compatibility boundary, not a second execution
+     * path.  A later UI migration can consume the envelope directly without
+     * moving the domain orchestrator again.
+     */
+    private AgentResponse executeWebTurnThroughTaskGateway(
+        Conversation conversation,
+        Message userMessage,
+        String content,
+        SendMessageRequest request,
+        Message assistantMessage,
+        List<MessageItem> conversationContext,
+        AgentProgressListener progress
+    ) {
+        AtomicReference<AgentResponse> responseRef = new AtomicReference<>();
+        AtomicReference<RuntimeException> failureRef = new AtomicReference<>();
+        var principal = principalContextService.current();
+        SemanticTaskRequest taskRequest = new SemanticTaskRequest(
+            "web",
+            "cpclaw-web",
+            principal.principalId(),
+            "",
+            "",
+            content,
+            List.of(),
+            TaskSpec.empty(content, conversation.getId(), "", "")
+        );
+        TaskExperienceEnvelope envelope = taskGateway.execute(
+            taskRequest,
+            (taskId, taskProgress) -> {
+                taskProgress.accept(new TaskProgressEvent(5, "web", "开始执行会话任务", "正在进入统一任务运行时。", "running"));
+                try {
+                    AgentResponse response = agentOrchestrator.handleMessage(
+                        conversation.getId(),
+                        userMessage.getId(),
+                        content,
+                        request.modelConfigId(),
+                        request.thinkingEnabled(),
+                        toMessageItem(assistantMessage),
+                        conversationContext,
+                        progress
+                    );
+                    responseRef.set(response);
+                    taskProgress.accept(new TaskProgressEvent(100, "web", "完成会话任务", "Web Agent 已生成兼容 UI 的最终回答。", "completed"));
+                    Map<String, Object> result = new LinkedHashMap<>();
+                    result.put("status", response == null || "cancelled".equalsIgnoreCase(response.intent()) ? "cancelled" : "completed");
+                    result.put("understandingSummary", response == null || response.planSummary() == null ? "" : response.planSummary());
+                    return result;
+                } catch (RuntimeException exception) {
+                    failureRef.set(exception);
+                    if (exception instanceof AgentExecutionCancelledException) {
+                        taskProgress.accept(new TaskProgressEvent(100, "web", "中止会话任务", "任务已由用户中止。", "cancelled"));
+                        return Map.of("status", "cancelled", "understandingSummary", "用户已中止本次执行。", "retryable", false);
+                    }
+                    throw exception;
+                }
+            },
+            ignored -> { }
+        );
+        RuntimeException failure = failureRef.get();
+        if (failure != null) throw failure;
+        AgentResponse response = responseRef.get();
+        if (response == null) {
+            throw new IllegalStateException("统一任务运行时未返回 Web AgentResponse（状态: " + (envelope == null ? "unknown" : envelope.task().status()) + "）");
+        }
+        return response;
     }
 
     private AgentResponse cancelledResponse(MessageItem assistantMessage, boolean discardedPartialAnswer, long startedAtNanos) {

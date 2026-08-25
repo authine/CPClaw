@@ -55,15 +55,17 @@ public class CryptoService {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, keySpec, new GCMParameterSpec(TAG_LENGTH_BITS, decoder.decode(iv)));
             return new String(cipher.doFinal(encryptedWithTag), StandardCharsets.UTF_8);
-        } catch (GeneralSecurityException exception) {
+        } catch (GeneralSecurityException | IllegalArgumentException exception) {
             throw new IllegalStateException("Failed to decrypt credential", exception);
         }
     }
 
     private byte[] normalizeKey(String configuredKey) {
-        String source = configuredKey == null || configuredKey.isBlank() ? "cpclaw-local-development-key" : configuredKey;
+        if (configuredKey == null || configuredKey.isBlank()) {
+            throw new IllegalStateException("必须配置 CPC_ENCRYPTION_KEY，拒绝使用不稳定的默认凭据加密密钥");
+        }
         try {
-            return MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8));
+            return MessageDigest.getInstance("SHA-256").digest(configuredKey.getBytes(StandardCharsets.UTF_8));
         } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("Failed to initialize encryption key", exception);
         }

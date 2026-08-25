@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CredentialService {
 
+
     private final CryptoService cryptoService;
     private final EncryptedCredentialRepository credentialRepository;
 
@@ -51,8 +52,41 @@ public class CredentialService {
         return credentialRepository.findFirstByCredentialOwnerTypeAndCredentialOwnerIdAndCredentialType(ownerType, ownerId, credentialType).isPresent();
     }
 
+    public CredentialStatus credentialStatus(String ownerType, String ownerId, String credentialType) {
+        return credentialRepository.findFirstByCredentialOwnerTypeAndCredentialOwnerIdAndCredentialType(ownerType, ownerId, credentialType)
+            .map(credential -> {
+                try {
+                    cryptoService.decrypt(credential.getEncryptedValue(), credential.getIv(), credential.getAuthTag());
+                    return CredentialStatus.AVAILABLE;
+                } catch (IllegalStateException exception) {
+                    return CredentialStatus.UNREADABLE;
+                }
+            })
+            .orElse(CredentialStatus.MISSING);
+    }
+
     public Optional<String> revealCredential(String ownerType, String ownerId, String credentialType) {
         return credentialRepository.findFirstByCredentialOwnerTypeAndCredentialOwnerIdAndCredentialType(ownerType, ownerId, credentialType)
-            .map(credential -> cryptoService.decrypt(credential.getEncryptedValue(), credential.getIv(), credential.getAuthTag()));
+            .map(credential -> {
+                try {
+                    return cryptoService.decrypt(credential.getEncryptedValue(), credential.getIv(), credential.getAuthTag());
+                } catch (IllegalStateException exception) {
+                    throw new CredentialUnavailableException(unavailableMessage(credentialType), exception);
+                }
+            });
+    }
+
+    @Transactional
+    public void deleteCredential(String ownerType, String ownerId, String credentialType) {
+        credentialRepository.deleteByCredentialOwnerTypeAndCredentialOwnerIdAndCredentialType(ownerType, ownerId, credentialType);
+    }
+
+    private String unavailableMessage(String credentialType) {
+        return switch (credentialType) {
+            case "model_api_key" -> "已保存的模型 API Key 无法使用。请在系统设置中重新录入并验证后保存。";
+            case "user_cloudpivot_password" -> "已保存的个人云枢账号密码无法使用。请在系统设置中重新输入密码并保存，然后重试。";
+            case "admin_cloudpivot_password" -> "已保存的管理员云枢账号密码无法使用。请在系统设置中重新输入密码并保存，然后重试。";
+            default -> "已保存的凭据无法使用。请在系统设置中重新录入并保存。";
+        };
     }
 }

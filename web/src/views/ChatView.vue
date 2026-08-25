@@ -92,7 +92,7 @@
         <div v-if="messages.length === 0" class="empty-state">
           <div class="empty-state__mark"><el-icon><MagicStick /></el-icon></div>
           <div class="empty-state__title">告诉我你想了解什么</div>
-          <div class="empty-state__description">直接询问云枢业务数据，CPClaw 会结合实体、数据项、关联关系和运行态数据理解问题并完成分析。</div>
+          <div class="empty-state__description">直接描述问题或希望完成的任务；涉及云枢业务时，CPClaw 会调用相应能力，普通对话则直接回答。</div>
           <div class="quick-prompts">
             <button v-for="prompt in quickPrompts" :key="prompt.title" class="quick-prompt" type="button" @click="fillPrompt(prompt.question)">
               <strong>{{ prompt.title }}</strong>
@@ -117,11 +117,11 @@
           <div v-if="message.role !== 'user'" class="message__avatar" aria-hidden="true"><el-icon><MagicStick /></el-icon></div>
           <div class="message__body">
             <div v-if="message.role === 'system'" class="message__role">{{ roleLabel(message.role) }}</div>
-            <div v-if="message.id === pendingAssistantId" class="pending-thinking" role="region" aria-label="Agent 执行过程">
+            <div v-if="message.id === pendingAssistantId" class="pending-thinking" role="region" :aria-label="pendingModeLabel(message.id)">
               <div class="pending-thinking__header">
                 <div class="pending-thinking__title">
                   <span class="processing-dot"></span>
-                  <span>正在运行</span>
+                  <span>{{ pendingModeLabel(message.id) }}</span>
                 </div>
                 <strong aria-hidden="true">{{ pendingElapsedSeconds }}s</strong>
               </div>
@@ -130,7 +130,7 @@
               </div>
             </div>
             <details
-              v-else-if="message.role === 'assistant' && messageTrace(message.id)"
+              v-else-if="message.role === 'assistant' && messageTrace(message.id) && messageTrace(message.id)?.intent !== 'conversation'"
               class="message-thinking-summary"
               :open="Boolean(expandedTraceByMessageId[message.id])"
               @toggle="syncTraceExpanded(message.id, $event)"
@@ -138,7 +138,7 @@
               <summary>
                 <div>
                   <el-icon class="message-thinking-summary__chevron"><ArrowRight /></el-icon>
-                  <span>思考与执行过程</span>
+                  <span>{{ traceModeLabel(message.id) }}</span>
                 </div>
                 <strong>{{ messageIsCancelled(message) ? '已中止' : (messageDurationText(message) || '已完成执行链路') }}</strong>
               </summary>
@@ -160,6 +160,34 @@
                     <el-icon><CopyDocument /></el-icon>
                   </el-button>
                 </el-tooltip>
+                <el-tooltip v-if="message.role === 'assistant'" content="点赞" placement="bottom" :show-after="300">
+                  <el-button
+                    :class="['message-feedback', { 'message-feedback--active': message.feedbackType === 'like' }]"
+                    text
+                    circle
+                    size="small"
+                    :aria-label="message.feedbackType === 'like' ? '取消点赞' : '点赞'"
+                    :disabled="Boolean(feedbackSubmittingMessageId && feedbackSubmittingMessageId !== message.id)"
+                    :loading="feedbackSubmittingMessageId === message.id"
+                    @click.stop="toggleMessageFeedback(message, 'like')"
+                  >
+                    <span aria-hidden="true">👍</span>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip v-if="message.role === 'assistant'" content="点踩" placement="bottom" :show-after="300">
+                  <el-button
+                    :class="['message-feedback', { 'message-feedback--active': message.feedbackType === 'dislike' }]"
+                    text
+                    circle
+                    size="small"
+                    :aria-label="message.feedbackType === 'dislike' ? '取消点踩' : '点踩'"
+                    :disabled="Boolean(feedbackSubmittingMessageId && feedbackSubmittingMessageId !== message.id)"
+                    :loading="feedbackSubmittingMessageId === message.id"
+                    @click.stop="toggleMessageFeedback(message, 'dislike')"
+                  >
+                    <span aria-hidden="true">👎</span>
+                  </el-button>
+                </el-tooltip>
                 <span v-if="messageActionInfo(message)" :class="['message-action-info', { 'message-action-info--cancelled': messageIsCancelled(message) }]">
                   {{ messageActionInfo(message) }}
                 </span>
@@ -170,11 +198,37 @@
 
         <el-alert v-if="errorMessage" class="chat-error" type="error" show-icon :closable="false" :title="errorMessage" />
 
-        <el-alert v-if="confirmationSummary" class="confirmation" type="warning" show-icon :closable="false">
-          <template #title>这个操作可能会修改云枢数据，请确认后继续。</template>
-          <div class="confirmation__summary">{{ confirmationSummary }}</div>
-          <el-button class="confirmation__button" type="warning" :loading="confirming" @click="confirmLastOperation">确认继续</el-button>
-        </el-alert>
+        <section v-if="confirmationSummary" class="confirmation" role="alert" aria-live="polite">
+          <span class="confirmation__icon" aria-hidden="true">!</span>
+          <div class="confirmation__content">
+            <span class="confirmation__eyebrow">待确认操作</span>
+            <h3>即将{{ confirmationAction }}“{{ confirmationObject }}”</h3>
+            <dl class="confirmation__facts">
+              <div><dt>操作</dt><dd>{{ confirmationAction }}</dd></div>
+              <div><dt>对象</dt><dd>{{ confirmationObject }}</dd></div>
+              <div><dt>影响</dt><dd>将修改云枢业务数据</dd></div>
+            </dl>
+            <p class="confirmation__summary">{{ confirmationSummary }}</p>
+            <div class="confirmation__actions">
+              <el-button class="confirmation__button" type="warning" :loading="confirming" @click="confirmLastOperation">确认并继续</el-button>
+              <span>确认前不会写入云枢</span>
+            </div>
+          </div>
+        </section>
+
+        <button
+          v-if="hasMessagesOverflow && orderedMessages.length"
+          class="chat-messages__jump"
+          :class="{ 'is-visible': jumpToBottomVisible }"
+          type="button"
+          aria-label="回到底部查看最新内容"
+          :aria-hidden="!jumpToBottomVisible"
+          :tabindex="jumpToBottomVisible ? 0 : -1"
+          @click.stop="scrollMessagesToBottom(true)"
+        >
+          <el-icon><ArrowDown /></el-icon>
+          <span>{{ hasNewContent ? '有新内容 · 回到底部' : '回到底部' }}</span>
+        </button>
       </div>
 
       <div class="chat-input">
@@ -196,7 +250,7 @@
             type="textarea"
             :autosize="{ minRows: 2, maxRows: 7 }"
             resize="none"
-            placeholder="询问云枢数据，或让 CPClaw 分析业务问题"
+            placeholder="描述问题或任务，例如“帮我分析商机”或“解释这个方案”"
             :disabled="submitting || loadingConversation"
             @keydown.enter.exact.prevent="submit"
           />
@@ -233,7 +287,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, CopyDocument, Delete, Expand, Fold, MagicStick, Moon, Plus, Promotion, Refresh, Setting, Sunny, Timer } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, CopyDocument, Delete, Expand, Fold, MagicStick, Moon, Plus, Promotion, Refresh, Setting, Sunny, Timer } from '@element-plus/icons-vue'
 import MarkdownMessage from '../components/chat/MarkdownMessage.vue'
 import InsightReport from '../components/chat/InsightReport.vue'
 import AttachmentUploader from '../components/chat/AttachmentUploader.vue'
@@ -242,6 +296,7 @@ import ModelSelector from '../components/chat/ModelSelector.vue'
 import ThinkingToggle from '../components/chat/ThinkingToggle.vue'
 import { cancelMessageExecution, createConversation, deleteConversation, getConversation, listConversations, sendMessageStream } from '../services/conversationApi'
 import { confirmOperation, getAgentRun } from '../services/auditApi'
+import { updateMessageFeedback } from '../services/feedbackApi'
 import { listModelConfigs } from '../services/settingsApi'
 import type { AgentResponse, AttachmentResponse, CandidateOption, ExecutionStep, InsightChart, InsightReport as InsightReportData } from '../types/agent'
 import type { ConversationSummary, MessageItem, SendMessageRequest } from '../types/conversation'
@@ -279,19 +334,22 @@ const loadingConversation = ref(false)
 const creatingConversation = ref(false)
 const deletingConversationId = ref('')
 const errorMessage = ref('')
+const feedbackSubmittingMessageId = ref('')
 const historyCollapsed = ref(false)
 const darkMode = ref(window.localStorage.getItem('cpclaw-theme') === 'dark')
 
 const quickPrompts = [
-  { title: '查询业务数据', question: '系统现在有多少商机？分别处于什么阶段？' },
-  { title: '分析经营情况', question: '分析 2025 年上半年我的商机经营情况。' },
-  { title: '发现重点问题', question: '金额最高的商机有哪些？存在什么风险？' }
+  { title: '开始对话', question: '请帮我梳理一个合同管理方案的设计重点。' },
+  { title: '分析业务数据', question: '系统现在有多少商机？分别处于什么阶段？' },
+  { title: '查询流程待办', question: '帮我查看当前待办。' }
 ]
 
 const selectedModel = computed(() => models.value.find((model) => model.id === selectedModelId.value))
 const currentConversation = computed(() => conversations.value.find((conversation) => conversation.id === conversationId.value))
 const currentConversationTitle = computed(() => currentConversation.value?.title || '新会话')
 const confirmationSummary = computed(() => (lastAgent.value?.requiresConfirmation ? lastAgent.value.planSummary : ''))
+const confirmationAction = computed(() => writeActionLabel(lastAgent.value?.intent))
+const confirmationObject = computed(() => lastAgent.value?.candidates?.[0]?.name || '目标业务对象')
 const orderedMessages = computed(() => [...messages.value].sort(compareMessages))
 const tokenUsageSummary = computed(() => messages.value.reduce(
   (summary, message) => {
@@ -300,30 +358,36 @@ const tokenUsageSummary = computed(() => messages.value.reduce(
       tracked: summary.tracked || usage.tracked,
       promptTokens: summary.promptTokens + usage.promptTokens,
       completionTokens: summary.completionTokens + usage.completionTokens,
+      cachedTokens: summary.cachedTokens + usage.cachedTokens,
       totalTokens: summary.totalTokens + usage.totalTokens
     }
   },
-  { tracked: false, promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+  { tracked: false, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0 }
 ))
 const tokenUsageText = computed(() => tokenUsageSummary.value.tracked
   ? `Token ${formatTokenCount(tokenUsageSummary.value.totalTokens)}`
   : 'Token --')
 const tokenUsageTooltip = computed(() => tokenUsageSummary.value.tracked
-  ? `输入 ${formatTokenCount(tokenUsageSummary.value.promptTokens)} · 输出 ${formatTokenCount(tokenUsageSummary.value.completionTokens)} · 合计 ${formatTokenCount(tokenUsageSummary.value.totalTokens)}`
+  ? `输入 ${formatTokenCount(tokenUsageSummary.value.promptTokens)} · 输出 ${formatTokenCount(tokenUsageSummary.value.completionTokens)} · 缓存 ${formatTokenCount(tokenUsageSummary.value.cachedTokens)} · 合计 ${formatTokenCount(tokenUsageSummary.value.totalTokens)}`
   : '当前历史消息未记录 Token 使用量')
 const executionInProgress = computed(() => submitting.value && !streamFinalReceived.value)
 let pendingTimer: number | undefined
 let messageResizeObserver: ResizeObserver | undefined
 let autoFollowFrame: number | undefined
-let lastPageScrollY = window.scrollY
+let jumpToBottomTimer: number | undefined
+let lastPageScrollY = 0
 let componentActive = true
 let activeAbortReason: 'user' | 'unmount' | '' = ''
 const autoFollowEnabled = ref(true)
+const hasMessagesOverflow = ref(false)
+const hasNewContent = ref(false)
+const jumpToBottomVisible = ref(false)
+let messageContentWatchReady = false
 const pendingAnswerModes = new Map<string, string>()
 
 onMounted(async () => {
   collapseHistoryOnMobile()
-  window.addEventListener('scroll', handleWindowScroll, { passive: true })
+  messagesContainer.value?.addEventListener('scroll', handleMessagesScroll, { passive: true })
   await Promise.all([loadModels(), loadConversations()])
   if (conversations.value[0]) {
     await openConversation(conversations.value[0].id)
@@ -332,7 +396,9 @@ onMounted(async () => {
     return
   }
   await nextTick()
+  refreshMessagesScrollState()
   observeMessageSizeChanges()
+  messageContentWatchReady = true
 })
 
 onBeforeUnmount(() => {
@@ -342,10 +408,13 @@ onBeforeUnmount(() => {
     activeStreamController.value.abort()
   }
   stopPendingTimer()
-  window.removeEventListener('scroll', handleWindowScroll)
+  messagesContainer.value?.removeEventListener('scroll', handleMessagesScroll)
   messageResizeObserver?.disconnect()
   if (autoFollowFrame !== undefined) {
     window.cancelAnimationFrame(autoFollowFrame)
+  }
+  if (jumpToBottomTimer !== undefined) {
+    window.clearTimeout(jumpToBottomTimer)
   }
 })
 
@@ -360,7 +429,26 @@ watch(selectedModelId, (modelId) => {
 
 watch(darkMode, (enabled) => {
   window.localStorage.setItem('cpclaw-theme', enabled ? 'dark' : 'light')
+  document.documentElement.classList.toggle('cpclaw-theme-dark', enabled)
+  window.dispatchEvent(new Event('cpclaw-theme-change'))
 })
+
+watch(
+  () => orderedMessages.value
+    .filter((message) => message.role === 'assistant')
+    .map((message) => `${message.id}:${message.content.length}`)
+    .join('|'),
+  () => {
+    if (!messageContentWatchReady) {
+      return
+    }
+    if (!autoFollowEnabled.value && !isNearMessagesBottom()) {
+      hasNewContent.value = true
+      revealJumpToBottom(false)
+    }
+  },
+  { flush: 'post' }
+)
 
 function toggleTheme() {
   darkMode.value = !darkMode.value
@@ -389,6 +477,7 @@ function messageTokenUsage(message: MessageItem) {
     tracked,
     promptTokens: numericTokenValue(usage.prompt_tokens ?? usage.promptTokens),
     completionTokens: numericTokenValue(usage.completion_tokens ?? usage.completionTokens),
+    cachedTokens: numericTokenValue(usage.cached_tokens ?? usage.cachedTokens ?? usage.cache_read_input_tokens ?? usage.cacheReadInputTokens),
     totalTokens: numericTokenValue(usage.total_tokens ?? usage.totalTokens)
   }
 }
@@ -557,7 +646,7 @@ async function submit() {
   activeExecutionId.value = executionId
   activeAbortReason = ''
   autoFollowEnabled.value = true
-  lastPageScrollY = window.scrollY
+  lastPageScrollY = 0
   errorMessage.value = ''
   const draft = input.value
   input.value = ''
@@ -774,12 +863,7 @@ function createLoadingTrace(message: MessageItem, agentRunId: string): AgentResp
     planSummary: '正在从审计记录恢复本轮后端处理流程。',
     matchReason: '这条回复已关联 Agent Run，系统正在读取审计记录。',
     candidates: [],
-    steps: [
-      { title: '理解问题', status: '正在恢复用户目标和上下文摘要。' },
-      { title: '规划路径', status: '正在恢复意图识别、对象匹配和置信度。' },
-      { title: '查询数据', status: '正在恢复云枢元数据检索和运行态查询记录。' },
-      { title: '整理回答', status: '正在恢复本轮执行结果和校验摘要。' }
-    ],
+    steps: [{ title: '恢复执行记录', status: '正在读取本轮真实生成的业务步骤和执行结果。' }],
     assistantMessage: message
   }
 }
@@ -808,7 +892,7 @@ function createTraceFromAudit(audit: AuditDetail, assistantMessage: MessageItem)
     planSummary: stringValue(planNode.summary) || '已从审计记录恢复执行计划。',
     matchReason: reasoningSummary || '本轮执行依据来自 Agent Run 审计记录。',
     candidates,
-    steps: createAuditSteps(observe, think, reflection, runtimeTool, runtimeOutput, tools),
+    steps: audit.intent === 'conversation' ? [] : createAuditSteps(observe, think, reflection, runtimeTool, runtimeOutput, tools),
     assistantMessage
   }
 }
@@ -821,38 +905,15 @@ function createAuditSteps(
   _runtimeOutput: JsonRecord,
   tools: AuditTool[]
 ): ExecutionStep[] {
-  const steps: ExecutionStep[] = [
-    {
-      id: 'audit-observe',
-      title: '理解用户问题',
-      status: `已结合最近 ${stringValue(observe.recentMessageCount) || '0'} 条消息确认本轮有效目标。`,
-      kind: 'thought',
-      state: 'completed',
-      data: {
-        query: shortText(stringValue(observe.normalizedUserGoal), 120),
-        effectiveQuery: shortText(stringValue(observe.effectiveUserGoal), 160),
-        referencesPreviousResult: Boolean(observe.referencesPreviousResult),
-        inheritedRuntimeObject: Boolean(observe.inheritedRuntimeObject)
-      }
-    },
-    {
-      id: 'audit-plan',
-      title: '规划执行路径',
-      status: stringValue(think.reasoningSummary) || '已完成意图识别、元数据匹配和动作规划。',
-      kind: 'thought',
-      state: 'completed',
-      data: {
-        intent: stringValue(think.intent) || stringValue(think.detectedIntent),
-        action: stringValue(think.action),
-        entityName: stringValue(think.metadataObject),
-        schemaCode: stringValue(think.metadataCode),
-        confidence: stringValue(think.confidence),
-        filters: think.modelPlanRuntimeFilters,
-        metricFields: think.modelPlanMetricFieldCodes,
-        apiOperation: stringValue(think.modelPlanApiOperation)
-      }
-    }
-  ]
+  const steps: ExecutionStep[] = []
+  arrayValue(think.modelPlanExecutionSteps).map(recordValue).forEach((planned, index) => {
+    const description = stringValue(planned.description) || '已完成模型生成的业务任务节点。'
+    const title = stringValue(planned.title) || stringValue(planned.name) || stringValue(planned.step) || shortText(description, 28) || `执行活动 ${index + 1}`
+    steps.push({ id: `audit-plan-${index + 1}`, title, status: description, kind: 'thought', state: 'completed', data: { mode: 'ai-planned' } })
+  })
+  if (!steps.length && stringValue(think.modelPlanUsed) !== 'true') {
+    steps.push({ id: 'audit-fallback-plan', title: '确定分析范围', status: '已根据可用业务数据和安全规则确定本轮分析范围。', kind: 'progress', state: 'completed', data: { mode: 'rule-fallback' } })
+  }
 
   tools.forEach((tool, index) => {
     const input = parseJsonObject(tool.inputJsonMasked)
@@ -877,7 +938,7 @@ function createAuditSteps(
 
   steps.push({
     id: 'audit-reflect',
-    title: '校验并生成回答',
+    title: '校验本轮结果',
     status: stringValue(reflection.summary) || '已完成数据来源、执行状态和回答可返回性校验。',
     kind: 'thought',
     state: Boolean(reflection.passed) ? 'completed' : 'needs_input',
@@ -917,7 +978,6 @@ function createLegacyMetadataTrace(message: MessageItem, metadata: JsonRecord): 
     return undefined
   }
   const entityName = stringValue(metadata.entityName) || '运行态对象'
-  const schemaCode = stringValue(metadata.schemaCode) || '未记录'
   return {
     agentRunId: stringValue(metadata.agentRunId) || message.id,
     intent: 'query_data',
@@ -925,12 +985,10 @@ function createLegacyMetadataTrace(message: MessageItem, metadata: JsonRecord): 
     requiresConfirmation: false,
     planSummary: '已从历史消息元数据恢复运行态查询摘要。',
     matchReason: '这条历史消息没有完整 Agent Run 关联，只能展示消息 metadata 中保留的有限流程信息。',
-    candidates: [{ name: entityName, type: 'entity', reason: `schemaCode=${schemaCode}` }],
+    candidates: [{ name: entityName, type: 'entity', reason: '历史消息保留了有限的运行态对象信息。' }],
     steps: [
-      { title: '理解问题', status: '历史消息保留了运行态对象信息，但没有完整审计上下文。' },
-      { title: '规划路径', status: `对象=${entityName}；schemaCode=${schemaCode}` },
-      { title: '查询数据', status: `来源=${stringValue(metadata.sourceEndpoint) || '未记录'}；total=${stringValue(metadata.total) || '未记录'}；returned=${stringValue(metadata.returnedRecords) || '未记录'}` },
-      { title: '整理回答', status: '仅恢复有限摘要；新回复会保存 agentRunId 并支持完整流程查看。' }
+      { title: '恢复历史查询结果', status: `已恢复运行态对象“${entityName}”的有限摘要；完整执行路径未被历史消息保存。` },
+      { title: '返回历史结果', status: `来源=${stringValue(metadata.sourceEndpoint) || '未记录'}；total=${stringValue(metadata.total) || '未记录'}；returned=${stringValue(metadata.returnedRecords) || '未记录'}` }
     ],
     assistantMessage: message
   }
@@ -952,7 +1010,7 @@ function restoreMessageTraces(items: MessageItem[]) {
     }
     const restored: AgentResponse = {
       agentRunId: stringValue(metadata.agentRunId) || message.id,
-      intent: stringValue(metadata.intent) || 'query_data',
+      intent: stringValue(metadata.intent) || (stringValue(metadata.source) === 'direct-conversation' ? 'conversation' : 'query_data'),
       riskLevel: normalizeRisk(stringValue(metadata.riskLevel)),
       requiresConfirmation: Boolean(metadata.requiresConfirmation),
       planSummary: stringValue(metadata.planSummary) || '已完成本轮意图理解、数据执行和回答生成。',
@@ -992,6 +1050,9 @@ function normalizeInsightReport(value: unknown): InsightReportData | undefined {
     return undefined
   }
   return {
+    skillId: stringValue(report.skillId),
+    skillName: stringValue(report.skillName),
+    templateVersion: Number(report.templateVersion) || undefined,
     title: stringValue(report.title),
     subject: stringValue(report.subject),
     periodLabel: stringValue(report.periodLabel),
@@ -1175,7 +1236,7 @@ function waitForVisibleStreamFrame() {
 
 function updatePendingTraceStep(messageId: string, step: ExecutionStep) {
   const trace = traceByMessageId.value[messageId]
-  if (!trace) {
+  if (!trace || isInternalStep(step)) {
     return
   }
   const normalizedStep = normalizeVisibleStep(step)
@@ -1202,7 +1263,7 @@ function updatePendingTraceStep(messageId: string, step: ExecutionStep) {
 function normalizeVisibleStep(step: ExecutionStep): ExecutionStep {
   return {
     id: step.id,
-    title: step.title || '执行活动',
+    title: businessStepTitle(step.title),
     status: sanitizeVisibleProcessText(step.status),
     phase: step.phase,
     state: step.state,
@@ -1242,6 +1303,9 @@ function mergeTimelineStep(current: ExecutionStep, incoming: ExecutionStep): Exe
 }
 
 function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionStep[]): AgentResponse {
+  if (response.intent === 'conversation') {
+    return { ...response, steps: [] }
+  }
   const responseSteps = normalizeExecutionSteps(response.steps)
   const hasRichResponseSteps = responseSteps.some((step) => step.id || step.kind || Boolean(step.data && Object.keys(step.data).length))
   const sourceSteps = hasRichResponseSteps ? responseSteps : pendingSteps
@@ -1249,10 +1313,13 @@ function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionS
     ...normalizeVisibleStep(step),
     id: step.id || `${response.agentRunId}-event-${index + 1}`
   }))
+  const conversationMode = response.intent === 'conversation'
   const completionStep: ExecutionStep = {
     id: `${response.agentRunId}-completed`,
-    title: '任务完成',
-    status: response.requiresConfirmation ? '执行计划已生成，等待用户确认后继续。' : '执行链路已结束，正式回答已返回。',
+    title: conversationMode ? '对话完成' : '任务完成',
+    status: conversationMode
+      ? '已直接完成通用对话回答，未调用业务能力。'
+      : response.requiresConfirmation ? '执行计划已生成，等待用户确认后继续。' : '执行链路已结束，正式回答已返回。',
     kind: 'progress',
     state: response.requiresConfirmation ? 'needs_input' : 'completed',
     data: {
@@ -1261,7 +1328,7 @@ function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionS
       mode: response.insightReport ? 'insight-report' : 'answer'
     }
   }
-  const completionIndex = steps.findIndex((step) => step.id === completionStep.id || step.title === '任务完成')
+  const completionIndex = steps.findIndex((step) => step.id === completionStep.id || step.title === completionStep.title || step.title === '任务完成')
   if (completionIndex >= 0) {
     steps.splice(completionIndex, 1, mergeTimelineStep(steps[completionIndex], completionStep))
   } else {
@@ -1270,12 +1337,38 @@ function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionS
   return { ...response, steps }
 }
 
+function traceModeLabel(messageId: string) {
+  const trace = messageTrace(messageId)
+  const intent = stringValue(trace?.intent)
+  if (intent === 'conversation') return '对话回答'
+  if (intent === 'clarify_intent') return '需要补充信息'
+  if (intent === 'pending') {
+    const routeStep = trace?.steps.find((step) => step.title === '判断处理模式')
+    if (routeStep?.status.includes('通用对话')) return '对话回答'
+  }
+  return '任务理解与执行'
+}
+
+function pendingModeLabel(messageId: string) {
+  return traceModeLabel(messageId) === '对话回答' ? '正在回复' : '正在处理'
+}
+
+function writeActionLabel(intent?: string) {
+  switch ((intent || '').trim()) {
+    case 'create_data': return '新增'
+    case 'update_data': return '修改'
+    case 'delete_data': return '删除'
+    default: return '执行操作'
+  }
+}
+
 function normalizeExecutionSteps(value: unknown): ExecutionStep[] {
   return arrayValue(value)
     .map(recordValue)
+    .filter((step) => !isInternalStep({ title: stringValue(step.title), status: stringValue(step.status) }))
     .map((step, index) => ({
       id: stringValue(step.id) || undefined,
-      title: stringValue(step.title) || `执行活动 ${index + 1}`,
+      title: businessStepTitle(stringValue(step.title)) || `执行活动 ${index + 1}`,
       status: stringValue(step.status),
       phase: stringValue(step.phase) || undefined,
       state: stringValue(step.state) || undefined,
@@ -1316,6 +1409,19 @@ function clearPendingAssistantContent(messageId: string) {
 
 function sanitizeVisibleProcessText(text: string) {
   return text
+    .replace(/schemaCode\s*=\s*[^；，。\s]+/gi, '')
+    .replace(/接口(?:路径|地址)?\s*[=:]\s*[^；，。\s]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/；\s*；/g, '；')
+}
+
+function isInternalStep(step: Pick<ExecutionStep, 'title' | 'status'>) {
+  const value = `${step.title || ''} ${step.status || ''}`
+  return /召回(?:会话|长期)?记忆|记忆写入评估|memory[_ -]?(?:lookup|recall|write)|正式回答|direct-conversation|answer_(?:start|end)|^(理解用户问题|拆解当前任务|规划执行路径|判断处理模式|核验业务对象|核验执行结果|校验执行结果|校验本轮结果)$/i.test(value.trim())
+}
+
+function businessStepTitle(title?: string) {
+  return (title || '').trim()
 }
 
 function appendPendingAssistantContent(messageId: string, chunk: string) {
@@ -1382,10 +1488,17 @@ function replacePendingAssistantMessage(pendingId: string, assistantMessage: Mes
 
 function messageDurationText(message: MessageItem) {
   const metadata = parseMetadata(message.metadataJson)
+  const directConversation = stringValue(metadata.source) === 'direct-conversation'
+  if (directConversation && metadata.thinkingEnabled !== true) {
+    return ''
+  }
   const thinkingMs = numericDuration(message.thinkingElapsedMs ?? metadata.thinkingElapsedMs)
   const answerMs = numericDuration(message.answerElapsedMs ?? metadata.answerElapsedMs)
   if (thinkingMs <= 0 && answerMs <= 0) {
     return ''
+  }
+  if (directConversation) {
+    return `深度思考耗时 ${formatDuration(thinkingMs)}`
   }
   return `思考耗时 ${formatDuration(thinkingMs)} · 回答耗时 ${formatDuration(answerMs)}`
 }
@@ -1401,7 +1514,7 @@ function messageActionInfo(message: MessageItem) {
   if (!usage.tracked) {
     return ''
   }
-  return `输出 ${formatTokenCount(usage.completionTokens)} · 总计 ${formatTokenCount(usage.totalTokens)}`
+  return `输入 ${formatTokenCount(usage.promptTokens)} · 输出 ${formatTokenCount(usage.completionTokens)} · 缓存 ${formatTokenCount(usage.cachedTokens)} · 总计 ${formatTokenCount(usage.totalTokens)}`
 }
 
 function messageIsCancelled(message: MessageItem) {
@@ -1434,6 +1547,31 @@ async function copyMessageContent(message: MessageItem) {
     ElMessage.success('已复制')
   } catch {
     ElMessage.error('复制失败，请手动选择内容复制')
+  }
+}
+
+async function toggleMessageFeedback(message: MessageItem, feedbackType: 'like' | 'dislike') {
+  if (message.role !== 'assistant' || feedbackSubmittingMessageId.value) {
+    return
+  }
+  const nextFeedbackType = message.feedbackType === feedbackType ? null : feedbackType
+  feedbackSubmittingMessageId.value = message.id
+  try {
+    const result = await updateMessageFeedback(message.id, nextFeedbackType)
+    const index = messages.value.findIndex((item) => item.id === message.id)
+    if (index >= 0) {
+      messages.value.splice(index, 1, {
+        ...messages.value[index],
+        feedbackType: result.feedbackType ?? null
+      })
+    }
+    if (nextFeedbackType) {
+      ElMessage.success(nextFeedbackType === 'like' ? '感谢点赞' : '已记录点踩反馈')
+    }
+  } catch (error) {
+    ElMessage.error(messageFromError(error))
+  } finally {
+    feedbackSubmittingMessageId.value = ''
   }
 }
 
@@ -1539,18 +1677,32 @@ function stopPendingTimer() {
   }
 }
 
-function isNearPageBottom() {
-  return document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) <= 160
+function isNearMessagesBottom() {
+  const container = messagesContainer.value
+  if (!container) {
+    return true
+  }
+  return container.scrollHeight - (container.scrollTop + container.clientHeight) <= 120
 }
 
-function handleWindowScroll() {
-  const currentScrollY = window.scrollY
-  if (currentScrollY < lastPageScrollY - 2) {
-    autoFollowEnabled.value = false
-  } else if (isNearPageBottom()) {
-    autoFollowEnabled.value = true
+function handleMessagesScroll() {
+  const container = messagesContainer.value
+  if (!container) {
+    return
   }
-  lastPageScrollY = currentScrollY
+  const currentScrollTop = container.scrollTop
+  refreshMessagesScrollState()
+  if (currentScrollTop < lastPageScrollY - 2) {
+    autoFollowEnabled.value = false
+    revealJumpToBottom(true)
+  } else if (isNearMessagesBottom()) {
+    autoFollowEnabled.value = true
+    hasNewContent.value = false
+    hideJumpToBottom()
+  } else if (!autoFollowEnabled.value) {
+    revealJumpToBottom(true)
+  }
+  lastPageScrollY = currentScrollTop
 }
 
 function observeMessageSizeChanges() {
@@ -1558,8 +1710,56 @@ function observeMessageSizeChanges() {
     return
   }
   messageResizeObserver?.disconnect()
-  messageResizeObserver = new ResizeObserver(() => scheduleAutoFollow())
+  messageResizeObserver = new ResizeObserver(() => {
+    refreshMessagesScrollState()
+    scheduleAutoFollow()
+  })
   messageResizeObserver.observe(messagesContainer.value)
+}
+
+function refreshMessagesScrollState() {
+  const container = messagesContainer.value
+  if (!container) {
+    hasMessagesOverflow.value = false
+    autoFollowEnabled.value = true
+    hideJumpToBottom()
+    return
+  }
+  hasMessagesOverflow.value = container.scrollHeight > container.clientHeight + 2
+  if (!hasMessagesOverflow.value || isNearMessagesBottom()) {
+    autoFollowEnabled.value = true
+    hasNewContent.value = false
+    hideJumpToBottom()
+  }
+}
+
+function revealJumpToBottom(scheduleFade: boolean) {
+  if (autoFollowEnabled.value || !hasMessagesOverflow.value) {
+    hideJumpToBottom()
+    return
+  }
+  jumpToBottomVisible.value = true
+  if (jumpToBottomTimer !== undefined) {
+    window.clearTimeout(jumpToBottomTimer)
+    jumpToBottomTimer = undefined
+  }
+  if (!scheduleFade || hasNewContent.value) {
+    return
+  }
+  jumpToBottomTimer = window.setTimeout(() => {
+    jumpToBottomTimer = undefined
+    if (!hasNewContent.value && !autoFollowEnabled.value && !isNearMessagesBottom()) {
+      jumpToBottomVisible.value = false
+    }
+  }, 2000)
+}
+
+function hideJumpToBottom() {
+  if (jumpToBottomTimer !== undefined) {
+    window.clearTimeout(jumpToBottomTimer)
+    jumpToBottomTimer = undefined
+  }
+  jumpToBottomVisible.value = false
 }
 
 function scheduleAutoFollow(force = false) {
@@ -1578,13 +1778,21 @@ function scheduleAutoFollow(force = false) {
     if (!componentActive || (!autoFollowEnabled.value && !force)) {
       return
     }
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' })
-    lastPageScrollY = window.scrollY
+    const container = messagesContainer.value
+    if (!container) {
+      return
+    }
+    container.scrollTo({ top: container.scrollHeight, behavior: force ? 'smooth' : 'auto' })
+    lastPageScrollY = container.scrollTop
   })
 }
 
 async function scrollMessagesToBottom(force = false) {
   await nextTick()
+  autoFollowEnabled.value = true
+  hasNewContent.value = false
+  hideJumpToBottom()
+  refreshMessagesScrollState()
   scheduleAutoFollow(force)
 }
 
@@ -3100,7 +3308,7 @@ function messageFromError(error: unknown) {
 
 /* UI v2 confirmed layout. Keep these rules last until the legacy style block is split. */
 .chat-workbench {
-  --chat-sidebar-width: 272px;
+  --chat-sidebar-width: 288px;
   --chat-header-height: 56px;
   --chat-footer-height: 60px;
   --chat-page: #f7f8fa;
@@ -3129,7 +3337,8 @@ function messageFromError(error: unknown) {
   overflow: visible;
   background: var(--chat-main);
   color: var(--chat-text);
-  transition: grid-template-columns 0.2s ease;
+  /* Do not tween the content column: responsive reports redraw on each frame. */
+  transition: none;
 }
 
 .chat-workbench--dark {
@@ -3237,6 +3446,13 @@ function messageFromError(error: unknown) {
   color: var(--chat-text);
 }
 
+/* Element Plus assigns a light fill to text buttons in its global theme. The
+   shell owns these controls, so keep them transparent in dark mode. */
+.chat-workbench--dark .icon-button,
+.chat-workbench--dark .conversation-refresh {
+  background: transparent !important;
+}
+
 .new-conversation {
   width: calc(100% - 28px);
   height: 40px;
@@ -3245,7 +3461,7 @@ function messageFromError(error: unknown) {
   border-radius: 8px;
   background: var(--chat-brand-soft);
   color: var(--chat-brand-strong);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -3268,7 +3484,7 @@ function messageFromError(error: unknown) {
   justify-content: space-between;
   padding: 0 8px;
   color: var(--chat-text-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -3310,8 +3526,19 @@ function messageFromError(error: unknown) {
   color: inherit;
 }
 
-.conversation-item__title { font-size: 12.5px; font-weight: 600; }
-.conversation-item__time { margin-top: 4px; color: var(--chat-text-tertiary); font-size: 10.5px; }
+.conversation-item__title { font-size: 14px; font-weight: 600; line-height: 20px; }
+.conversation-item__time { margin-top: 4px; color: var(--chat-text-tertiary); font-size: 12px; line-height: 18px; }
+
+.conversation-item__delete {
+  opacity: 0.35;
+  pointer-events: auto;
+}
+
+.conversation-item:hover .conversation-item__delete,
+.conversation-item:focus-within .conversation-item__delete,
+.conversation-item__delete.is-loading {
+  opacity: 1;
+}
 
 .conversation-panel__footer {
   display: grid;
@@ -3347,15 +3574,16 @@ function messageFromError(error: unknown) {
 .identity__copy { display: grid; gap: 2px; min-width: 0; }
 .identity__copy strong,
 .identity__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.identity__copy strong { color: var(--chat-text); font-size: 12px; font-weight: 600; }
-.identity__copy small { color: var(--chat-text-tertiary); font-size: 10px; }
+.identity__copy strong { color: var(--chat-text); font-size: 13px; font-weight: 600; }
+.identity__copy small { color: var(--chat-text-tertiary); font-size: 11px; }
 
 .chat-shell {
   display: grid;
   grid-template-rows: var(--chat-header-height) minmax(calc(100vh - var(--chat-header-height)), auto);
+  height: 100vh;
   align-content: start;
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   overflow: visible;
   border: 0;
   border-radius: 0;
@@ -3392,7 +3620,7 @@ function messageFromError(error: unknown) {
 .chat-toolbar__title {
   overflow: hidden;
   color: var(--chat-text);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3408,7 +3636,7 @@ function messageFromError(error: unknown) {
   border-radius: 16px;
   background: var(--chat-surface-soft);
   color: var(--chat-text-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -3425,9 +3653,13 @@ function messageFromError(error: unknown) {
   flex-direction: column;
   gap: 28px;
   min-width: 0;
-  min-height: calc(100vh - var(--chat-header-height));
-  padding: 30px max(22px, calc((100% - 800px) / 2)) 180px;
-  overflow: visible;
+  height: calc(100vh - var(--chat-header-height));
+  min-height: 0;
+  padding: 30px max(22px, calc((100% - 840px) / 2)) 300px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 300px;
   background: var(--chat-main);
 }
 
@@ -3636,6 +3868,30 @@ function messageFromError(error: unknown) {
   color: var(--chat-brand-strong);
 }
 
+.message-feedback {
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+}
+
+.message-feedback span {
+  display: inline-block;
+  filter: grayscale(1);
+  opacity: 0.46;
+  transition: filter 0.16s ease, opacity 0.16s ease;
+}
+
+.message-feedback:hover,
+.message-feedback--active {
+  background: var(--chat-surface-soft);
+  color: var(--chat-brand-strong);
+}
+
+.message-feedback:hover span,
+.message-feedback--active span {
+  filter: grayscale(0);
+  opacity: 1;
+}
+
 .message-action-info {
   display: inline-flex;
   align-items: center;
@@ -3655,8 +3911,109 @@ function messageFromError(error: unknown) {
   font-family: inherit;
 }
 
-.chat-error,
-.confirmation { width: min(800px, 100%); align-self: center; }
+.chat-error { width: min(800px, 100%); align-self: center; }
+
+.confirmation {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  width: min(800px, 100%);
+  align-self: center;
+  box-sizing: border-box;
+  padding: 16px 18px;
+  border: 1px solid #f0b84d;
+  border-radius: 12px;
+  background: #fff9ec;
+  box-shadow: 0 10px 26px rgba(154, 103, 21, 0.08);
+  color: #7a4f09;
+  overflow: visible;
+}
+
+.confirmation__icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eaa52d;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.confirmation__content { min-width: 0; }
+
+.confirmation__eyebrow {
+  display: block;
+  color: #a76c12;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.confirmation h3 {
+  margin: 2px 0 10px;
+  color: #5f3b06;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.confirmation__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.confirmation__facts div {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid rgba(185, 122, 20, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.confirmation__facts dt {
+  color: #9b711f;
+  font-size: 12px;
+}
+
+.confirmation__facts dd {
+  min-width: 0;
+  margin: 0;
+  color: #714c0f;
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.confirmation__summary {
+  margin: 10px 0 0;
+  color: #805d21;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.confirmation__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.confirmation__button { margin: 0; }
+
+.confirmation__actions > span {
+  color: #9b711f;
+  font-size: 12px;
+}
 
 .chat-input {
   position: fixed;
@@ -3668,7 +4025,44 @@ function messageFromError(error: unknown) {
   justify-content: center;
   padding: 10px 24px 20px;
   background: linear-gradient(180deg, transparent, var(--chat-main) 24%, var(--chat-main));
-  transition: left 0.2s ease;
+  /* Keep the fixed composer aligned with the single workbench reflow. */
+  transition: none;
+}
+
+.chat-messages__jump {
+  position: sticky;
+  z-index: 3;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin: 0 auto;
+  padding: 7px 12px;
+  border: 1px solid var(--chat-brand-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chat-surface) 92%, transparent);
+  box-shadow: 0 8px 22px rgba(20, 31, 51, 0.12);
+  color: var(--chat-brand-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 220ms ease, transform 220ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.chat-messages__jump.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.chat-messages__jump:hover {
+  border-color: var(--chat-brand);
+  background: var(--chat-brand-soft);
 }
 
 .chat-workbench--history-collapsed .chat-input { left: 0; }
@@ -3791,6 +4185,180 @@ function messageFromError(error: unknown) {
   border-color: var(--chat-line);
   background: var(--chat-surface);
   color: var(--chat-text);
+}
+
+/* AgentRunTimeline is scoped so its base palette cannot inherit the shell
+   theme on its own. Keep all timeline surfaces and semantic states within the
+   same dark-token system as the surrounding response. */
+.chat-workbench--dark :deep(.agent-run__rail::after) {
+  background: var(--chat-line);
+}
+
+.chat-workbench--dark :deep(.agent-run__icon) {
+  border-color: var(--chat-line-strong);
+  background: var(--chat-surface);
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.agent-run__item--execution .agent-run__icon) {
+  border-color: rgba(83, 158, 255, 0.42);
+  background: rgba(47, 126, 224, 0.16);
+  color: #8abfff;
+}
+
+.chat-workbench--dark :deep(.agent-run__item--thought .agent-run__icon) {
+  border-color: rgba(176, 125, 255, 0.42);
+  background: rgba(119, 77, 197, 0.17);
+  color: #c5a6ff;
+}
+
+.chat-workbench--dark :deep(.agent-run__item--running .agent-run__icon) {
+  border-color: rgba(111, 137, 255, 0.48);
+  background: rgba(79, 110, 247, 0.18);
+  color: #9caeff;
+}
+
+.chat-workbench--dark :deep(.agent-run__item--fallback .agent-run__icon),
+.chat-workbench--dark :deep(.agent-run__item--needs_input .agent-run__icon) {
+  border-color: rgba(246, 180, 75, 0.45);
+  background: rgba(178, 112, 14, 0.18);
+  color: #ffd18a;
+}
+
+.chat-workbench--dark :deep(.agent-run__heading strong),
+.chat-workbench--dark :deep(.agent-run__facts strong),
+.chat-workbench--dark :deep(.agent-run__details dd) {
+  color: var(--chat-text);
+}
+
+.chat-workbench--dark :deep(.agent-run__content > p),
+.chat-workbench--dark :deep(.agent-run__details summary) {
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.agent-run__elapsed),
+.chat-workbench--dark :deep(.agent-run__facts small),
+.chat-workbench--dark :deep(.agent-run__details dt) {
+  color: var(--chat-text-tertiary);
+}
+
+.chat-workbench--dark :deep(.agent-run__facts) {
+  border-left-color: var(--chat-line-strong);
+  background: var(--chat-surface-soft);
+}
+
+.chat-workbench--dark :deep(.agent-run__details dl) {
+  border-color: var(--chat-line);
+  background: var(--chat-surface-soft);
+}
+
+/* InsightReport owns scoped light-theme surfaces. Map the complete report
+   hierarchy to the workbench tokens instead of leaving isolated white cards. */
+.chat-workbench--dark :deep(.insight-report) {
+  border-color: var(--chat-line);
+  color: var(--chat-text);
+}
+
+.chat-workbench--dark :deep(.report-heading__eyebrow),
+.chat-workbench--dark :deep(.report-section-title),
+.chat-workbench--dark :deep(.related-questions > span),
+.chat-workbench--dark :deep(.report-confidence span),
+.chat-workbench--dark :deep(.report-heading p),
+.chat-workbench--dark :deep(.kpi-item__label),
+.chat-workbench--dark :deep(.kpi-item__value span),
+.chat-workbench--dark :deep(.kpi-item p),
+.chat-workbench--dark :deep(.chart-panel__description),
+.chat-workbench--dark :deep(.chart-panel__header span),
+.chat-workbench--dark :deep(.chart-legend),
+.chat-workbench--dark :deep(.funnel-row__value span),
+.chat-workbench--dark :deep(.donut-chart__center span),
+.chat-workbench--dark :deep(.line-chart__labels span),
+.chat-workbench--dark :deep(.data-sources p) {
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.report-heading h2),
+.chat-workbench--dark :deep(.report-confidence strong),
+.chat-workbench--dark :deep(.kpi-item__value strong),
+.chat-workbench--dark :deep(.chart-panel h3),
+.chat-workbench--dark :deep(.bar-row strong),
+.chat-workbench--dark :deep(.funnel-row__value strong),
+.chat-workbench--dark :deep(.donut-legend strong) {
+  color: var(--chat-text);
+}
+
+.chat-workbench--dark :deep(.report-skill-badge) {
+  border-color: var(--chat-brand-line);
+  background: var(--chat-brand-soft);
+  color: var(--chat-brand-strong);
+}
+
+.chat-workbench--dark :deep(.report-context span) {
+  border-color: var(--chat-line-strong);
+  background: var(--chat-surface-soft);
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.report-warnings) {
+  border-left-color: #e9a83b;
+  background: rgba(178, 112, 14, 0.17);
+}
+
+.chat-workbench--dark :deep(.report-warnings .report-section-title) {
+  color: #ffd18a;
+}
+
+.chat-workbench--dark :deep(.report-warnings li) {
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.kpi-item) {
+  border-color: var(--chat-line-strong);
+  background: var(--chat-surface);
+}
+
+.chat-workbench--dark :deep(.chart-panel),
+.chat-workbench--dark :deep(.report-footer) {
+  border-color: var(--chat-line);
+}
+
+.chat-workbench--dark :deep(.bar-group__label),
+.chat-workbench--dark :deep(.funnel-row__label),
+.chat-workbench--dark :deep(.donut-legend > div) {
+  color: var(--chat-text-secondary);
+}
+
+.chat-workbench--dark :deep(.bar-row__track),
+.chat-workbench--dark :deep(.funnel-row__track) {
+  background: var(--chat-surface-soft);
+}
+
+.chat-workbench--dark :deep(.donut-chart__center) {
+  background: var(--chat-surface);
+}
+
+.chat-workbench--dark :deep(.donut-legend > div) {
+  border-color: var(--chat-line);
+}
+
+.chat-workbench--dark :deep(.line-chart__grid) {
+  stroke: var(--chat-line-strong);
+}
+
+.chat-workbench--dark :deep(.line-chart__point) {
+  fill: var(--chat-surface);
+}
+
+.chat-workbench--dark :deep(.related-questions button) {
+  border-color: var(--chat-brand-line);
+  background: var(--chat-surface);
+  color: var(--chat-brand-strong);
+}
+
+.chat-workbench--dark :deep(.related-questions button:hover),
+.chat-workbench--dark :deep(.related-questions button:focus-visible) {
+  border-color: var(--chat-brand);
+  background: var(--chat-brand-soft);
 }
 
 .chat-workbench--dark :deep(.el-loading-mask) { background: rgba(15, 20, 29, 0.72); }

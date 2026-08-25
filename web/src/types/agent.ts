@@ -53,6 +53,9 @@ export interface InsightSection {
 }
 
 export interface InsightReport {
+  skillId?: string
+  skillName?: string
+  templateVersion?: number
   title: string
   subject: string
   periodLabel: string

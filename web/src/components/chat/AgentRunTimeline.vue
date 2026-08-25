@@ -31,7 +31,7 @@
         </div>
 
         <details v-if="detailEntries(step).length" class="agent-run__details">
-          <summary>查看请求与返回数据</summary>
+          <summary>查看数据范围</summary>
           <dl>
             <template v-for="entry in detailEntries(step)" :key="entry.key">
               <dt>{{ entry.label }}</dt>
@@ -66,11 +66,12 @@ interface DisplayEntry {
 }
 
 const labels: Record<string, string> = {
+  intent: '处理目标',
+  apiOperation: '业务动作',
   entityName: '业务对象',
   schemaCode: '对象编码',
   objectType: '对象类型',
   appCode: '应用编码',
-  apiOperation: '业务动作',
   sourceEndpoint: '调用接口',
   endpoint: '调用接口',
   total: '数据总数',
@@ -82,8 +83,11 @@ const labels: Record<string, string> = {
   entityCount: '关联对象',
   kpiCount: '指标数量',
   chartCount: '图表数量',
-  mode: '生成方式',
-  role: '链路角色',
+  mode: '处理方式',
+  role: '数据范围',
+  action: '业务动作',
+  operation: '业务动作',
+  apiCode: '业务接口',
   query: '用户问题',
   effectiveQuery: '有效问题',
   filters: '筛选条件',
@@ -99,6 +103,11 @@ const priorityKeys = [
   'returnedRecords', 'reportRecords', 'mode', 'kpiCount', 'chartCount'
 ]
 
+const internalKeys = new Set([
+  'schemaCode', 'objectType', 'appCode', 'sourceEndpoint', 'endpoint',
+  'apiCode', 'workflowCatalog', 'confirmationId', 'requestedSkillId', 'routeReasoning'
+])
+
 function stepKind(step: ExecutionStep) {
   return step.kind || (step.data && Object.keys(step.data).length ? 'execution' : 'progress')
 }
@@ -108,9 +117,12 @@ function stepState(step: ExecutionStep) {
 }
 
 function compactTimeline(steps: ExecutionStep[]) {
-  return collapseLifecycleSteps(steps).filter((step) => (
+  const visible = collapseLifecycleSteps(steps).filter((step) => (
     stepKind(step) !== 'answer_start' && stepKind(step) !== 'answer_end'
   ))
+  // `steps` is the user-visible execution record. Compact mode controls
+  // information density only; it must not hide earlier completed steps.
+  return visible
 }
 
 function collapseLifecycleSteps(steps: ExecutionStep[]) {
@@ -177,7 +189,7 @@ function entriesFor(step: ExecutionStep): DisplayEntry[] {
     return []
   }
   return Object.entries(step.data)
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .filter(([key, value]) => !internalKeys.has(key) && value !== undefined && value !== null && value !== '')
     .map(([key, value]) => ({
       key,
       label: labels[key] || humanizeKey(key),
@@ -203,7 +215,7 @@ function formatValue(key: string, value: unknown) {
     return formatElapsed(Number(value))
   }
   if (typeof value === 'string') {
-    return value
+    return semanticValue(key, value)
   }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value)
@@ -213,6 +225,65 @@ function formatValue(key: string, value: unknown) {
   } catch {
     return String(value)
   }
+}
+
+function semanticValue(key: string, value: string) {
+  const normalized = value.trim().toLowerCase()
+  if (key === 'intent') {
+    return ({
+      query_data: '查询业务数据',
+      analyze_data: '分析业务数据',
+      create_data: '新增业务记录',
+      create_record: '新增业务记录',
+      update_record: '修改业务记录',
+      delete_record: '删除业务记录',
+      workflow: '处理流程事项',
+      query_workflow: '查询流程事项',
+      workflow_action: '处理流程事项',
+      clarify_intent: '补充业务信息',
+      conversation: '通用对话'
+    } as Record<string, string>)[normalized] || '业务处理'
+  }
+  if (key === 'apiOperation') {
+    return ({
+      query_collection: '查询业务列表',
+      query_detail: '查看业务详情',
+      create_update: '新增或修改业务记录',
+      delete: '删除业务记录',
+      analyze: '分析业务数据'
+    } as Record<string, string>)[normalized] || '执行相关业务动作'
+  }
+  if (key === 'action' || key === 'operation') {
+    return ({
+      query: '查询业务数据',
+      read: '查看业务信息',
+      create: '新增业务记录',
+      update: '修改业务记录',
+      delete: '删除业务记录',
+      analyze: '分析业务数据',
+      workflow_read_query: '查询流程事项',
+      runtime_query_failed: '业务数据查询未完成'
+    } as Record<string, string>)[normalized] || '系统规划处理'
+  }
+  if (key === 'mode') {
+    return ({
+      'rule-fallback': '基于已验证规则',
+      'ai-planned': '由 AI 规划业务步骤',
+      'insight-report': '生成业务分析报告',
+      answer: '生成业务回答',
+      clarify: '等待补充信息',
+      conversation: '通用对话'
+    } as Record<string, string>)[normalized] || '关联业务数据'
+  }
+  if (key === 'role') {
+    return ({
+      primary: '核心业务数据',
+      upstream: '关联前置数据',
+      downstream: '关联后续数据',
+      related: '关联业务数据'
+    } as Record<string, string>)[normalized] || value
+  }
+  return value
 }
 
 function formatElapsed(value?: number) {
@@ -304,7 +375,7 @@ function formatElapsed(value?: number) {
 
 .agent-run__content {
   min-width: 0;
-  padding: 0 0 18px 10px;
+  padding: 0 0 12px 10px;
 }
 
 .agent-run__heading {
@@ -317,7 +388,7 @@ function formatElapsed(value?: number) {
 .agent-run__heading strong {
   min-width: 0;
   color: #1d2939;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
   line-height: 20px;
 }
@@ -332,7 +403,7 @@ function formatElapsed(value?: number) {
   margin: 3px 0 0;
   color: #667085;
   font-size: 12px;
-  line-height: 1.65;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -340,8 +411,8 @@ function formatElapsed(value?: number) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 14px;
-  margin-top: 8px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  padding: 7px 10px;
   border-left: 2px solid #d0d5dd;
   background: #f8fafc;
 }
@@ -355,27 +426,27 @@ function formatElapsed(value?: number) {
 
 .agent-run__facts small {
   color: #98a2b3;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .agent-run__facts strong {
   max-width: 260px;
   color: #344054;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
 
 .agent-run__details {
-  margin-top: 7px;
+  margin-top: 6px;
 }
 
 .agent-run__details summary {
   width: fit-content;
   color: #475467;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   user-select: none;
 }
 
@@ -387,7 +458,7 @@ function formatElapsed(value?: number) {
   padding: 10px;
   border: 1px solid #eaecf0;
   background: #fff;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .agent-run__details dt {

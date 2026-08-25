@@ -1,7 +1,6 @@
 package com.cpclaw.settings.dto;
 
 public record SaveUserSettingsRequest(
-    String cloudPivotBaseUrl,
     String cloudPivotUsername,
     String cloudPivotPassword,
     String modelName,

@@ -17,6 +17,7 @@ import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -40,6 +41,14 @@ import org.springframework.stereotype.Service;
 public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private static final Logger log = LoggerFactory.getLogger(MvpCloudPivotConnector.class);
+    private static final List<WorkflowReadEndpoint> WORKFLOW_READ_ENDPOINTS = List.of(
+        new WorkflowReadEndpoint("workflow_list_pending", "/api/runtime/workflow/list_workitems", false),
+        new WorkflowReadEndpoint("workflow_list_finished", "/api/runtime/workflow/list_finished_workitems", false),
+        new WorkflowReadEndpoint("workflow_list_started", "/api/runtime/workflow/list_my_instances", false),
+        new WorkflowReadEndpoint("workflow_list_instances", "/api/runtime/workflow/list_instances", false),
+        new WorkflowReadEndpoint("workflow_instance_detail", "/api/runtime/workflow/get_instance_baseinfo", true),
+        new WorkflowReadEndpoint("workflow_list_activity", "/api/runtime/workflow/list_workflow_instance_activity", true)
+    );
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final boolean allowFallbackMetadata;
@@ -85,10 +94,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
-            .orElseThrow(() -> new IllegalStateException("浜戞灑绠＄悊鍛樿处鍙烽獙璇佸け璐ワ紝鏃犳硶鍒濆鍖栧厓鏁版嵁"));
+            .orElseThrow(() -> new IllegalStateException("云枢管理员账号验证失败，无法初始化元数据"));
         CloudPivotMetadataSnapshot snapshot = fetchRemoteMetadata(host, session);
         if (snapshot.apps().isEmpty()) {
-            throw new IllegalStateException("浜戞灑鍏冩暟鎹帴鍙ｆ湭杩斿洖鍙敤搴旂敤");
+            throw new IllegalStateException("云枢元数据接口未返回可用应用");
         }
         return snapshot;
     }
@@ -111,17 +120,17 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     @Override
     public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords, List<RuntimeQueryFilter> filters) {
         if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
-            throw new IllegalArgumentException("璇峰厛鍦ㄨ缃腑缁戝畾浜戞灑璁块棶鍦板潃銆佽处鍙峰拰瀵嗙爜");
+            throw new IllegalArgumentException("请先在设置中绑定云枢访问地址、账号和密码");
         }
         if (!hasText(schemaCode)) {
-            throw new IllegalArgumentException("鏈尮閰嶅埌鍙煡璇㈢殑浜戞灑妯″瀷缂栫爜");
+            throw new IllegalArgumentException("未匹配到可查询的云枢模型编码");
         }
         if (allowFallbackMetadata && isLocalTestUrl(baseUrl)) {
             return applyLocalFilters(fallbackRuntimeQueryResult(schemaCode, Math.min(pageSize, Math.max(1, maxRecords))), filters);
         }
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
-            .orElseThrow(() -> new IllegalStateException("浜戞灑鏅€氱敤鎴疯处鍙烽獙璇佸け璐ワ紝鏃犳硶鏌ヨ涓氬姟鏁版嵁"));
+            .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询业务数据"));
         return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, connectorProperties().getMaxPageSize())), enrichAllDetails, Math.max(1, maxRecords), safeFilters(filters));
     }
 
@@ -187,6 +196,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         }
 
         fetchDataItemsForEntities(host, session, entities, dataItems, relations);
+        // The workflow center is a cross-application runtime capability rather than a
+        // normal business model. Keep its catalogue in the same persisted snapshot so
+        // the Agent can discover todo/done/started views and their action boundaries.
+        addWorkflowCenterMetadata(apps, entities, dataItems);
         return new CloudPivotMetadataSnapshot(new ArrayList<>(apps.values()), new ArrayList<>(entities.values()), dataItems, relations, defaultApiEndpoints());
     }
 
@@ -1282,26 +1295,260 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private CloudPivotMetadataSnapshot fallbackMetadata() {
+        Map<String, CloudPivotMetadataSnapshot.AppMetadata> apps = new LinkedHashMap<>();
+        Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities = new LinkedHashMap<>();
+        apps.put("metadata_app", new CloudPivotMetadataSnapshot.AppMetadata("metadata_app", "元数据应用", "cloudpivot-metadata"));
+        entities.put("metadata_app:metadata_object", new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low"));
+        entities.put("metadata_app:metadata_detail", new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_detail", "元数据明细", "data", "low"));
+        entities.put("metadata_app:metadata_relation", new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_relation", "元数据关联", "data", "low"));
+        addWorkflowCenterMetadata(apps, entities, new ArrayList<>());
         return new CloudPivotMetadataSnapshot(
-            List.of(
-                new CloudPivotMetadataSnapshot.AppMetadata("metadata_app", "元数据应用", "cloudpivot-metadata"),
-                new CloudPivotMetadataSnapshot.AppMetadata("workflow_metadata_app", "流程元数据应用", "cloudpivot-workflow-metadata")
-            ),
-            List.of(
-                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_object", "元数据对象", "data", "low"),
-                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_detail", "元数据明细", "data", "low"),
-                new CloudPivotMetadataSnapshot.EntityMetadata("metadata_app", "metadata_relation", "元数据关联", "data", "low"),
-                new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_form", "元数据表单", "data", "medium"),
-                new CloudPivotMetadataSnapshot.EntityMetadata("workflow_metadata_app", "metadata_attachment", "元数据附件", "attachment", "medium")
-            ),
+            new ArrayList<>(apps.values()),
+            new ArrayList<>(entities.values()),
             List.of(),
             List.of(),
             defaultApiEndpoints()
         );
     }
 
-    private List<CloudPivotMetadataSnapshot.ApiEndpointMetadata> defaultApiEndpoints() {
+    /**
+     * Verifies only the explicitly allow-listed workflow read endpoints.  This
+     * method must never be broadened to workflow actions: a successful probe is
+     * a read contract, not an authorization to approve, reject or forward work.
+     */
+    @Override
+    public WorkflowContractProbeResult probeWorkflowReadContracts(String baseUrl, String username, String password) {
+        if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
+            throw new IllegalArgumentException("云枢普通用户连接配置不完整，无法探查流程查询接口");
+        }
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password)
+            .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法探查流程查询接口"));
+        Instant verifiedAt = Instant.now();
+        List<WorkflowContractProbeResult.Contract> contracts = new ArrayList<>();
+        for (WorkflowReadEndpoint endpoint : WORKFLOW_READ_ENDPOINTS) {
+            if (endpoint.requiresIdentifier()) {
+                contracts.add(new WorkflowContractProbeResult.Contract(
+                    endpoint.apiCode(), false, "UNKNOWN", endpoint.path(), List.of(), Map.of(), "需要先提供流程实例 ID，不做猜测请求"
+                ));
+                continue;
+            }
+            contracts.add(probeWorkflowListEndpoint(host, session, endpoint));
+        }
+        return new WorkflowContractProbeResult(contracts, verifiedAt);
+    }
+
+    @Override
+    public WorkflowReadResult queryWorkflowRead(String baseUrl, String username, String password, String apiCode, String method, String path, int pageSize) {
+        return queryWorkflowRead(baseUrl, username, password, apiCode, method, path, pageSize, List.of());
+    }
+
+    @Override
+    public WorkflowReadResult queryWorkflowRead(String baseUrl, String username, String password, String apiCode, String method, String path, int pageSize, List<String> requestKeys) {
+        WorkflowReadEndpoint endpoint = workflowReadEndpoint(apiCode)
+            .orElseThrow(() -> new IllegalArgumentException("不在流程只读白名单中的接口：" + apiCode));
+        if (endpoint.requiresIdentifier()) {
+            throw new IllegalArgumentException("该流程查询需要流程实例 ID，当前不能使用空参数查询");
+        }
+        if (!("GET".equalsIgnoreCase(method) || "POST".equalsIgnoreCase(method)) || !workflowPathCandidates(endpoint.path()).contains(path)) {
+            throw new IllegalArgumentException("流程查询契约与只读白名单不一致，已停止调用");
+        }
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password)
+            .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询流程数据"));
+        WorkflowRequestVariant variant = workflowRequestVariantsForKeys(Math.max(1, Math.min(pageSize, 20)), requestKeys).stream()
+            .filter(item -> item.method().equalsIgnoreCase(method))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("已验证流程查询方法没有可用的最小分页参数"));
+        JsonNode response = sendWorkflowReadRequest(host, session, path, variant);
+        ensureBusinessSuccess(response, path);
+        List<Map<String, Object>> items = extractWorkflowItems(response).stream().map(this::toMap).toList();
+        long total = workflowTotal(response).orElse(Long.valueOf(items.size()));
+        return new WorkflowReadResult(apiCode, method.toUpperCase(Locale.ROOT) + " " + path, total, items, workflowResponseShape(response));
+    }
+
+    private WorkflowContractProbeResult.Contract probeWorkflowListEndpoint(String host, AuthSession session, WorkflowReadEndpoint endpoint) {
+        RuntimeException lastFailure = null;
+        for (String candidatePath : workflowPathCandidates(endpoint.path())) {
+            for (WorkflowRequestVariant variant : workflowRequestVariants(1)) {
+                try {
+                    JsonNode response = sendWorkflowReadRequest(host, session, candidatePath, variant);
+                    ensureBusinessSuccess(response, candidatePath);
+                    return new WorkflowContractProbeResult.Contract(
+                        endpoint.apiCode(), true, variant.method(), candidatePath, new ArrayList<>(variant.request().keySet()), workflowResponseShape(response), null
+                    );
+                } catch (RuntimeException exception) {
+                    lastFailure = exception;
+                }
+            }
+        }
+        String error = lastFailure == null ? "没有获得可用响应" : shortWorkflowError(lastFailure.getMessage());
+        return new WorkflowContractProbeResult.Contract(endpoint.apiCode(), false, "UNKNOWN", endpoint.path(), List.of(), Map.of(), error);
+    }
+
+    private JsonNode sendWorkflowReadRequest(String host, AuthSession session, String path, WorkflowRequestVariant variant) {
+        if ("GET".equals(variant.method())) {
+            return getJson(host, path, session, variant.request().entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, item -> String.valueOf(item.getValue()), (left, right) -> left, LinkedHashMap::new)));
+        }
+        return postJson(host, path, session, variant.request());
+    }
+
+    private List<WorkflowRequestVariant> workflowRequestVariants(int pageSize) {
+        Map<String, Object> page = Map.of("page", 0, "size", pageSize);
+        Map<String, Object> pageNo = Map.of("pageNo", 1, "pageSize", pageSize);
         return List.of(
+            new WorkflowRequestVariant("GET", page), new WorkflowRequestVariant("GET", pageNo),
+            new WorkflowRequestVariant("POST", page), new WorkflowRequestVariant("POST", pageNo)
+        );
+    }
+
+    private List<WorkflowRequestVariant> workflowRequestVariantsForKeys(int pageSize, List<String> requestKeys) {
+        if (requestKeys == null || requestKeys.isEmpty()) return workflowRequestVariants(pageSize);
+        boolean pageNo = requestKeys.contains("pageNo") || requestKeys.contains("pageSize");
+        Map<String, Object> request = pageNo ? Map.of("pageNo", 1, "pageSize", pageSize) : Map.of("page", 0, "size", pageSize);
+        return List.of(new WorkflowRequestVariant("GET", request), new WorkflowRequestVariant("POST", request));
+    }
+
+    private Optional<WorkflowReadEndpoint> workflowReadEndpoint(String apiCode) {
+        return WORKFLOW_READ_ENDPOINTS.stream().filter(item -> item.apiCode().equals(apiCode)).findFirst();
+    }
+
+    private List<String> workflowPathCandidates(String path) {
+        if ("/api/runtime/workflow/list_workitems".equals(path)) {
+            return List.of("/api/api/runtime/workflow/list_workitems", "/api/runtime/workflow/list_workitems", "/api/api/runtime/workflow/search_workitems", "/api/runtime/workflow/search_workitems");
+        }
+        if (path.startsWith("/api/runtime/")) return List.of("/api" + path, path);
+        return List.of(path);
+    }
+
+    private List<JsonNode> extractWorkflowItems(JsonNode response) {
+        return extractWorkflowItems(response, 0);
+    }
+
+    private List<JsonNode> extractWorkflowItems(JsonNode node, int depth) {
+        if (node == null || node.isNull() || depth > 4) return List.of();
+        if (node.isArray()) return toList(node);
+        for (String key : List.of("data", "content", "records", "rows", "items", "list", "result")) {
+            if (node.has(key)) {
+                List<JsonNode> result = extractWorkflowItems(node.get(key), depth + 1);
+                if (!result.isEmpty() || node.get(key).isArray()) return result;
+            }
+        }
+        return List.of();
+    }
+
+    private Optional<Long> workflowTotal(JsonNode node) {
+        if (node == null || node.isNull()) return Optional.empty();
+        Optional<Long> local = firstLong(node, "total", "totalElements", "totalCount", "count");
+        if (local.isPresent()) return local;
+        for (String key : List.of("data", "result", "content")) {
+            if (node.has(key)) {
+                Optional<Long> nested = workflowTotal(node.get(key));
+                if (nested.isPresent()) return nested;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Map<String, Object> workflowResponseShape(JsonNode response) {
+        List<JsonNode> items = extractWorkflowItems(response);
+        Map<String, Object> shape = new LinkedHashMap<>();
+        shape.put("topLevelFields", fieldNames(response));
+        response.path("data").isObject();
+        shape.put("dataFields", response.has("data") && response.get("data").isObject() ? fieldNames(response.get("data")) : List.of());
+        shape.put("itemFields", items.isEmpty() || !items.getFirst().isObject() ? List.of() : fieldNames(items.getFirst()));
+        shape.put("totalField", workflowTotalField(response));
+        shape.put("responseShape", describeShape(response, 0));
+        return shape;
+    }
+
+    private List<String> fieldNames(JsonNode node) {
+        if (node == null || !node.isObject()) return List.of();
+        List<String> result = new ArrayList<>();
+        node.fieldNames().forEachRemaining(field -> { if (result.size() < 30) result.add(field); });
+        return result;
+    }
+
+    private String workflowTotalField(JsonNode node) {
+        for (String field : List.of("total", "totalElements", "totalCount", "count")) {
+            if (node != null && node.has(field)) return field;
+        }
+        for (String wrapper : List.of("data", "result", "content")) {
+            if (node != null && node.has(wrapper)) {
+                String nested = workflowTotalField(node.get(wrapper));
+                if (!nested.isBlank()) return wrapper + "." + nested;
+            }
+        }
+        return "";
+    }
+
+    private String shortWorkflowError(String value) {
+        if (value == null || value.isBlank()) return "请求失败";
+        return value.length() <= 300 ? value : value.substring(0, 300);
+    }
+
+    private void addWorkflowCenterMetadata(
+        Map<String, CloudPivotMetadataSnapshot.AppMetadata> apps,
+        Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities,
+        List<CloudPivotMetadataSnapshot.DataItemMetadata> dataItems
+    ) {
+        String appCode = "workflow_center";
+        apps.putIfAbsent(appCode, new CloudPivotMetadataSnapshot.AppMetadata(
+            appCode, "流程中心", "云枢流程中心待办、已办、我发起流程及流程实例动作目录；接口契约待登录环境验证"));
+        addWorkflowEntity(entities, appCode, "my_pending_workitems", "我的待办", "workflow_view");
+        addWorkflowEntity(entities, appCode, "my_finished_workitems", "我的已办", "workflow_view");
+        addWorkflowEntity(entities, appCode, "my_started_workflows", "我发起的流程", "workflow_view");
+        addWorkflowEntity(entities, appCode, "workflow_instance", "流程实例", "workflow_object");
+        addWorkflowEntity(entities, appCode, "workflow_workitem", "流程工作项", "workflow_object");
+        addWorkflowEntity(entities, appCode, "workflow_activity", "流程节点", "workflow_object");
+        if (dataItems != null) {
+            addWorkflowField(dataItems, appCode, "my_pending_workitems", "workItemId", "工作项ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_pending_workitems", "instanceId", "流程实例ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_pending_workitems", "workflowName", "流程名称", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_pending_workitems", "activityName", "当前节点", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_pending_workitems", "receivedAt", "接收时间", "DATETIME");
+            addWorkflowField(dataItems, appCode, "my_finished_workitems", "workItemId", "工作项ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_finished_workitems", "instanceId", "流程实例ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_finished_workitems", "actionTime", "处理时间", "DATETIME");
+            addWorkflowField(dataItems, appCode, "my_started_workflows", "instanceId", "流程实例ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "my_started_workflows", "workflowName", "流程名称", "TEXT");
+            addWorkflowField(dataItems, appCode, "workflow_instance", "instanceId", "流程实例ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "workflow_instance", "workflowStatus", "流程状态", "TEXT");
+            addWorkflowField(dataItems, appCode, "workflow_workitem", "workItemId", "工作项ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "workflow_workitem", "availableActions", "可用动作", "JSON");
+            addWorkflowField(dataItems, appCode, "workflow_activity", "activityId", "节点ID", "TEXT");
+            addWorkflowField(dataItems, appCode, "workflow_activity", "activityName", "节点名称", "TEXT");
+        }
+    }
+
+    private void addWorkflowEntity(
+        Map<String, CloudPivotMetadataSnapshot.EntityMetadata> entities,
+        String appCode,
+        String code,
+        String name,
+        String type
+    ) {
+        entities.putIfAbsent(appCode + ":" + code, new CloudPivotMetadataSnapshot.EntityMetadata(appCode, code, name, type, "low"));
+    }
+
+    private void addWorkflowField(
+        List<CloudPivotMetadataSnapshot.DataItemMetadata> dataItems,
+        String appCode,
+        String entityCode,
+        String code,
+        String name,
+        String dataType
+    ) {
+        boolean exists = dataItems.stream().anyMatch(item -> appCode.equals(item.appCode()) && entityCode.equals(item.entityCode()) && code.equals(item.code()));
+        if (!exists) {
+            dataItems.add(new CloudPivotMetadataSnapshot.DataItemMetadata(
+                appCode, entityCode, code, name, dataType, false, false, "", "流程中心目录字段（静态候选，需真实响应校验）", "{\"source\":\"workflow-center-catalog\",\"verified\":false}"));
+        }
+    }
+
+    private List<CloudPivotMetadataSnapshot.ApiEndpointMetadata> defaultApiEndpoints() {
+        List<CloudPivotMetadataSnapshot.ApiEndpointMetadata> endpoints = new ArrayList<>(List.of(
             new CloudPivotMetadataSnapshot.ApiEndpointMetadata(
                 "runtime_query_list",
                 "查询业务对象数据集合",
@@ -1392,6 +1639,50 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 "entity",
                 "{\"verified\":true,\"source\":\"MvpCloudPivotConnector.fetchDataItemNodes\"}"
             )
+        ));
+        endpoints.addAll(workflowApiEndpoints());
+        return endpoints;
+    }
+
+    private List<CloudPivotMetadataSnapshot.ApiEndpointMetadata> workflowApiEndpoints() {
+        String queryInput = "{\"properties\":{\"page\":\"分页参数（待契约确认）\",\"size\":\"分页大小（待契约确认）\",\"filters\":\"流程名称、时间、状态等筛选条件（待契约确认）\"}}";
+        String queryOutput = "{\"properties\":{\"items\":\"待办/已办/流程实例集合（字段待真实响应确认）\",\"total\":\"总数（字段待真实响应确认）\"}}";
+        return List.of(
+            workflowEndpoint("workflow_list_pending", "查询我的待办", "/api/runtime/workflow/list_workitems", "query_workflow_pending", queryInput, queryOutput),
+            workflowEndpoint("workflow_list_finished", "查询我的已办", "/api/runtime/workflow/list_finished_workitems", "query_workflow_finished", queryInput, queryOutput),
+            workflowEndpoint("workflow_list_started", "查询我发起的流程", "/api/runtime/workflow/list_my_instances", "query_workflow_started", queryInput, queryOutput),
+            workflowEndpoint("workflow_list_instances", "查询流程实例", "/api/runtime/workflow/list_instances", "query_workflow_instance", queryInput, queryOutput),
+            workflowEndpoint("workflow_instance_detail", "查询流程实例详情", "/api/runtime/workflow/get_instance_baseinfo", "query_workflow_detail", "{\"required\":[\"instanceId\"],\"properties\":{\"instanceId\":\"流程实例ID\"}}", queryOutput),
+            workflowEndpoint("workflow_list_activity", "查询流程节点与动作", "/api/runtime/workflow/list_workflow_instance_activity", "query_workflow_activity", "{\"required\":[\"instanceId\"],\"properties\":{\"instanceId\":\"流程实例ID\"}}", queryOutput),
+            workflowEndpoint("workflow_finish_workitem", "处理待办（完成/同意）", "/api/runtime/workflow/finish_instance", "workflow_approve", "{\"required\":[\"workItemId\",\"instanceId\"],\"properties\":{\"comment\":\"处理意见（规则待确认）\"}}", "{\"properties\":{\"success\":\"执行结果（待真实响应确认）\"}}"),
+            workflowEndpoint("workflow_reject_workitem", "驳回待办", "/api/runtime/workflow/reject_workItem", "workflow_reject", "{\"required\":[\"workItemId\",\"instanceId\"],\"properties\":{\"comment\":\"驳回意见（规则待确认）\"}}", "{\"properties\":{\"success\":\"执行结果（待真实响应确认）\"}}"),
+            workflowEndpoint("workflow_forward_workitem", "转交待办", "/api/runtime/workflow/forward_workItem", "workflow_forward", "{\"required\":[\"workItemId\",\"participantIds\"],\"properties\":{\"comment\":\"转交说明（规则待确认）\"}}", "{\"properties\":{\"success\":\"执行结果（待真实响应确认）\"}}"),
+            workflowEndpoint("workflow_abort_instance", "撤回/终止流程", "/api/runtime/workflow/abort_instance", "workflow_abort", "{\"required\":[\"instanceId\"],\"properties\":{\"comment\":\"撤回原因（规则待确认）\"}}", "{\"properties\":{\"success\":\"执行结果（待真实响应确认）\"}}")
+        );
+    }
+
+    private CloudPivotMetadataSnapshot.ApiEndpointMetadata workflowEndpoint(
+        String apiCode,
+        String name,
+        String path,
+        String operationType,
+        String inputSchemaJson,
+        String outputSchemaJson
+    ) {
+        return new CloudPivotMetadataSnapshot.ApiEndpointMetadata(
+            apiCode,
+            name,
+            "UNKNOWN",
+            path,
+            "workflow_center",
+            operationType,
+            operationType.startsWith("query_") ? "low" : "high",
+            !operationType.startsWith("query_"),
+            inputSchemaJson,
+            outputSchemaJson,
+            "当前登录用户有权限的流程数据；接口方法、分页和响应字段尚未在登录环境核验",
+            "workflow",
+            "{\"verified\":false,\"candidate\":true,\"source\":\"cloudpivot-portal-static-js\",\"requiresAuthenticatedContract\":true}"
         );
     }
     private CloudPivotRuntimeQueryResult fallbackRuntimeQueryResult(String schemaCode, int pageSize) {
@@ -1436,5 +1727,11 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private record Endpoint(String method, String path, Map<String, String> params) {
+    }
+
+    private record WorkflowReadEndpoint(String apiCode, String path, boolean requiresIdentifier) {
+    }
+
+    private record WorkflowRequestVariant(String method, Map<String, Object> request) {
     }
 }

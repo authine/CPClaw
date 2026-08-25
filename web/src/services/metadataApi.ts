@@ -5,7 +5,8 @@ import type {
   MetadataGraphOverview,
   MetadataModelResponse,
   MetadataSearchResult,
-  MetadataSyncResponse
+  MetadataSyncResponse,
+  MetadataSyncLogOverview
 } from '../types/metadata'
 
 export function listMetadataApps() {
@@ -18,6 +19,10 @@ export function loadMetadataModel() {
 
 export function syncMetadata() {
   return requestJson<MetadataSyncResponse>('/metadata/sync', { method: 'POST' })
+}
+
+export function getMetadataSyncLogs() {
+  return requestJson<MetadataSyncLogOverview>('/metadata/sync-logs')
 }
 
 export function searchMetadata(query: string) {

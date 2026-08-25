@@ -95,6 +95,22 @@ public interface AgentProgressListener {
         };
     }
 
+    /**
+     * Conversation-mode responses stream only answer content. Internal route,
+     * execution, and answer lifecycle events remain out of the business timeline.
+     */
+    static AgentProgressListener withoutTimelineEvents(AgentProgressListener delegate) {
+        AgentProgressListener downstream = delegate == null ? NOOP : delegate;
+        return new AgentProgressListener() {
+            @Override public boolean isCancelled() { return downstream.isCancelled(); }
+            @Override public boolean tryBeginCommit() { return downstream.tryBeginCommit(); }
+            @Override public void markCompleted() { downstream.markCompleted(); }
+            @Override public void markCancelled() { downstream.markCancelled(); }
+            @Override public void onProgress(String title, String status) { }
+            @Override public void onAnswerChunk(String content) { downstream.onAnswerChunk(content); }
+        };
+    }
+
     static AgentProgressListener recording(AgentProgressListener delegate, Consumer<ExecutionStepDto> eventConsumer) {
         return recording(delegate, eventConsumer, ignored -> { });
     }
@@ -149,7 +165,9 @@ public interface AgentProgressListener {
 
             @Override
             public void onAnswerStart(String mode) {
-                recorder.accept(event("answer_start", "answer", "正式回答", mode, "running", Map.of("mode", safe(mode)), startedAtNanos));
+                if (!"direct-conversation".equals(mode)) {
+                    recorder.accept(event("answer_start", "answer", "正式回答", mode, "running", Map.of("mode", safe(mode)), startedAtNanos));
+                }
                 downstream.onAnswerStart(mode);
             }
 
@@ -167,7 +185,9 @@ public interface AgentProgressListener {
 
             @Override
             public void onAnswerComplete(String mode) {
-                recorder.accept(event("answer_end", "answer", "正式回答", mode, "completed", Map.of("mode", safe(mode)), startedAtNanos));
+                if (!"direct-conversation".equals(mode)) {
+                    recorder.accept(event("answer_end", "answer", "正式回答", mode, "completed", Map.of("mode", safe(mode)), startedAtNanos));
+                }
                 downstream.onAnswerComplete(mode);
             }
         };

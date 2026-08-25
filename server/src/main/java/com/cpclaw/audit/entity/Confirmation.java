@@ -17,11 +17,13 @@ public class Confirmation {
     @Column(nullable = false, columnDefinition = "LONGTEXT") private String summary;
     @Column(name = "affected_objects_json", columnDefinition = "LONGTEXT") private String affectedObjectsJson;
     @Column(name = "changes_json_masked", columnDefinition = "LONGTEXT") private String changesJsonMasked;
+    @Column(name = "plan_hash") private String planHash;
     @Column(name = "attachments_json", columnDefinition = "LONGTEXT") private String attachmentsJson;
     @Column(nullable = false) private String status;
     @Column(name = "expires_at") private Instant expiresAt;
     @Column(name = "created_at") private Instant createdAt;
     @Column(name = "confirmed_at") private Instant confirmedAt;
+    @Column(name = "execution_started_at") private Instant executionStartedAt;
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getConversationId() { return conversationId; }
@@ -38,6 +40,8 @@ public class Confirmation {
     public void setAffectedObjectsJson(String affectedObjectsJson) { this.affectedObjectsJson = affectedObjectsJson; }
     public String getChangesJsonMasked() { return changesJsonMasked; }
     public void setChangesJsonMasked(String changesJsonMasked) { this.changesJsonMasked = changesJsonMasked; }
+    public String getPlanHash() { return planHash; }
+    public void setPlanHash(String planHash) { this.planHash = planHash; }
     public String getAttachmentsJson() { return attachmentsJson; }
     public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }
     public String getStatus() { return status; }
@@ -48,4 +52,6 @@ public class Confirmation {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getConfirmedAt() { return confirmedAt; }
     public void setConfirmedAt(Instant confirmedAt) { this.confirmedAt = confirmedAt; }
+    public Instant getExecutionStartedAt() { return executionStartedAt; }
+    public void setExecutionStartedAt(Instant executionStartedAt) { this.executionStartedAt = executionStartedAt; }
 }

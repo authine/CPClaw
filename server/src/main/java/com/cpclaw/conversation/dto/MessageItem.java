@@ -5,6 +5,11 @@ public record MessageItem(
     String role,
     String content,
     String createdAt,
-    String metadataJson
+    String metadataJson,
+    String feedbackType
 ) {
+
+    public MessageItem(String id, String role, String content, String createdAt, String metadataJson) {
+        this(id, role, content, createdAt, metadataJson, null);
+    }
 }

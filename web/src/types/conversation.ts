@@ -12,6 +12,7 @@ export interface MessageItem {
   content: string
   createdAt: string
   metadataJson?: string
+  feedbackType?: 'like' | 'dislike' | null
   thinkingElapsedMs?: number
   answerElapsedMs?: number
 }
