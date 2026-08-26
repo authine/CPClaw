@@ -1,6 +1,6 @@
 package com.cpclaw.skill.yunshu.runtime;
 
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 
 /** Validates a metadata-derived plan against generic execution policy. */
 public interface YunshuPlanValidator {

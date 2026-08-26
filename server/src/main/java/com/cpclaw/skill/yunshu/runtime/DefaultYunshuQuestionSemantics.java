@@ -1,12 +1,11 @@
-package com.cpclaw.skill;
+package com.cpclaw.skill.yunshu.runtime;
 
 import com.cpclaw.cloudpivot.CloudPivotRuntimeProperties;
+import com.cpclaw.skill.SkillQuestionSemantics;
 import java.util.List;
-import org.springframework.stereotype.Component;
-
-/** Neutral baseline semantics. It recognizes interaction shape only. */
-@Component
-public final class GenericSkillQuestionSemantics implements SkillQuestionSemantics {
+/** Yunshu-specific question semantics; the CPClaw framework exposes only the neutral interface. */
+@org.springframework.stereotype.Component
+public final class DefaultYunshuQuestionSemantics implements SkillQuestionSemantics {
     @Override public boolean isCountQuestion(String content) { return hasAny(content, "多少", "数量", "总数", "计数"); }
     @Override public boolean isAnalysisQuestion(String content) { return hasAny(content, "分析", "洞察", "概况", "趋势", "比较", "分布", "统计"); }
     @Override public boolean isDetailCollectionQuestion(String content) { return hasAny(content, "列表", "清单", "明细"); }

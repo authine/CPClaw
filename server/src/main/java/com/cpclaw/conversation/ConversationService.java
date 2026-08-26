@@ -135,12 +135,10 @@ public class ConversationService {
         return messageRepository.findByConversationIdInDisplayOrder(conversationId).stream().map(this::toMessageItem).toList();
     }
 
-    @Transactional
     public AgentResponse sendMessage(SendMessageRequest request) {
         return sendMessage(request, AgentProgressListener.NOOP);
     }
 
-    @Transactional
     public AgentResponse sendMessage(SendMessageRequest request, AgentProgressListener progressListener) {
         if (request == null || !hasText(request.content())) {
             throw new IllegalArgumentException("请输入要处理的内容");

@@ -32,7 +32,7 @@ Runtime 持久化任务、事件、幂等键、父子续接和证据完成度，
 
 ## 7. 对外集成策略
 
-推荐 OpenClaw 类宿主通过 MCP 调用唯一高阶工具 `yunshu_handle_request`，并加载行为说明文档。CLI 是无 MCP 宿主和自动化场景的同 Runtime 转发通道，不含云枢业务判断。详见 `19-openclaw-class-ai-tool-integration.md`。
+推荐 OpenClaw 类宿主通过 MCP 调用唯一高阶工具 `cpclaw_cloudpivot_agent`，并加载行为说明文档；`yunshu_handle_request` 仅作为兼容名称。CLI 是无 MCP 宿主和自动化场景的同 Runtime 转发通道，不含云枢业务判断。详见 `19-openclaw-class-ai-tool-integration.md`。
 
 ## 8. 尚未完成的生产策略
 

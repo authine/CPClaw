@@ -1,51 +1,21 @@
 package com.cpclaw.agent;
 
-import com.cpclaw.agent.dto.AgentResponse;
-import com.cpclaw.conversation.dto.MessageItem;
-import com.cpclaw.skill.yunshu.YunshuAgentOrchestrator;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
- * Channel-neutral framework facade. Domain interpretation and execution live
- * in the resolved Skill implementation, never in this framework class.
+ * Deprecated compatibility facade for the legacy preview endpoint.
+ * Runtime execution is owned exclusively by TaskGateway and registered skills.
  */
+@Deprecated(forRemoval = true)
 @Service
 public class AgentOrchestrator {
-    private final YunshuAgentOrchestrator yunshu;
-
-    public AgentOrchestrator(@Lazy YunshuAgentOrchestrator yunshu) {
-        this.yunshu = yunshu;
-    }
-
-    public AgentResponse handleMessage(
-        String conversationId,
-        String userMessageId,
-        String content,
-        String modelConfigId,
-        boolean thinkingEnabled,
-        MessageItem assistantMessage,
-        List<MessageItem> conversationContext
-    ) {
-        return yunshu.handleMessage(conversationId, userMessageId, content, modelConfigId, thinkingEnabled, assistantMessage, conversationContext);
-    }
-
-    public AgentResponse handleMessage(
-        String conversationId,
-        String userMessageId,
-        String content,
-        String modelConfigId,
-        boolean thinkingEnabled,
-        MessageItem assistantMessage,
-        List<MessageItem> conversationContext,
-        AgentProgressListener progressListener
-    ) {
-        return yunshu.handleMessage(conversationId, userMessageId, content, modelConfigId, thinkingEnabled, assistantMessage, conversationContext, progressListener);
-    }
-
     public Map<String, Object> previewPlaceholderPlan() {
-        return yunshu.previewPlaceholderPlan();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "deprecated");
+        response.put("message", "请通过统一任务网关调用已注册 Skill；旧 Agent 预览入口仅保留兼容响应。");
+        response.put("executionPath", "TaskGateway -> SkillRegistry -> SkillExecutor");
+        return response;
     }
 }

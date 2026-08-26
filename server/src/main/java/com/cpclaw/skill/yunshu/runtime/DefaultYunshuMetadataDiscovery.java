@@ -1,7 +1,7 @@
 package com.cpclaw.skill.yunshu.runtime;
 
-import com.cpclaw.agent.MetadataExecutionPlanner;
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.search.MetadataSearchService;
 import org.springframework.stereotype.Component;

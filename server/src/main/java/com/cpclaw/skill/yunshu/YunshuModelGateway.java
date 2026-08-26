@@ -450,9 +450,8 @@ public class YunshuModelGateway implements ModelGateway {
             return Optional.empty();
         }
         String safeGoal = sensitiveDataMasker.mask(userGoal == null ? "" : userGoal.trim());
-        if (isLocalTestUrl(modelConfig.get().getApiBaseUrl())) {
-            return Optional.of(localConversationRoute(safeGoal));
-        }
+        // Routing is model-owned. A local/test endpoint is not allowed to
+        // reintroduce a framework keyword table or synthetic conversation mode.
         Optional<String> apiKey = credentialService.revealCredential(OWNER_MODEL, modelConfig.get().getId(), MODEL_API_KEY);
         if (apiKey.isEmpty()) {
             return Optional.empty();
@@ -522,9 +521,8 @@ public class YunshuModelGateway implements ModelGateway {
             return Optional.empty();
         }
         String safeGoal = sensitiveDataMasker.mask(userGoal == null ? "" : userGoal.trim());
-        if (isLocalTestUrl(modelConfig.get().getApiBaseUrl())) {
-            return Optional.of(localGeneralConversationAnswer(safeGoal));
-        }
+        // General conversation answers must also come from the configured
+        // model; no fixed phrase or topic fallback is kept in the Skill.
         Optional<String> apiKey = credentialService.revealCredential(OWNER_MODEL, modelConfig.get().getId(), MODEL_API_KEY);
         if (apiKey.isEmpty()) {
             return Optional.empty();
@@ -557,35 +555,6 @@ public class YunshuModelGateway implements ModelGateway {
         } catch (RuntimeException | IOException exception) {
             return Optional.empty();
         }
-    }
-
-    private ConversationRouteResult localConversationRoute(String userGoal) {
-        String value = userGoal == null ? "" : userGoal.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", "");
-        boolean task = List.of("查询", "分析", "统计", "多少", "数据", "记录", "表单", "流程", "待办", "已办", "填写", "新增", "修改", "删除", "审批", "发起")
-            .stream().anyMatch(value::contains);
-        if (task) {
-            boolean analysis = List.of("分析", "报告", "洞察", "趋势", "诊断", "经营情况", "概览")
-                .stream().anyMatch(value::contains);
-            return new ConversationRouteResult(
-                "task",
-                analysis ? "yunshu-intelligent-inquiry" : "yunshu-business-system",
-                "",
-                analysis ? "输入需要云枢智能问数 Skill 规划数据、图形和业务总结。" : "输入包含业务数据或系统操作目标，进入云枢业务 Skill。",
-                0.98D
-            );
-        }
-        boolean greeting = List.of("hi", "hello", "hey", "你好", "您好", "嗨", "在吗", "早上好", "下午好", "晚上好").stream().anyMatch(value::equals);
-        if (greeting) {
-            return new ConversationRouteResult("conversation", "none", "你好，我在这里。你可以和我聊天，也可以让我查询和操作系统里的业务数据。", "输入是高置信日常问候，不需要调用业务技能。", 0.99D);
-        }
-        return new ConversationRouteResult("clarify", "none", "", "输入暂时无法可靠判断为闲聊或业务任务。", 0.45D);
-    }
-
-    private String localGeneralConversationAnswer(String userGoal) {
-        if (userGoal != null && userGoal.contains("天气")) {
-            return "我无法获取实时天气。你可以告诉我所在城市，我可以说明查询天气时应关注的温度、降水和出行建议。";
-        }
-        return "这是一个通用问题，我会直接回答，不调用云枢业务系统。请继续告诉我你想了解的内容。";
     }
 
     private String routePrompt(Map<String, Object> context, boolean thinkingEnabled) throws IOException {

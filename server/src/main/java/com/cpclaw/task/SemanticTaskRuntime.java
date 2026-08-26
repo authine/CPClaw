@@ -4,10 +4,7 @@ import com.cpclaw.task.dto.SemanticTaskRequest;
 import com.cpclaw.task.dto.TaskSpec;
 import com.cpclaw.task.dto.TaskExperienceEnvelope;
 import com.cpclaw.task.dto.TaskProgressEvent;
-import com.cpclaw.task.entity.SemanticTaskEvent;
 import com.cpclaw.task.entity.SemanticTaskRun;
-import com.cpclaw.task.repository.SemanticTaskEventRepository;
-import com.cpclaw.task.repository.SemanticTaskRunRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
@@ -18,8 +15,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Channel-neutral lifecycle owner for semantic tasks. Transport adapters provide
@@ -27,21 +24,27 @@ import org.springframework.dao.DataIntegrityViolationException;
  */
 @Service
 public class SemanticTaskRuntime {
-    private final SemanticTaskRunRepository runRepository;
-    private final SemanticTaskEventRepository eventRepository;
+    private final SemanticTaskPersistenceService persistence;
     private final ObjectMapper objectMapper;
     private final TaskContinuationTokenService continuationTokenService;
     private final TaskEvidencePlanner evidencePlanner;
 
-    public SemanticTaskRuntime(SemanticTaskRunRepository runRepository, SemanticTaskEventRepository eventRepository, ObjectMapper objectMapper, TaskContinuationTokenService continuationTokenService, TaskEvidencePlanner evidencePlanner) {
-        this.runRepository = runRepository;
-        this.eventRepository = eventRepository;
+    @Autowired
+    public SemanticTaskRuntime(SemanticTaskPersistenceService persistence, ObjectMapper objectMapper, TaskContinuationTokenService continuationTokenService, TaskEvidencePlanner evidencePlanner) {
+        this.persistence = persistence;
         this.objectMapper = objectMapper;
         this.continuationTokenService = continuationTokenService;
         this.evidencePlanner = evidencePlanner;
     }
 
-    @Transactional
+    /** Compatibility constructor for focused unit tests; production wiring uses the proxied persistence service. */
+    SemanticTaskRuntime(com.cpclaw.task.repository.SemanticTaskRunRepository runRepository,
+                        com.cpclaw.task.repository.SemanticTaskEventRepository eventRepository,
+                        ObjectMapper objectMapper, TaskContinuationTokenService continuationTokenService,
+                        TaskEvidencePlanner evidencePlanner) {
+        this(new SemanticTaskPersistenceService(runRepository, eventRepository), objectMapper, continuationTokenService, evidencePlanner);
+    }
+
     public TaskExperienceEnvelope execute(
         SemanticTaskRequest request,
         TaskExecutor executor,
@@ -69,7 +72,7 @@ public class SemanticTaskRuntime {
         run.setCreatedAt(now);
         run.setUpdatedAt(now);
         try {
-            runRepository.saveAndFlush(run);
+            persistence.createRunningTask(run);
         } catch (DataIntegrityViolationException conflict) {
             TaskExperienceEnvelope replay = continuationRequest ? null : readDuplicate(request);
             if (replay != null) return replay;
@@ -95,13 +98,9 @@ public class SemanticTaskRuntime {
             eventSink.accept(new TaskProgressEvent(100, "verify", "停止任务", "执行异常已被安全处理。", "failed"));
         }
         TaskExperienceEnvelope envelope = toEnvelope(run.getId(), raw, trace, effectiveRequest);
-        run.setStatus(envelope.task().status());
-        run.setUpdatedAt(Instant.now());
-        if (isTerminal(envelope.task().status())) run.setCompletedAt(run.getUpdatedAt());
-        run.setResultJson(write(envelope));
-        run.setCompletionJson(write(envelope.completion()));
-        run.setEvidenceJson(write(envelope.evidence()));
-        runRepository.save(run);
+        Instant completedAt = isTerminal(envelope.task().status()) ? Instant.now() : null;
+        persistence.completeTask(run, envelope.task().status(), Instant.now(), completedAt,
+            write(envelope), write(envelope.completion()), write(envelope.evidence()));
         return envelope;
     }
 
@@ -117,7 +116,7 @@ public class SemanticTaskRuntime {
         if (claims == null || !safeEquals(claims.principal(), request.externalPrincipal())) {
             return new ContinuationContext(request, "", blockedEnvelope("续接票据无效、已过期或不属于当前用户。"));
         }
-        SemanticTaskRun parent = runRepository.findLockedById(claims.taskId()).orElse(null);
+        SemanticTaskRun parent = persistence.findLockedById(claims.taskId()).orElse(null);
         if (parent == null || parent.isContinuationConsumed()
             || !safeEquals(parent.getChannel(), request.channel())
             || !safeEquals(parent.getInstallationKey(), request.installationId())
@@ -133,7 +132,7 @@ public class SemanticTaskRuntime {
         if (!safeEquals(token, persistedToken) || !("needs_input".equals(parentStatus) || "confirmation_required".equals(parentStatus))) {
             return new ContinuationContext(request, "", blockedEnvelope("当前任务不处于可续接状态，或续接票据已失效。"));
         }
-        if (runRepository.consumeContinuation(parent.getId()) != 1) {
+        if (!persistence.consumeContinuation(parent.getId())) {
             return new ContinuationContext(request, "", blockedEnvelope("续接票据已使用或正在被其他请求消费。"));
         }
         return new ContinuationContext(restoreParentContext(request, parent), parent.getId(), null);
@@ -182,14 +181,14 @@ public class SemanticTaskRuntime {
 
     private TaskExperienceEnvelope readDuplicate(SemanticTaskRequest request) {
         if (!request.clientRequestId().isBlank()) {
-            TaskExperienceEnvelope duplicate = runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndClientRequestId(
+            TaskExperienceEnvelope duplicate = persistence.findByClientRequest(
                     request.channel(), request.installationId(), request.externalPrincipal(), request.clientRequestId())
                 .map(this::replayOrInFlight)
                 .orElse(null);
             if (duplicate != null) return duplicate;
         }
         if (!request.turnId().isBlank()) {
-            return runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndTurnId(
+            return persistence.findByTurn(
                     request.channel(), request.installationId(), request.externalPrincipal(), request.turnId())
                 .map(this::replayOrInFlight)
                 .orElse(null);
@@ -322,13 +321,7 @@ public class SemanticTaskRuntime {
     }
 
     private void persistEvent(String taskId, int sequence, TaskProgressEvent event) {
-        SemanticTaskEvent stored = new SemanticTaskEvent();
-        stored.setId(UUID.randomUUID().toString());
-        stored.setTaskId(taskId);
-        stored.setEventSequence(sequence);
-        stored.setEventJson(write(event));
-        stored.setCreatedAt(Instant.now());
-        eventRepository.save(stored);
+        persistence.appendEvent(taskId, sequence, write(event));
     }
 
     private List<TaskProgressEvent> traceFrom(Object value) {

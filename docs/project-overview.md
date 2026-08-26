@@ -12,7 +12,7 @@ CPClaw 是可扩展、可治理的多 Skill 企业级对话式智能体与任务
 - 前端：Vue 3 / TypeScript / Vite，默认 5173，`/api` 代理到后端。
 - 持久化：MySQL + Flyway；H2 仅测试。
 - 统一执行：`TaskGateway → SemanticTaskRuntime → SkillRegistry → YunshuMcpTaskExecutor`。
-- 对外 MCP：`yunshu_handle_request`，兼容 `cpclaw_cloudpivot_agent`。
+- 对外 MCP：`cpclaw_cloudpivot_agent`，`yunshu_handle_request` 仅作为兼容别名。
 - 当前无登录安全模式：固定默认主体 `huangj`；正式主体认证与多租户仍是发布门禁。
 
 ## 已验证与未完成

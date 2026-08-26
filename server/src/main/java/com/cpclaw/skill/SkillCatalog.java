@@ -4,6 +4,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,8 +38,18 @@ public class SkillCatalog {
         )
     );
     private final Map<String, SkillDefinition> installed = new ConcurrentHashMap<>();
+    private final MarkdownSkillRepository repository;
 
+    @Autowired
+    public SkillCatalog(MarkdownSkillRepository repository) {
+        this.repository = repository;
+        BUILTIN_SKILLS.forEach(skill -> installed.put(skill.id(), skill));
+        repository.findAllByPublicationStatusOrderByUpdatedAtDesc("approved").forEach(this::bindPersisted);
+    }
+
+    /** Lightweight constructor retained for isolated framework tests. */
     public SkillCatalog() {
+        this.repository = null;
         BUILTIN_SKILLS.forEach(skill -> installed.put(skill.id(), skill));
     }
 
@@ -60,8 +75,65 @@ public class SkillCatalog {
             throw new IllegalArgumentException("Skill executor 不在服务端白名单内");
         }
         SkillDefinition definition = new SkillDefinition(id, frontMatter.getOrDefault("name", id), frontMatter.getOrDefault("description", ""), executor, !"READ".equalsIgnoreCase(frontMatter.getOrDefault("risk", "READ")), version, source == null ? "markdown" : source, "approved");
+        if (repository != null) {
+            MarkdownSkill record = repository.findById(id).orElseGet(MarkdownSkill::new);
+            record.setId(id); record.setName(definition.name()); record.setScope(definition.scope());
+            record.setExecutorId(executor); record.setRequiresConfirmationForWrite(definition.requiresConfirmationForWrite());
+            record.setVersion(version); record.setSource(definition.source()); record.setMarkdown(markdown);
+            record.setPublicationStatus("approved"); record.setSignature(signature(markdown));
+            Instant now = Instant.now(); if (record.getCreatedAt() == null) record.setCreatedAt(now); record.setUpdatedAt(now);
+            repository.save(record);
+        }
         installed.put(id, definition);
         return definition;
+    }
+
+    /** Stores a new declaration as draft; publication requires a separate review transition. */
+    public SkillDefinition registerMarkdownDraft(String markdown, String source) {
+        Map<String, String> frontMatter = parseFrontMatter(markdown);
+        String id = required(frontMatter, "id");
+        String version = frontMatter.getOrDefault("version", "1.0.0");
+        String executor = required(frontMatter, "executor");
+        if (!allowedExecutor(executor)) throw new IllegalArgumentException("Skill executor 不在服务端白名单内");
+        SkillDefinition definition = new SkillDefinition(id, frontMatter.getOrDefault("name", id), frontMatter.getOrDefault("description", ""), executor, !"READ".equalsIgnoreCase(frontMatter.getOrDefault("risk", "READ")), version, source == null ? "markdown" : source, "draft");
+        if (repository != null) {
+            MarkdownSkill record = repository.findById(id).orElseGet(MarkdownSkill::new);
+            record.setId(id); record.setName(definition.name()); record.setScope(definition.scope()); record.setExecutorId(executor);
+            record.setRequiresConfirmationForWrite(definition.requiresConfirmationForWrite()); record.setVersion(version); record.setSource(definition.source());
+            record.setMarkdown(markdown); record.setPublicationStatus("draft"); record.setSignature(signature(markdown));
+            Instant now = Instant.now(); if (record.getCreatedAt() == null) record.setCreatedAt(now); record.setUpdatedAt(now); repository.save(record);
+        }
+        return definition;
+    }
+
+    public List<SkillDefinition> listPublished() { return installed.values().stream().filter(item -> "approved".equals(item.publicationStatus())).toList(); }
+
+    public List<SkillDefinition> listAllGoverned() {
+        if (repository == null) return List.copyOf(installed.values());
+        return repository.findAll().stream().map(skill -> new SkillDefinition(skill.getId(), skill.getName(), skill.getScope(), skill.getExecutorId(), skill.isRequiresConfirmationForWrite(), skill.getVersion(), skill.getSource(), skill.getPublicationStatus())).toList();
+    }
+
+    public SkillDefinition setPublicationStatus(String id, String status) {
+        if (id == null || status == null || !List.of("draft", "review", "approved", "disabled", "rejected").contains(status)) throw new IllegalArgumentException("无效的 Skill 发布状态");
+        if (repository != null) {
+            MarkdownSkill record = repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Skill 不存在"));
+            record.setPublicationStatus(status); record.setUpdatedAt(Instant.now()); repository.save(record);
+            if ("approved".equals(status)) bindPersisted(record); else installed.remove(id);
+        } else if (!installed.containsKey(id)) {
+            throw new IllegalArgumentException("Skill 不存在");
+        }
+        return installed.get(id);
+    }
+
+    private void bindPersisted(MarkdownSkill skill) {
+        if (skill == null || !allowedExecutor(skill.getExecutorId())) return;
+        installed.put(skill.getId(), new SkillDefinition(skill.getId(), skill.getName(), skill.getScope(), skill.getExecutorId(), skill.isRequiresConfirmationForWrite(), skill.getVersion(), skill.getSource(), skill.getPublicationStatus()));
+    }
+
+    private boolean allowedExecutor(String executor) { return List.of("metadata-react-executor", "metadata-insight-planner", "workflow-read-executor").contains(executor); }
+    private String signature(String markdown) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(markdown.getBytes(StandardCharsets.UTF_8))); }
+        catch (Exception exception) { throw new IllegalStateException("无法生成 Skill 签名", exception); }
     }
 
     private Map<String, String> parseFrontMatter(String markdown) {

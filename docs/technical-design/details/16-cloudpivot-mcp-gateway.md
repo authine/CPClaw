@@ -28,7 +28,7 @@ OAuth、市场发布和企业租户透传尚未有正式契约。SSE 地址对�
 
 ## 5. 语义任务网关与进度协议
 
-`yunshu_handle_request` 是对外优先使用的自然语言工具。网关创建短生命周期任务标识并进入统一 `TaskGateway`；MCP 适配层可使用 `BoundCloudPivotConnection` 注入临时凭据，但不得调用依赖 CPClaw 本地个人凭据或会话副作用的旧 `AgentOrchestrator.handleMessage` 执行云枢业务。
+`cpclaw_cloudpivot_agent` 是对外优先使用的自然语言工具，`yunshu_handle_request` 仅作为兼容名称。网关创建短生命周期任务标识并进入统一 `TaskGateway`；MCP 适配层可使用 `BoundCloudPivotConnection` 注入临时凭据，但不得调用依赖 CPClaw 本地个人凭据或会话副作用的旧 `AgentOrchestrator.handleMessage` 执行云枢业务。
 
 `McpProgressListener` 将内部的安全过程事件转换为两份输出：
 

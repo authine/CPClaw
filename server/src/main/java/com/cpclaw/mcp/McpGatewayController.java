@@ -220,12 +220,12 @@ public class McpGatewayController {
         Map<String, Object> output = taskExperienceOutputSchema();
         return List.of(
             tool(
-                "yunshu_handle_request",
-                "兼容旧客户端的云枢领域委派入口，也是 CPClaw 云枢唯一业务工具。推荐新客户端使用 cpclaw_cloudpivot_agent；两者共享同一轮幂等、证据契约和执行边界。不能在本轮自行补查字段；不要在请求中填写 schemaCode、apiCode 或内部字段编码。",
+                "cpclaw_cloudpivot_agent",
+                "CPClaw 云枢领域委派入口，也是唯一业务工具。OpenClaw 传入用户目标以及可选的 taskSpec 交付要求；CPClaw 在服务端完成云枢元数据核验、数据准备、关联、证据覆盖和风险信号整理。OpenClaw 仍负责最终跨领域思考与自然语言表达，但不得修改 structuredContent.evidence 中的事实、数字、口径、范围或警告。仅在 completion 明确 needs_input、confirmation_required 或用户新增约束时继续调用；不得因为表达不够漂亮而在同一 turn 重复访问云枢。不能在本轮自行补查字段，也不能在请求中填写内部字段；不得要求、猜测或调用 schemaCode、apiCode、字段编码等内部技术标识。",
                 schema, output),
             tool(
-                "cpclaw_cloudpivot_agent",
-                "CPClaw 云枢领域委派入口，也是唯一业务工具。OpenClaw 传入用户目标以及可选的 taskSpec 交付要求；CPClaw 在服务端完成云枢元数据核验、数据准备、关联、证据覆盖和风险信号整理。OpenClaw 仍负责最终跨领域思考与自然语言表达，但不得修改 structuredContent.evidence 中的事实、数字、口径、范围或警告。仅在 completion 明确 needs_input、confirmation_required 或用户新增约束时继续调用；不得因为表达不够漂亮而在同一 turn 重复访问云枢。不得要求、猜测或调用 schemaCode、apiCode、字段编码等内部技术标识。",
+                "yunshu_handle_request",
+                "兼容旧客户端的云枢领域委派入口，与 cpclaw_cloudpivot_agent 共享同一执行器、幂等、证据契约和执行边界。",
                 schema, output)
         );
     }

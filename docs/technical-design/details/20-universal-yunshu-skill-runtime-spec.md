@@ -156,7 +156,7 @@ CPClaw Web/Agent 直接调用 `TaskGateway`，由 Runtime 统一执行。记忆�
 
 ### 7.2 OpenClaw 调用
 
-OpenClaw 加载本 Skill 的行为说明，并通过 MCP 的唯一高阶工具 `cpclaw_cloudpivot_agent` 提交 `DelegationSpec`。OpenClaw 负责最终表达和跨 Skill 编排，CPClaw 负责云枢证据闭环。
+OpenClaw 加载本 Skill 的行为说明，并通过 MCP 的唯一高阶工具 `cpclaw_cloudpivot_agent` 提交 `DelegationSpec`；旧客户端可使用兼容别名 `yunshu_handle_request`。OpenClaw 负责最终表达和跨 Skill 编排，CPClaw 负责云枢证据闭环。
 
 ### 7.3 CLI/Remote
 
@@ -270,4 +270,4 @@ CLI 和 Remote API 仅转发 `DelegationSpec`、查询任务状态、获取事�
 
 已具备：TaskGateway、SemanticTaskRuntime、MCP 高阶入口、结构化结果、EvidenceCompletion、幂等 replay、continuation token、CLI 转发、模板插件隔离；已新增 `YunshuProvider`、`YunshuExecutionScope`、`YunshuSkillRuntime`、可替换 `YunshuIntentPlanner`、`YunshuMetadataDiscovery`、`YunshuPlanValidator`、`YunshuRuntimePhase` 和 `YunshuResultComposer` 契约，并让 MCP 云枢执行器通过 Provider、规划器、元数据发现、计划校验和统一结果编排组件访问运行态查询；Web 和 MCP 已通过 `TaskGateway → SkillRegistry` 解析并执行同一个 Spring 单例 `YunshuMcpTaskExecutor`，Web 仅以 `WebTaskExperienceAdapter` 将统一 `TaskExperienceEnvelope` 转为遗留 `AgentResponse`，不再保留第二条云枢执行链；通用对话亦在同一 Runtime 内安全完成，不要求云枢连接上下文。历史场景测试已迁移为通用 Runtime 契约，避免测试反向固化业务逻辑；Web 已增加内部/外部消息 DTO 边界，普通响应和历史消息脱敏内部 schema/api 编码，内部审计与运行上下文保留受控编码；模板管理已提供 Manifest 校验、草稿、审核、发布和停用 API；无登录部署默认拒绝任意外部主体冒充。
 
-尚需外部发布门禁：可信 OIDC/JWT 校验、真实写入/流程/导入契约、后台队列化跨断线恢复和模板版本历史回滚尚需接入对应生产基础设施与真实云枢环境。场景模板已改为默认关闭，仅通过显式配置注册；内部流程/API 编码不再进入 MCP 错误载荷或用户可见进度。旧 `AgentOrchestrator → YunshuAgentOrchestrator` 兼容入口仍需移除或改造成纯 TaskGateway 委派，避免历史业务判断路径重新启用。
+尚需外部发布门禁：可信 OIDC/JWT 校验、真实写入/流程/导入契约、后台队列化跨断线恢复和模板版本历史回滚尚需接入对应生产基础设施与真实云枢环境。场景模板已改为默认关闭，仅通过显式配置注册；内部流程/API 编码不再进入 MCP 错误载荷或用户可见进度。旧 `YunshuAgentOrchestrator` 已删除，`AgentOrchestrator` 仅保留无语义兼容响应；固定通用对话词表已移除，模型不可用时进入受治理的 Skill 解析路径。

@@ -184,4 +184,4 @@ CLI 只负责参数、身份头和协议转发；所有规划、权限、确认�
 
 已实现：MCP SSE JSON-RPC、唯一高阶工具、结构化结果、Markdown 降级、进度通知、任务幂等 replay、签名 continuation、任务状态/事件/取消、CLI 转发和默认主体。
 
-仍需按真实环境补齐：宿主可信 OIDC/JWT 主体映射、跨断线的完整异步执行协调、云枢真实写入/流程/导入契约、Markdown Skill 的持久化审核工作台、模板版本回滚。Web 已通过 `WebTaskExperienceAdapter` 消费统一 `TaskExperienceEnvelope`；兼容字段仅用于旧 UI，不构成第二套执行链。
+仍需按真实环境补齐：宿主可信 OIDC/JWT 主体映射、跨断线的完整异步执行协调、云枢真实写入/流程/导入契约和模板版本回滚。Markdown Skill 已具备持久化注册、审核状态与白名单执行器绑定；Web 已通过 `WebTaskExperienceAdapter` 消费统一 `TaskExperienceEnvelope`，兼容字段仅用于旧 UI，不构成第二套执行链。

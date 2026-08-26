@@ -20,11 +20,6 @@ public class DefaultTaskGateway implements TaskGateway {
         this.skillRegistry = skillRegistry;
     }
     @Override
-    public TaskExperienceEnvelope execute(SemanticTaskRequest request, SemanticTaskRuntime.TaskExecutor executor, Consumer<TaskProgressEvent> downstream) {
-        return runtime.execute(request, executor, downstream);
-    }
-
-    @Override
     public TaskExperienceEnvelope execute(SemanticTaskRequest request, String skillId, SkillExecutionContext context, Consumer<TaskProgressEvent> downstream) {
         SkillExecutor executor = skillRegistry.executor(skillId);
         if (executor == null) {
@@ -38,13 +33,4 @@ public class DefaultTaskGateway implements TaskGateway {
         return runtime.execute(request, (taskId, progress) -> executor.execute(request, safeContext, taskId, progress), downstream);
     }
 
-    /** Stable kernel entry point for adapters that already resolved a Skill executor. */
-    public TaskExperienceEnvelope executeResolved(SemanticTaskRequest request, TaskExecutor executor, Consumer<TaskProgressEvent> downstream) {
-        return runtime.execute(request, executor::execute, downstream);
-    }
-
-    @FunctionalInterface
-    public interface TaskExecutor {
-        java.util.Map<String, Object> execute(String taskId, Consumer<TaskProgressEvent> progress);
-    }
 }

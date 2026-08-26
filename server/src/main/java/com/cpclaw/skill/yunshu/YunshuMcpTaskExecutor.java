@@ -1,6 +1,6 @@
 package com.cpclaw.skill.yunshu;
 
-import com.cpclaw.agent.MetadataExecutionPlanner;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner;
 import com.cpclaw.agent.AgentProgressListener;
 import com.cpclaw.cloudpivot.CloudPivotRecordDisplayPolicy;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
@@ -132,9 +132,6 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
         if (!taskSpec.constraints().isEmpty()) query = query + " " + taskSpec.constraints().entrySet().stream().limit(8).map(entry -> entry.getKey() + ":" + entry.getValue()).reduce("", (left, right) -> left + " " + right);
         if (query.isBlank()) {
             return finish(taskId, "clarification_required", "请描述希望查询、分析或处理的业务目标。", Map.of(), trace, progress, 100, "请求内容为空，无法开始业务对象定位。");
-        }
-        if (isGenericConversation(query)) {
-            return finishGenericConversation(taskId, query, context, trace, progress);
         }
         Optional<ConversationRouteResult> routed = routeConversation(query, context);
         if (routed.isPresent() && routed.get().isConversation()) {
@@ -307,49 +304,6 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
             if (prior.executable()) return prior;
         }
         return current;
-    }
-
-    /** Generic host-level conversation guard; it contains no domain vocabulary. */
-    private boolean isGenericConversation(String query) {
-        String value = normalize(query);
-        return value.matches("(?s).*(^|\\b)(hi|hello|hey)(\\b|$).*")
-            || startsWithAny(value, "你好", "您好", "嗨", "在吗", "早上好", "下午好", "晚上好")
-            || value.contains("天气")
-            || value.contains("怎么称呼")
-            || value.contains("你是谁")
-            || value.contains("谢谢")
-            || value.contains("设计")
-            || value.contains("架构方案")
-            || value.contains("说明文档")
-            || value.contains("大纲");
-    }
-
-    private Map<String, Object> finishGenericConversation(
-        String taskId,
-        String query,
-        List<String> context,
-        List<Map<String, Object>> trace,
-        Consumer<TaskProgressEvent> progress
-    ) {
-        String answer = modelGateway.answerGeneralConversation(null, query, context == null ? List.of() : context, true)
-            .orElseGet(() -> genericConversationFallback(query));
-        emit(progress, trace, taskId, YunshuRuntimePhase.COMPLETE, 80, "完成对话回应", "当前内容不需要访问云枢业务 Skill。", "completed");
-        return finish(taskId, "completed", answer,
-            Map.of("answer", answer, "mode", "conversation", "intent", "conversation"),
-            trace, progress, 100, "已按通用对话模式直接回答，未调用云枢业务能力。");
-    }
-
-    private String genericConversationFallback(String query) {
-        String value = normalize(query);
-        if (value.contains("天气")) return "我暂时无法获取实时天气，但可以继续帮你处理已接入系统中的数据任务。";
-        if (value.contains("谢谢")) return "不客气，有需要继续告诉我即可。";
-        if (value.contains("你是谁") || value.contains("怎么称呼")) return "我是 CPClaw，可以通过已接入的 Skill 协助你完成系统查询、分析和受控操作。";
-        return "这是一个通用问题，我会直接回答，不调用云枢业务系统。请继续告诉我你想了解的内容。";
-    }
-
-    private boolean startsWithAny(String value, String... prefixes) {
-        for (String prefix : prefixes) if (value.startsWith(prefix)) return true;
-        return false;
     }
 
     private Map<String, Object> queryWorkflow(String taskId, BoundCloudPivotConnection connection, String query, Map<String, Object> matched, List<Map<String, Object>> trace, Consumer<TaskProgressEvent> progress) {

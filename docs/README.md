@@ -21,6 +21,7 @@
 | 统一云枢 Runtime | [`technical-design/details/20-universal-yunshu-skill-runtime-spec.md`](technical-design/details/20-universal-yunshu-skill-runtime-spec.md) | 生命周期、接口、结果、宿主契约 |
 | 模板插件 | [`technical-design/details/15-analysis-template-plugin-contract.md`](technical-design/details/15-analysis-template-plugin-contract.md) | 场景扩展与治理边界 |
 | OpenClaw 集成 | [`technical-design/details/19-openclaw-class-ai-tool-integration.md`](technical-design/details/19-openclaw-class-ai-tool-integration.md) | MCP/CLI 接入和联调规则 |
+| 状态与发布门禁 | [`technical-design/details/21-product-status-matrix-and-release-gates.md`](technical-design/details/21-product-status-matrix-and-release-gates.md) | 完成度分层、OpenClaw SLO 与生产发布条件 |
 | 数据与安全 | [`technical-design/details/04-data-model.md`](technical-design/details/04-data-model.md)、[`05-security.md`](technical-design/details/05-security.md) | 数据边界、凭据、审计与确认 |
 | 测试基线 | [`test-cases/07-test-plan.md`](test-cases/07-test-plan.md) | 测试层次、门禁和证据 |
 | 项目状态 | [`project-management/PROGRESS.md`](project-management/PROGRESS.md) | 变更、验证和遗留风险 |

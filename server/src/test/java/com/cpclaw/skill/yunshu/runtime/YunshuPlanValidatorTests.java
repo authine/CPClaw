@@ -2,7 +2,7 @@ package com.cpclaw.skill.yunshu.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.mcp.McpInstallationService.BoundCloudPivotConnection;
 import java.util.List;

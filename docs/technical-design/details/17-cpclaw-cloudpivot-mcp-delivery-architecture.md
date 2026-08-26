@@ -165,7 +165,7 @@ public interface SemanticSkill {
 
 ### 5.1 工具清单
 
-`yunshu_handle_request` 是 `tools/list` 中唯一业务入口。终端模型只能调用它，不能被引导调用状态、取消、字段探查或云枢 API。
+`cpclaw_cloudpivot_agent` 是 `tools/list` 中推荐的唯一业务入口；`yunshu_handle_request` 仅作为兼容别名，两者复用同一执行器。终端模型只能调用高阶入口，不能被引导调用状态、取消、字段探查或云枢 API。
 
 长任务状态与取消属于平台生命周期能力：CPClaw 可通过受保护的任务查询 API、MCP Resource 或宿主已建立的进度通道提供，不作为业务工具出现在模型可见的 `tools/list` 中。最终结果始终包含完整业务结果和 `visibleTrace`，不能依赖状态通道才可用。
 

@@ -19,9 +19,10 @@ public final class DefaultYunshuCompletionValidator implements YunshuCompletionV
         List<Map<String, Object>> missing = new ArrayList<>();
         if (spec != null) {
             for (TaskDeliverable item : spec.deliverables()) {
-                String state = declarations.containsKey(item.id()) ? String.valueOf(declarations.get(item.id())) : "unverified";
+                Object declaration = declarations.get(item.id());
+                String state = declaration == null || String.valueOf(declaration).isBlank() ? "unverified" : String.valueOf(declaration);
                 states.put(item.id(), state);
-                if (item.required() && !"fulfilled".equals(state)) {
+                if (item.required() && !"fulfilled".equalsIgnoreCase(state)) {
                     missing.add(Map.of("deliverableId", item.id(), "reason", "未提供该交付物的显式证据声明"));
                 }
             }

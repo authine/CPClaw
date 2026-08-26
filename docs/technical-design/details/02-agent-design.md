@@ -34,4 +34,4 @@ Agent 不是任意工具调用器。它只能在已同步元数据、已注册 S
 
 ## 6. 当前限制与技术债
 
-默认主链已不使用历史 Agent 编排器；但 `YunshuAgentOrchestrator` 仍作为旧 `/api/agent/preview` 依赖存在，内含关键词规则。它必须移除或改为纯 `TaskGateway` 委派后，才能满足“无遗留场景判断路径”的严格目标。
+默认主链和兼容预览均不使用历史 Agent 编排器；`YunshuAgentOrchestrator` 已从源码删除，`AgentOrchestrator` 仅返回兼容说明，不参与云枢语义解析或执行。通用对话路由由已配置模型决定，模型不可用时不启用固定词表兜底。

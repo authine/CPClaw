@@ -40,7 +40,7 @@ CPClaw 面向采用云枢及其他企业系统的用户，提供可扩展、可�
 
 ### 2.5 OpenClaw 类宿主
 
-- 对外提供唯一高阶业务工具 `yunshu_handle_request`（兼容 `cpclaw_cloudpivot_agent`）。
+- 对外提供唯一高阶业务工具 `cpclaw_cloudpivot_agent`（兼容 `yunshu_handle_request`）。
 - 请求采用 `DelegationSpec`；返回 `TaskExperienceEnvelope`，并通过 `hostAction` 指示宿主直接回答、追问、请求确认或报告失败。
 - `respond_directly` 时宿主不得再次改写任务或反复调用；跨 Skill 任务由宿主编排，但不得篡改云枢事实、口径和缺口。
 

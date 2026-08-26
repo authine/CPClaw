@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.cpclaw.agent.MetadataExecutionPlanner;
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.search.MetadataSearchService;
 import java.util.List;

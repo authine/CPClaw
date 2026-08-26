@@ -1,6 +1,6 @@
 package com.cpclaw.skill.yunshu.runtime;
 
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 
 /** Immutable discovery output shared by every host adapter. */

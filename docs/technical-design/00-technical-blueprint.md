@@ -77,7 +77,7 @@ CPClaw 将自然语言目标变为受约束的 Skill 任务。平台负责 Skill
 
 ## 7. 兼容与技术债
 
-旧 `AgentOrchestrator → YunshuAgentOrchestrator` 仍保留为 `/api/agent/preview` 兼容入口，且内部存在历史场景关键词规则。它不在 Web/MCP 默认主链路，却仍是可注入的第二套执行路径，不符合严格的“框架无业务固化”目标。该入口必须在下一次架构收敛中删除或改造成只委派 `TaskGateway` 的无语义适配器；在完成前不得把“遗留路径已清除”写为已实现。
+`/api/agent/preview` 仍保留 `AgentOrchestrator` 作为外部兼容响应，但该类不再注入或调用云枢编排器，也不包含业务关键词路由；真实任务统一进入 `TaskGateway → SkillRegistry → SkillExecutor`。后续可在 API 版本淘汰窗口移除该兼容端点，但它不构成第二套业务执行路径。
 
 ## 8. 发布门禁
 

@@ -86,7 +86,7 @@ class McpGatewayTests {
                 .content("{\"jsonrpc\":\"2.0\",\"id\":\"2\",\"method\":\"tools/list\",\"params\":{}}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.result.tools.length()").value(2))
-            .andExpect(jsonPath("$.result.tools[0].name").value("yunshu_handle_request"))
+            .andExpect(jsonPath("$.result.tools[0].name").value("cpclaw_cloudpivot_agent"))
             .andExpect(jsonPath("$.result.tools[0].inputSchema.required[0]").value("request"))
             .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.schemaCode").doesNotExist())
             .andExpect(jsonPath("$.result.tools[0].description").value(org.hamcrest.Matchers.containsString("唯一业务工具")))

@@ -1,4 +1,4 @@
-package com.cpclaw.agent;
+package com.cpclaw.skill.yunshu.runtime;
 
 import com.cpclaw.metadata.dto.MetadataSearchResult;
 import com.cpclaw.metadata.entity.CloudPivotApiEndpoint;
@@ -20,11 +20,6 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class MetadataExecutionPlanner {
-
-    private static final String OWNER = "\u8d1f\u8d23\u4eba";
-    private static final String SALES = "\u9500\u552e";
-    private static final String SALESMAN = "\u4e1a\u52a1\u5458";
-    private static final String OWNER_SALES = "\u5f52\u5c5e\u9500\u552e";
 
     private final CloudPivotApiEndpointRepository apiEndpointRepository;
     private final CloudPivotEntityRepository entityRepository;
@@ -165,20 +160,8 @@ public class MetadataExecutionPlanner {
         String query = compact(userQuestion);
         Set<String> selectedIds = new LinkedHashSet<>();
         List<FieldHint> result = new ArrayList<>();
-        if (looksLikeOwnerFilterQuestion(query)) {
-            relationHints.stream()
-                .filter(this::isLikelyOwnerRelation)
-                .map(RelationHint::sourceDataItemId)
-                .filter(this::hasText)
-                .map(this::findDataItemByIdOrCode)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .filter(item -> selectedIds.add(item.getId()))
-                .map(this::toFieldHint)
-                .forEach(result::add);
-        }
         for (CloudPivotDataItem item : dataItems) {
-            if (isAnalyticalField(query, item)) {
+            if (isMetadataRelevantField(query, item)) {
                 if (selectedIds.add(item.getId())) {
                     result.add(toFieldHint(item));
                 }
@@ -192,7 +175,7 @@ public class MetadataExecutionPlanner {
             }
         }
         dataItems.stream()
-            .filter(item -> isLikelyNameField(item) || isLikelyStatusField(item) || isLikelyAmountField(item) || isLikelyOwnerField(item) || item.isReference())
+            .filter(item -> isUsableField(item))
             .sorted(Comparator.comparingInt(item -> fieldPriority(query, item)))
             .filter(item -> selectedIds.add(item.getId()))
             .limit(Math.max(0, 8 - result.size()))
@@ -210,11 +193,10 @@ public class MetadataExecutionPlanner {
     }
 
     private int fieldPriority(String query, CloudPivotDataItem item) {
-        if (looksLikeOwnerFilterQuestion(query) && isLikelyOwnerField(item)) return 0;
-        if (isAnalyticalField(query, item)) return 1;
+        if (isMetadataRelevantField(query, item)) return 1;
         if (fieldMatchesQuestion(query, item)) return 2;
-        if (isLikelyNameField(item)) return 2;
-        if (isLikelyAmountField(item) || isLikelyStatusField(item)) return 3;
+        if (item.isReference()) return 3;
+        if (item.isRequired()) return 3;
         return 4;
     }
 
@@ -237,8 +219,9 @@ public class MetadataExecutionPlanner {
     private int fieldScore(String query, CloudPivotDataItem item) {
         int score = 0;
         if (fieldMatchesQuestion(query, item)) score += 100;
-        if (isAnalyticalField(query, item)) score += 60;
+        if (isMetadataRelevantField(query, item)) score += 60;
         if (item.isReference()) score += 20;
+        if (item.isRequired()) score += 10;
         return score;
     }
 
@@ -246,50 +229,15 @@ public class MetadataExecutionPlanner {
         return query.contains(compact(item.getName())) || query.contains(compact(item.getDataItemCode())) || query.contains(compact(item.getDescription()));
     }
 
-    private boolean isAnalyticalField(String query, CloudPivotDataItem item) {
-        if ((query.contains("\u91d1\u989d") || query.contains("amount") || query.contains("money") || query.contains("revenue")) && isLikelyAmountField(item)) return true;
-        if ((query.contains("\u9636\u6bb5") || query.contains("\u72b6\u6001") || query.contains("status") || query.contains("stage")) && isLikelyStatusField(item)) return true;
-        if ((query.contains("\u5ba2\u6237") || query.contains("\u5173\u8054")) && item.isReference()) return true;
-        return looksLikeOwnerFilterQuestion(query) && isLikelyOwnerField(item);
+    /** Field selection is driven only by synchronized metadata and the query's explicit terms. */
+    private boolean isMetadataRelevantField(String query, CloudPivotDataItem item) {
+        if (fieldMatchesQuestion(query, item)) return true;
+        String category = compact(item.getFieldCategory());
+        return item.isReference() || item.isRequired() || category.contains("metric") || category.contains("dimension");
     }
 
-    private boolean looksLikeOwnerFilterQuestion(String query) {
-        return query.contains(OWNER) || query.contains(SALES) || query.contains(SALESMAN) || query.contains(OWNER_SALES)
-            || query.contains("\u540d\u4e0b")
-            || query.matches(".*[\\p{IsHan}]{2,5}\u7684(\u5546\u673a|\u9879\u76ee|\u5ba2\u6237|\u7ebf\u7d22|\u8ba2\u5355).*(\u91d1\u989d|\u591a\u5c11|\u51e0\u4e2a|\u51e0\u6761).*")
-            || query.matches(".*[a-z][a-z0-9._-]{1,30}\u7684(\u5546\u673a|\u9879\u76ee|\u5ba2\u6237|\u7ebf\u7d22|\u8ba2\u5355).*(\u91d1\u989d|\u591a\u5c11|\u51e0\u4e2a|\u51e0\u6761).*")
-            || query.matches(".*[\\p{IsHan}]{2,5}(\\u6709\\u591a\\u5c11|\\u6709\\u51e0\\u4e2a|\\u6709\\u51e0\\u6761).*")
-            || query.matches(".*[a-z][a-z0-9._-]{1,30}(\\u6709\\u591a\\u5c11|\\u6709\\u51e0\\u4e2a|\\u6709\\u51e0\\u6761).*");
-    }
-
-    private boolean isLikelyNameField(CloudPivotDataItem item) {
-        String value = compact(item.getName() + item.getDataItemCode());
-        return value.contains("\u540d\u79f0") || value.contains("name") || value.contains("title") || value.contains("instancename");
-    }
-
-    private boolean isLikelyStatusField(CloudPivotDataItem item) {
-        String value = compact(item.getName() + item.getDataItemCode());
-        return value.contains("\u72b6\u6001") || value.contains("\u9636\u6bb5") || value.contains("status") || value.contains("stage") || value.contains("state");
-    }
-
-    private boolean isLikelyAmountField(CloudPivotDataItem item) {
-        String value = compact(item.getName() + item.getDataItemCode());
-        return value.contains("\u91d1\u989d") || value.contains("\u5408\u540c\u989d") || value.contains("amount") || value.contains("money") || value.contains("revenue");
-    }
-
-    private boolean isLikelyOwnerField(CloudPivotDataItem item) {
-        String value = compact(item.getName() + item.getDataItemCode() + item.getDescription());
-        return isOwnerText(value);
-    }
-
-    private boolean isLikelyOwnerRelation(RelationHint relation) {
-        if (relation == null) return false;
-        return isOwnerText(compact(relation.relationName() + relation.targetEntityName() + relation.sourceDataItemId()));
-    }
-
-    private boolean isOwnerText(String value) {
-        return value.contains(OWNER) || value.contains(SALES) || value.contains(SALESMAN) || value.contains(OWNER_SALES)
-            || value.contains("owner") || value.contains("sales") || value.contains("seller");
+    private boolean isUsableField(CloudPivotDataItem item) {
+        return item != null && hasText(item.getDataItemCode()) && !"SYSTEM".equalsIgnoreCase(item.getFieldCategory());
     }
 
     private void addField(List<FieldHint> fields, CloudPivotDataItem item) {

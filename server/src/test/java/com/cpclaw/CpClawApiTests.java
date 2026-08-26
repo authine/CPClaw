@@ -504,7 +504,7 @@ class CpClawApiTests {
                     }
                     """.formatted(contractConversationId)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andReturn();
         String contractDesignBody = contractDesignResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         String contractAssistantMessageId = contractDesignBody.replaceAll(".*\\\"assistantMessage\\\":\\{.*?\\\"id\\\":\\\"([^\\\"]+)\\\".*", "$1");
@@ -524,7 +524,7 @@ class CpClawApiTests {
                     }
                     """.formatted(contractConversationId)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("yunshu-skill-runtime")))
             .andExpect(jsonPath("$.data.taskExperience.experienceVersion").value("2.0"))
             .andReturn();
@@ -679,8 +679,7 @@ class CpClawApiTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
-            .andExpect(jsonPath("$.data.steps").isEmpty())
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andExpect(jsonPath("$.data.assistantMessage.metadataJson").value(containsString("yunshu-skill-runtime")));
 
         mockMvc.perform(post("/api/conversations/messages")

@@ -32,7 +32,7 @@ class CpClawFallbackGuardTests {
     private MockMvc mockMvc;
 
     @Test
-    void highConfidenceGreetingUsesConversationModeWithoutMetadataLookup() throws Exception {
+    void greetingWithoutModelRouterDoesNotUseAFrameworkWordList() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -44,18 +44,18 @@ class CpClawFallbackGuardTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
             .andExpect(jsonPath("$.data.candidates").isEmpty())
             .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(body.contains("通用问题"));
-        assertFalse(body.contains("真实云枢数据"));
+        assertTrue(body.contains("真实云枢元数据") || body.contains("业务目标"));
+        assertFalse(body.contains("总计 **"));
     }
 
     @Test
-    void designDiscussionWithBusinessNounsUsesConversationMode() throws Exception {
+    void designDiscussionWithoutModelRouterStaysInGovernedTaskPath() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -67,7 +67,7 @@ class CpClawFallbackGuardTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
+            .andExpect(jsonPath("$.data.intent").value("yunshu_task"))
             .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -75,7 +75,7 @@ class CpClawFallbackGuardTests {
     }
 
     @Test
-    void greetingNeverFallsBackToBusinessClarificationWhenRouterIsUnavailable() throws Exception {
+    void greetingRouterFailureUsesNormalSkillResolution() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -87,17 +87,15 @@ class CpClawFallbackGuardTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
-            .andExpect(jsonPath("$.data.planSummary").value("已按通用对话模式直接回答，未调用云枢业务能力。"))
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertFalse(body.contains("我需要再确认一下你的意图"));
-        assertFalse(body.contains("元数据中匹配到"));
+        assertTrue(body.contains("真实云枢元数据") || body.contains("业务目标"));
     }
 
     @Test
-    void nonBusinessQuestionUsesConversationModeWithoutCloudPivotLookup() throws Exception {
+    void nonBusinessQuestionDoesNotUseFrameworkConversationKeywords() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -109,14 +107,11 @@ class CpClawFallbackGuardTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("conversation"))
-            .andExpect(jsonPath("$.data.candidates").isEmpty())
+            .andExpect(jsonPath("$.data.intent").value("clarify_intent"))
             .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(body.contains("天气"));
-        assertFalse(body.contains("我需要再确认一下你的意图"));
-        assertFalse(body.contains("云枢元数据"));
+        assertTrue(body.contains("真实云枢元数据") || body.contains("业务目标"));
     }
 
     @Test

@@ -684,6 +684,15 @@ MVP 核心要求：
 
 2026-08-26（共享执行器闭环）：Web 已由 `ConversationService → TaskGateway → SkillRegistry → YunshuMcpTaskExecutor` 执行，与 MCP 使用同一 Spring 单例 Runtime 执行器；`AgentResponse` 仅由 `WebTaskExperienceAdapter` 对 `TaskExperienceEnvelope` 做展示协议兼容，不参与云枢语义解析或执行。无云枢连接时，通用对话仍由统一 Runtime 安全完成；未匹配真实元数据的业务请求返回澄清，不回退本地演示数据。同步更新旧 Web 兼容测试的 metadata 来源断言，避免反向要求旧的 `direct-conversation` 执行链。
 
+2026-08-26（本轮架构建议落地）：删除 `YunshuAgentOrchestrator` 源文件，`AgentOrchestrator` 仅保留无语义 `/api/agent/preview` 兼容响应；`TaskGateway` 继续只接受已注册 Skill 标识，不暴露任意执行器旁路。新增 `SemanticTaskPersistenceService`，将任务创建、事件追加、任务完成、幂等查询和 continuation 消费拆为短事务，`SemanticTaskRuntime` 不再以长事务包住模型/云枢网络调用。移除 `YunshuModelGateway` 的固定本地对话词表和天气 fallback，模型不可用时不再由框架猜测闲聊。新增架构守卫测试，增强证据完成度的真实值校验。统一 MCP 文档推荐入口为 `cpclaw_cloudpivot_agent`，`yunshu_handle_request` 仅作兼容别名；新增产品状态矩阵、OpenClaw 体验 SLO 和生产发布门禁文档。验证：后端全量 Maven 测试 99 项通过，前端生产构建通过，CLI/MCP 语法检查和 `git diff --check` 通过；真实云枢写入、流程处理、导入、可信 OIDC/JWT、断线后台恢复和模板回滚仍是生产发布门禁，不宣称已完成。
+
 2026-08-26（记忆模型校正）：根据产品边界复核，将记忆统一定义为三层产品模型：用户会话记忆、用户自定义设置记忆、平台设置记忆；技术范围分别对应 `SESSION / USER / SYSTEM`。任务级记忆如存在，仅作为内部生命周期数据，不作为独立设置层。同步修订产品蓝图、需求、产品概要、数据模型、统一 Runtime、OpenClaw 委派契约和记忆设置界面文案；会话记忆继续不在设置页展示，平台设置记忆仍仅超级管理员可管理。前端生产构建与 `git diff --check` 通过。
 
-2026-08-26（项目级文档收敛）：按项目视角重新审查并重写项目入口、文档治理、产品蓝图、规范性需求、产品概要设计、技术架构、系统架构、Agent、数据模型、受控操作、关键技术策略和模板插件契约。权威口径统一为“多 Skill 平台、云枢为首个核心 Skill、Web/MCP/CLI 复用 TaskGateway Runtime、模板承载场景逻辑”；明确了 MySQL/Flyway V1–V30、MCP/CLI 契约、默认主体和发布门禁。文档不再把通用写入、流程处理、导入、OIDC/JWT、后台断线恢复、模板回滚和跨网络 E2E 写为已完成；同步登记旧 `AgentOrchestrator → YunshuAgentOrchestrator` 兼容入口仍存在历史关键词规则这一架构技术债，未将其虚报为已清除。待本轮 Markdown 链接、状态与边界扫描完成后形成文档验收结论；文档尚未提交 Git，需用户确认后提交。
+2026-08-26（项目级文档收敛）：按项目视角重新审查并重写项目入口、文档治理、产品蓝图、规范性需求、产品概要设计、技术架构、系统架构、Agent、数据模型、受控操作、关键技术策略和模板插件契约。权威口径统一为“多 Skill 平台、云枢为首个核心 Skill、Web/MCP/CLI 复用 TaskGateway Runtime、模板承载场景逻辑”；明确了 MySQL/Flyway V1–V30、MCP/CLI 契约、默认主体和发布门禁。文档不再把通用写入、流程处理、导入、OIDC/JWT、后台断线恢复、模板回滚和跨网络 E2E 写为已完成；同步登记 `/api/agent/preview` 仅保留无语义 AgentResponse 兼容桥接，不再存在第二套云枢执行路径。待本轮 Markdown 链接、状态与边界扫描完成后形成文档验收结论；文档尚未提交 Git，需用户确认后提交。
+2026-08-27（架构边界与 Skill 治理继续落地）：将 `MetadataExecutionPlanner` 与云枢问句语义实现归入 `skill.yunshu.runtime`，删除框架层针对负责人、销售、商机、项目等业务词汇的字段启发式与正则判断，改为基于同步元数据字段分类、引用、必填和显式匹配。新增 `markdown_skills` Flyway 表、实体、仓储及超级管理员 API，Markdown Skill 注册结果持久化并在启动时仅绑定服务端白名单执行器；不接受脚本、远程 URL 或任意执行器。`ConversationService.sendMessage` 去除长事务注解，网络/模型执行由统一 TaskGateway 负责，数据库写入由已有短事务服务承接。MCP `tools/list` 现在以 `cpclaw_cloudpivot_agent` 为首选，`yunshu_handle_request` 为兼容别名。后端编译与全量测试通过，真实云枢写入、流程处理、导入、可信主体认证和跨断线恢复仍属于生产门禁。
+
+2026-08-27（Skill 执行闭环修订）：补充 `SkillRegistry` 对持久化 Markdown Skill 的绑定逻辑，声明式 Skill 只能映射到服务端已注册执行器，不能携带脚本、远程地址或自定义代码；新增注册 Skill 到统一执行器的回归测试。MCP 工具顺序变更后的专项测试已同步修订并通过。
+
+2026-08-27（最终回归）：后端全量 Maven 测试通过，前端生产构建通过，架构守卫、Skill 注册绑定、MCP 工具顺序、CLI/MCP 语法检查和 `git diff --check` 均通过。当前剩余项均为真实生产发布门禁：OIDC/JWT、多租户、真实云枢写入/流程/导入、跨断线异步恢复和模板版本回滚。
+
+2026-08-27（Skill 治理流程修订）：Markdown Skill 管理 API 改为先登记 `draft`，再由超级管理员执行审核/发布状态迁移，避免注册接口直接绕过审核进入执行器；新增草稿不可执行回归测试。

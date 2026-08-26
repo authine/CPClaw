@@ -1,6 +1,6 @@
 package com.cpclaw.skill.yunshu.runtime;
 
-import com.cpclaw.agent.MetadataExecutionPlanner.MetadataExecutionPlan;
+import com.cpclaw.skill.yunshu.runtime.MetadataExecutionPlanner.MetadataExecutionPlan;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
