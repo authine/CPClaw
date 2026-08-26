@@ -299,7 +299,7 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.apps[0].entities.length()").value(2))
             .andExpect(jsonPath("$.data.apps[0].entities[0].code").value("int_bu_oppor"))
             .andExpect(jsonPath("$.data.apps[0].entities[0].dataItems.length()").value(4))
-            .andExpect(jsonPath("$.data.apps[0].entities[0].dataItems[0].code").value("opportunityCustomer"))
+            .andExpect(jsonPath("$.data.apps[0].entities[0].dataItems[0].code").value("owner"))
             .andExpect(jsonPath("$.data.apps[0].entities[0].relations[0].targetEntityCode").value("crm_customer"))
             .andExpect(jsonPath("$.data.apps[0].entities[0].apiActions.length()").value(5))
             .andExpect(jsonPath("$.data.apps[0].entities[0].apiActions[0].apiCode").value("business_rule_create"))

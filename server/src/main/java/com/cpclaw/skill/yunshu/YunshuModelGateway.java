@@ -33,6 +33,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class YunshuModelGateway implements ModelGateway {
@@ -44,7 +45,13 @@ public class YunshuModelGateway implements ModelGateway {
     // response before returning a complete answer. The UI exposes cancellation,
     // so retain a bounded but usable server-side budget instead of fabricating a
     // greeting when a provider has not yet completed its reasoning pass.
-    private static final Duration ANALYSIS_HARD_TIMEOUT = Duration.ofSeconds(90);
+    /**
+     * A report may spend several minutes in provider-side reasoning. The web
+     * stream emits independent progress heartbeats during this window, while
+     * this limit still prevents an unbounded provider connection.
+     */
+    private static final Duration ANALYSIS_HARD_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration STREAM_FIRST_OUTPUT_TIMEOUT = Duration.ofSeconds(90);
     private static final Duration PLANNING_HARD_TIMEOUT = Duration.ofSeconds(5);
     private static final ScheduledExecutorService MODEL_TIMEOUT_SCHEDULER = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "cpclaw-model-stream-timeout");
@@ -202,7 +209,7 @@ public class YunshuModelGateway implements ModelGateway {
             ));
 
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(ANALYSIS_HARD_TIMEOUT)
                 .header("Authorization", "Bearer " + apiKey.get())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
@@ -271,7 +278,7 @@ public class YunshuModelGateway implements ModelGateway {
                 )
             ));
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(ANALYSIS_HARD_TIMEOUT)
                 .header("Authorization", "Bearer " + apiKey.get())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
@@ -293,6 +300,8 @@ public class YunshuModelGateway implements ModelGateway {
         AtomicBoolean timedOut = new AtomicBoolean(false);
         AtomicBoolean completed = new AtomicBoolean(false);
         AtomicBoolean truncated = new AtomicBoolean(false);
+        AtomicBoolean doneSeen = new AtomicBoolean(false);
+        AtomicBoolean receivedContent = new AtomicBoolean(false);
         ScheduledFuture<?> timeout = MODEL_TIMEOUT_SCHEDULER.schedule(() -> {
             timedOut.set(true);
             try {
@@ -302,6 +311,18 @@ public class YunshuModelGateway implements ModelGateway {
             }
         }, ANALYSIS_HARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         StringBuilder answer = new StringBuilder();
+        AtomicReference<ScheduledFuture<?>> doneGrace = new AtomicReference<>();
+        ScheduledFuture<?> firstOutputTimeout = MODEL_TIMEOUT_SCHEDULER.schedule(() -> {
+            if (receivedContent.get()) {
+                return;
+            }
+            timedOut.set(true);
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {
+                // The provider stream has already ended.
+            }
+        }, STREAM_FIRST_OUTPUT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -314,8 +335,18 @@ public class YunshuModelGateway implements ModelGateway {
                 }
                 if ("[DONE]".equals(data)) {
                     completed.set(true);
-                    // Some OpenAI-compatible gateways emit a final usage event
-                    // immediately after the DONE marker. Keep reading until EOF.
+                    doneSeen.set(true);
+                    // A few gateways send usage immediately after [DONE] but do
+                    // not close the HTTP stream. Allow a short usage grace window,
+                    // then close the provider stream instead of leaving the UI in
+                    // a permanently running state.
+                    doneGrace.set(MODEL_TIMEOUT_SCHEDULER.schedule(() -> {
+                        try {
+                            inputStream.close();
+                        } catch (IOException ignored) {
+                            // The reader is already finishing.
+                        }
+                    }, 750, TimeUnit.MILLISECONDS));
                     continue;
                 }
                 JsonNode root = objectMapper.readTree(data);
@@ -331,16 +362,20 @@ public class YunshuModelGateway implements ModelGateway {
                 }
                 String chunk = content.asText();
                 answer.append(chunk);
+                receivedContent.set(true);
                 if (chunkConsumer != null) {
                     chunkConsumer.accept(chunk);
                 }
             }
         } catch (IOException exception) {
-            if (!timedOut.get()) {
+            if (!timedOut.get() && !doneSeen.get()) {
                 throw exception;
             }
         } finally {
             timeout.cancel(false);
+            firstOutputTimeout.cancel(false);
+            ScheduledFuture<?> grace = doneGrace.get();
+            if (grace != null) grace.cancel(false);
         }
         if (timedOut.get() || truncated.get() || !completed.get() || answer.isEmpty()) {
             return Optional.empty();

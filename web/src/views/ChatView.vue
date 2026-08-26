@@ -32,7 +32,11 @@
           @click="openConversation(conversation.id)"
         >
           <button class="conversation-item__main" type="button" :disabled="loadingConversation || submitting">
-            <span class="conversation-item__title">{{ conversation.title || '新会话' }}</span>
+            <span class="conversation-item__title-row">
+              <span v-if="isConversationStreaming(conversation.id)" class="conversation-item__status conversation-item__status--streaming" role="status" aria-label="模型正在输出" />
+              <span v-else-if="conversation.unread" class="conversation-item__status conversation-item__status--unread" role="status" aria-label="有未读回复" />
+              <span class="conversation-item__title">{{ conversation.title || '新会话' }}</span>
+            </span>
             <span class="conversation-item__time">{{ formatTime(conversation.updatedAt) }}</span>
           </button>
           <el-button
@@ -295,7 +299,7 @@ import AttachmentUploader from '../components/chat/AttachmentUploader.vue'
 import AgentRunTimeline from '../components/chat/AgentRunTimeline.vue'
 import ModelSelector from '../components/chat/ModelSelector.vue'
 import ThinkingToggle from '../components/chat/ThinkingToggle.vue'
-import { cancelMessageExecution, createConversation, deleteConversation, getConversation, listConversations, sendMessageStream } from '../services/conversationApi'
+import { cancelMessageExecution, createConversation, deleteConversation, getConversation, listConversations, markConversationRead, sendMessageStream } from '../services/conversationApi'
 import { confirmOperation, getAgentRun } from '../services/auditApi'
 import { updateMessageFeedback } from '../services/feedbackApi'
 import { listModelConfigs } from '../services/settingsApi'
@@ -334,6 +338,9 @@ const loadingConversations = ref(false)
 const loadingConversation = ref(false)
 const creatingConversation = ref(false)
 const deletingConversationId = ref('')
+const pendingConversationPreview = ref<ConversationSummary>()
+const streamingConversationIds = ref<Record<string, true>>({})
+const readingConversationId = ref('')
 const errorMessage = ref('')
 const feedbackSubmittingMessageId = ref('')
 const historyCollapsed = ref(false)
@@ -518,29 +525,9 @@ async function startConversation() {
     return
   }
 
-  creatingConversation.value = true
   errorMessage.value = ''
-  try {
-    const conversation = await createConversation({
-      title: '新会话',
-      modelConfigId: selectedModelId.value || undefined,
-      thinkingEnabled: thinkingEnabled.value
-    })
-    conversationId.value = conversation.id
-    messages.value = []
-    traceByMessageId.value = {}
-    expandedTraceByMessageId.value = {}
-    selectedTraceMessageId.value = ''
-    uploadedAttachments.value = []
-    lastAgent.value = undefined
-    conversations.value = [conversation, ...conversations.value.filter((item) => item.id !== conversation.id)]
-    collapseHistoryOnMobile()
-  } catch (error) {
-    errorMessage.value = messageFromError(error)
-    ElMessage.error(errorMessage.value)
-  } finally {
-    creatingConversation.value = false
-  }
+  clearCurrentConversation()
+  collapseHistoryOnMobile()
 }
 
 async function openConversation(id: string) {
@@ -560,6 +547,7 @@ async function openConversation(id: string) {
     uploadedAttachments.value = []
     lastAgent.value = undefined
     upsertConversation(detail.conversation)
+    await acknowledgeConversationRead(id)
     collapseHistoryOnMobile()
   } catch (error) {
     errorMessage.value = messageFromError(error)
@@ -586,7 +574,8 @@ async function deleteHistoryConversation(conversation: ConversationSummary) {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
         type: 'warning',
-        confirmButtonClass: 'el-button--danger'
+        confirmButtonClass: 'el-button--danger',
+        customClass: 'cp-message-box cp-message-box--danger'
       }
     )
   } catch {
@@ -615,7 +604,11 @@ async function deleteHistoryConversation(conversation: ConversationSummary) {
 }
 
 function clearCurrentConversation() {
+  if (conversationId.value) {
+    setConversationStreaming(conversationId.value, false)
+  }
   conversationId.value = ''
+  pendingConversationPreview.value = undefined
   messages.value = []
   traceByMessageId.value = {}
   expandedTraceByMessageId.value = {}
@@ -657,7 +650,13 @@ async function submit() {
         throw new DOMException('Aborted', 'AbortError')
       }
       conversationId.value = conversation.id
-      upsertConversation(conversation)
+      pendingConversationPreview.value = {
+        ...conversation,
+        title: conversationPreviewTitle(userContent),
+        updatedAt: new Date().toISOString(),
+        lifecycleStatus: 'DRAFT',
+        unread: false
+      }
     }
 
     const localMessage: MessageItem = {
@@ -701,6 +700,7 @@ async function submit() {
       if (activeAbortReason === 'user' && messageQueued && pendingMessageId) {
         finalizeCancelledAssistantMessage(pendingMessageId)
         uploadedAttachments.value = []
+        await loadConversations()
       } else if (activeAbortReason === 'user' && !messageQueued) {
         input.value = draft
       }
@@ -709,9 +709,11 @@ async function submit() {
     input.value = draft
     removePendingAssistantMessage()
     errorMessage.value = messageFromError(error)
+    await loadConversations()
     ElMessage.error(errorMessage.value)
   } finally {
     stopPendingTimer()
+    setConversationStreaming(conversationId.value, false)
     if (activeStreamController.value === controller) {
       activeStreamController.value = undefined
       activeExecutionId.value = ''
@@ -1154,7 +1156,7 @@ function createPendingAssistantMessage(): MessageItem {
 }
 
 async function handleMessageStreamEvent(event: MessageStreamEvent, pendingMessageId: string) {
-  if (event.type === 'progress' || event.type === 'thought' || event.type === 'execution') {
+  if (event.type === 'progress' || event.type === 'thought' || event.type === 'execution' || event.type === 'heartbeat') {
     updatePendingTraceStep(pendingMessageId, event.step)
     return
   }
@@ -1172,6 +1174,7 @@ async function handleMessageStreamEvent(event: MessageStreamEvent, pendingMessag
     return
   }
   if (event.type === 'answer_delta') {
+    ensureConversationVisible(pendingMessageId)
     appendPendingAssistantContent(pendingMessageId, event.content)
     await nextTick()
     await scrollMessagesToBottom()
@@ -1218,6 +1221,20 @@ async function handleMessageStreamEvent(event: MessageStreamEvent, pendingMessag
       [completedResponse.assistantMessage.id]: completedResponse
     }
     selectedTraceMessageId.value = completedResponse.assistantMessage.id
+    if (completedResponse.assistantMessage.content.trim()) {
+      const existing = conversations.value.find((conversation) => conversation.id === conversationId.value)
+      const preview = pendingConversationPreview.value
+      if (existing || preview) {
+        upsertConversation({
+          ...(existing || preview!),
+          lifecycleStatus: 'COMPLETED',
+          unread: true,
+          updatedAt: new Date().toISOString()
+        })
+      }
+      pendingConversationPreview.value = undefined
+    }
+    setConversationStreaming(conversationId.value, false)
     return
   }
   if (event.type === 'error') {
@@ -1275,9 +1292,8 @@ function findTimelineUpdateIndex(steps: ExecutionStep[], incoming: ExecutionStep
       return byId
     }
   }
-  if (!['completed', 'fallback', 'needs_input', 'cancelled'].includes(incoming.state || '')) {
-    return -1
-  }
+  const mayUpdateRunningStep = incoming.state === 'running'
+  if (!mayUpdateRunningStep && !['completed', 'fallback', 'needs_input', 'cancelled'].includes(incoming.state || '')) return -1
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]
     if (step.title === incoming.title && step.kind === incoming.kind && step.state === 'running') {
@@ -1680,6 +1696,12 @@ function isNearMessagesBottom() {
   return container.scrollHeight - (container.scrollTop + container.clientHeight) <= 120
 }
 
+function isAtMessagesBottom() {
+  const container = messagesContainer.value
+  if (!container) return true
+  return container.scrollHeight - (container.scrollTop + container.clientHeight) <= 24
+}
+
 function handleMessagesScroll() {
   const container = messagesContainer.value
   if (!container) {
@@ -1694,6 +1716,9 @@ function handleMessagesScroll() {
     autoFollowEnabled.value = true
     hasNewContent.value = false
     hideJumpToBottom()
+    if (!submitting.value && !loadingConversation.value && conversationId.value) {
+      void acknowledgeConversationRead(conversationId.value)
+    }
   } else if (!autoFollowEnabled.value) {
     revealJumpToBottom(true)
   }
@@ -1784,6 +1809,10 @@ function scheduleAutoFollow(force = false) {
 
 async function scrollMessagesToBottom(force = false) {
   await nextTick()
+  if (!force && !autoFollowEnabled.value) {
+    refreshMessagesScrollState()
+    return
+  }
   autoFollowEnabled.value = true
   hasNewContent.value = false
   hideJumpToBottom()
@@ -1792,14 +1821,54 @@ async function scrollMessagesToBottom(force = false) {
 }
 
 function upsertConversation(conversation: ConversationSummary) {
-  const existingIndex = conversations.value.findIndex((item) => item.id === conversation.id)
-  if (existingIndex < 0) {
-    conversations.value = [conversation, ...conversations.value]
-    return
+  conversations.value = [conversation, ...conversations.value.filter((item) => item.id !== conversation.id)]
+}
+
+function conversationPreviewTitle(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim()
+  return normalized.length > 20 ? `${normalized.slice(0, 20)}…` : normalized || '新会话'
+}
+
+function isConversationStreaming(id: string) {
+  return Boolean(streamingConversationIds.value[id])
+}
+
+function setConversationStreaming(id: string, streaming: boolean) {
+  if (!id) return
+  const next = { ...streamingConversationIds.value }
+  if (streaming) next[id] = true
+  else delete next[id]
+  streamingConversationIds.value = next
+}
+
+function ensureConversationVisible(messageId: string) {
+  const id = conversationId.value
+  if (!id) return
+  setConversationStreaming(id, true)
+  const preview = pendingConversationPreview.value
+  if (preview && preview.id === id) {
+    upsertConversation({
+      ...preview,
+      lifecycleStatus: 'RUNNING',
+      unread: false
+    })
+    pendingConversationPreview.value = undefined
   }
-  const next = [...conversations.value]
-  next[existingIndex] = conversation
-  conversations.value = next
+}
+
+async function acknowledgeConversationRead(id: string) {
+  if (!id || readingConversationId.value === id) return
+  const item = conversations.value.find((conversation) => conversation.id === id)
+  if (!item?.unread && !currentConversation.value?.unread) return
+  readingConversationId.value = id
+  try {
+    await markConversationRead(id)
+    conversations.value = conversations.value.map((conversation) => conversation.id === id ? { ...conversation, unread: false } : conversation)
+  } catch {
+    // The next list refresh will restore the server truth.
+  } finally {
+    if (readingConversationId.value === id) readingConversationId.value = ''
+  }
 }
 
 function roleLabel(role: MessageItem['role']) {
@@ -3501,8 +3570,14 @@ function messageFromError(error: unknown) {
   color: inherit;
 }
 
-.conversation-item__title { font-size: 14px; font-weight: 600; line-height: 20px; }
+.conversation-item__title-row { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.conversation-item__title { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-item__time { margin-top: 4px; color: var(--chat-text-tertiary); font-size: 12px; line-height: 18px; }
+.conversation-item__status { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
+.conversation-item__status--streaming { border: 2px solid color-mix(in srgb, var(--chat-brand) 32%, transparent); border-top-color: var(--chat-brand); animation: conversation-status-spin .8s linear infinite; }
+.conversation-item__status--unread { background: var(--cp-success, #22c55e); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-success, #22c55e) 16%, transparent); }
+
+@keyframes conversation-status-spin { to { transform: rotate(360deg); } }
 
 .conversation-item__delete {
   opacity: 0.35;

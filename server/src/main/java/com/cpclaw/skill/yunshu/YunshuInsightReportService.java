@@ -6,6 +6,7 @@ import com.cpclaw.insight.InsightDataAccess;
 import com.cpclaw.insight.InsightExecutionResult;
 import com.cpclaw.agent.AnswerStreamSupport;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
+import com.cpclaw.cloudpivot.CloudPivotMetadataSemantics;
 import com.cpclaw.cloudpivot.RuntimeQueryFilter;
 import com.cpclaw.insight.dto.InsightReportDto;
 import com.cpclaw.insight.dto.InsightReportDto.Chart;
@@ -58,14 +59,6 @@ public class YunshuInsightReportService {
     private static final List<String> REPORT_WORDS = List.of(
         "情况怎么样", "情况如何", "整体情况", "分析", "洞察", "诊断", "报告", "概览", "健康度", "趋势", "经营情况"
     );
-    /**
-     * Workflow/runtime lifecycle fields are implementation state, not business dimensions.
-     * They must never win the stage/status field selection for an insight report.
-     */
-    private static final Set<String> SYSTEM_STATUS_FIELD_KEYS = Set.of(
-        "sequencestatus", "workflowstatus", "processstatus", "systemstatus", "datastatus", "recordstatus"
-    );
-
     private final CloudPivotEntityRepository entityRepository;
     private final CloudPivotDataItemRepository dataItemRepository;
     private final CloudPivotEntityRelationRepository relationRepository;
@@ -295,7 +288,9 @@ public class YunshuInsightReportService {
 
     private String recordSummary(Map<String, Object> record) {
         Map<String, Object> data = record.get("data") instanceof Map<?, ?> map
-            ? map.entrySet().stream().collect(Collectors.toMap(entry -> String.valueOf(entry.getKey()), Map.Entry::getValue, (left, right) -> left, LinkedHashMap::new))
+            ? map.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                .collect(Collectors.toMap(entry -> String.valueOf(entry.getKey()), Map.Entry::getValue, (left, right) -> left, LinkedHashMap::new))
             : record;
         return data.entrySet().stream()
             .filter(entry -> entry.getValue() != null)
@@ -445,17 +440,21 @@ public class YunshuInsightReportService {
 
     private EntityTask toTask(CloudPivotEntity entity, String role, RelationEdge edge) {
         List<CloudPivotDataItem> fields = dataItemRepository.findByEntityId(entity.getId());
+        List<CloudPivotDataItem> businessFields = fields.stream()
+            .filter(field -> !CloudPivotMetadataSemantics.SYSTEM_FIELD.equals(field.getFieldCategory()))
+            .toList();
+        List<CloudPivotDataItem> semanticFields = businessFields.isEmpty() ? fields : businessFields;
         return new EntityTask(
             entity,
             role,
             edge,
             fields,
-            bestField(fields, FieldKind.DATE).orElse(null),
-            bestField(fields, FieldKind.OWNER).orElse(null),
-            bestField(fields, FieldKind.STAGE).orElse(null),
-            bestField(fields, FieldKind.AMOUNT).orElse(null),
-            bestField(fields, FieldKind.SIGN_DATE).orElse(null),
-            bestField(fields, FieldKind.MODIFIED_DATE).orElse(null)
+            bestField(semanticFields, FieldKind.DATE).orElseGet(() -> bestField(fields, FieldKind.DATE).orElse(null)),
+            bestField(semanticFields, FieldKind.OWNER).orElseGet(() -> bestField(fields, FieldKind.OWNER).orElse(null)),
+            bestField(semanticFields, FieldKind.STAGE).orElse(null),
+            bestField(semanticFields, FieldKind.AMOUNT).orElse(null),
+            bestField(semanticFields, FieldKind.SIGN_DATE).orElseGet(() -> bestField(fields, FieldKind.SIGN_DATE).orElse(null)),
+            bestField(semanticFields, FieldKind.MODIFIED_DATE).orElseGet(() -> bestField(fields, FieldKind.MODIFIED_DATE).orElse(null))
         );
     }
 
@@ -1260,12 +1259,7 @@ public class YunshuInsightReportService {
     private enum FieldKind { DATE, MODIFIED_DATE, OWNER, STAGE, AMOUNT, SIGN_DATE }
 
     private boolean isSystemStatusField(CloudPivotDataItem field) {
-        if (field == null) return false;
-        String key = normalize(field.getDataItemCode());
-        String label = normalize(field.getName());
-        return SYSTEM_STATUS_FIELD_KEYS.contains(key)
-            || containsAny(label, "单据状态", "流程状态", "系统状态", "数据状态", "记录状态")
-            || containsAny(key, "workflowinstanceid", "processinstanceid");
+        return field != null && CloudPivotMetadataSemantics.SYSTEM_FIELD.equals(field.getFieldCategory());
     }
 
     private boolean isSystemStatusValue(CloudPivotDataItem field, String value) {

@@ -202,8 +202,9 @@ public class YunshuAgentOrchestrator {
             }
         } else if (isDataReadIntent(intent)) {
             if (canQueryRuntime(match)) {
+                boolean useInsightReport = insightReportService.supports(observation.effectiveUserGoal(), intent);
                 try {
-                    if (insightReportService.supports(observation.effectiveUserGoal(), intent)) {
+                    if (useInsightReport) {
                         InsightExecutionResult insightResult = insightReportService.execute(
                             match,
                             observation.effectiveUserGoal(),
@@ -262,22 +263,27 @@ public class YunshuAgentOrchestrator {
                     }
                 } catch (RuntimeException exception) {
                     progress.checkCancelled();
-                    log.error("CloudPivot read or insight report execution failed, schemaCode={}", match.code(), exception);
+                    String failureStage = useInsightReport ? "洞察报告处理" : "云枢运行态查询";
+                    String failureStatus = useInsightReport ? "insight_report_failed" : "runtime_query_failed";
+                    log.error("{} failed, schemaCode={}", failureStage, match.code(), exception);
                     progress.onExecution(
-                        "调用云枢运行态接口",
-                        "查询失败，已停止生成业务结论",
+                        failureStage,
+                        (useInsightReport ? "数据整理或分析失败" : "查询失败") + "，已停止生成业务结论",
                         Map.of("schemaCode", safeContextValue(match.code()), "error", safeContextValue(exception.getMessage())),
                         "fallback"
                     );
                     auditService.recordToolCall(
                         run.getId(),
-                        "cloudpivot_runtime_query",
-                        toJson(Map.of("schemaCode", match.code(), "action", "runtime_query_failed")),
+                        useInsightReport ? "cloudpivot_insight_report" : "cloudpivot_runtime_query",
+                        toJson(Map.of("schemaCode", match.code(), "action", failureStatus)),
                         toJson(Map.of("error", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage()))
                     );
-                    assistantMessage = withContent(assistantMessage, runtimeFailureMessage(content, match, exception));
-                    planSummary = "已理解为" + ("analyze_data".equals(intent) ? "分析" : "查询") + "类任务，并匹配到候选“" + match.name() + "”，但真实云枢运行态查询失败，未生成业务结论。";
-                    actResult = new ActResult(assistantMessage, null, planSummary, null, null, "runtime_query_failed");
+                    assistantMessage = withContent(assistantMessage, useInsightReport
+                        ? insightFailureMessage(match, exception)
+                        : runtimeFailureMessage(content, match, exception));
+                    planSummary = "已理解为" + ("analyze_data".equals(intent) ? "分析" : "查询") + "类任务，并匹配到候选“" + match.name() + "”，但"
+                        + (useInsightReport ? "洞察报告处理失败" : "真实云枢运行态查询失败") + "，未生成业务结论。";
+                    actResult = new ActResult(assistantMessage, null, planSummary, null, null, failureStatus);
                 }
             } else {
                 assistantMessage = withContent(assistantMessage, unmatchedReadMessage(intent, content));
@@ -1222,6 +1228,7 @@ public class YunshuAgentOrchestrator {
             "code", safeContextValue(hint.code()),
             "dataType", safeContextValue(hint.dataType()),
             "reference", hint.reference(),
+            "fieldCategory", safeContextValue(hint.fieldCategory()),
             "description", safeContextValue(hint.description())
         )).toList());
         context.put("relations", thought.executionPlan().relationHints().stream().map(relation -> Map.of(
@@ -1503,6 +1510,12 @@ public class YunshuAgentOrchestrator {
         String error = exception.getMessage() == null ? "云枢运行态查询失败" : exception.getMessage();
         return "我已经理解你的问题，但这次没有成功查到真实云枢数据，所以不能直接回答结果。请检查普通用户云枢连接、账号权限、运行态接口是否可访问，或重新同步元数据后再试。\n\n"
             + "错误摘要：" + shortText(error, 180);
+    }
+
+    private String insightFailureMessage(MetadataSearchResult match, RuntimeException exception) {
+        String error = exception.getMessage() == null ? "云枢数据洞察处理失败" : exception.getMessage();
+        return "已读取“" + safeContextValue(match.name()) + "”的云枢数据，但在整理洞察结果时出现异常，因此没有生成业务结论。"
+            + "请重试；如果持续发生，请联系管理员检查云枢返回字段的数据格式。\n\n错误摘要：" + shortText(error, 180);
     }
 
     private String businessSubject(String content) {

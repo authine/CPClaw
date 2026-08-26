@@ -22,6 +22,18 @@ public class Conversation {
     @Column(name = "default_thinking_enabled", nullable = false)
     private boolean defaultThinkingEnabled;
 
+    @Column(name = "lifecycle_status", nullable = false, columnDefinition = "VARCHAR(24) DEFAULT 'COMPLETED'")
+    private String lifecycleStatus = "DRAFT";
+
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean unread;
+
+    @Column(name = "output_started_at")
+    private Instant outputStartedAt;
+
+    @Column(name = "last_read_at")
+    private Instant lastReadAt;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -36,6 +48,14 @@ public class Conversation {
     public void setDefaultModelConfigId(String defaultModelConfigId) { this.defaultModelConfigId = defaultModelConfigId; }
     public boolean isDefaultThinkingEnabled() { return defaultThinkingEnabled; }
     public void setDefaultThinkingEnabled(boolean defaultThinkingEnabled) { this.defaultThinkingEnabled = defaultThinkingEnabled; }
+    public String getLifecycleStatus() { return lifecycleStatus; }
+    public void setLifecycleStatus(String lifecycleStatus) { this.lifecycleStatus = lifecycleStatus; }
+    public boolean isUnread() { return unread; }
+    public void setUnread(boolean unread) { this.unread = unread; }
+    public Instant getOutputStartedAt() { return outputStartedAt; }
+    public void setOutputStartedAt(Instant outputStartedAt) { this.outputStartedAt = outputStartedAt; }
+    public Instant getLastReadAt() { return lastReadAt; }
+    public void setLastReadAt(Instant lastReadAt) { this.lastReadAt = lastReadAt; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

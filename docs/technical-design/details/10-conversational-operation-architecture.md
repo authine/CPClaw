@@ -49,6 +49,8 @@ Agent 采用有界 ReAct 状态机：`Observe → Think → Act → Reflect`。�
 
 模型网关统一根据 `ModelConfig.supportsThinking` 与本轮 `thinkingEnabled` 组装请求：支持思考的配置发送 OpenAI 兼容扩展 `enable_thinking`，开启时附带 `reasoning_effort=high`；`extra_body_json` 在默认项之前合并，供不同供应商覆盖字段或扩展语义。业务服务不得自行拼装该参数。响应中的 `reasoning_content` 仅在结构化结果没有业务化 `reasoning` 时作为候选依据，并经过脱敏、长度限制和业务摘要后写入任务时间线；原始推理内容不返回前端、不进入普通消息正文。
 
+长任务 SSE 采用“事件流 + 心跳 + 模型正文增量”协议：每个真实步骤仍由 Skill 发出；若任一步骤持续超过 `CPCLAW_CONVERSATION_PROGRESS_HEARTBEAT_MS`（默认 5 秒），服务端发送同一稳定步骤的 `heartbeat`，携带已耗时，不得新增伪步骤或暴露私有推理。模型报告请求必须开启 `stream=true`，收到 `answer_delta` 后立即写入回答区；模型在 90 秒内没有任何可展示正文时关闭本次模型流并降级为已核验指标的确定性报告。收到 `[DONE]` 后最多保留 750ms 用于接收紧随其后的 usage，之后主动关闭连接，防止供应商未关闭 SSE 导致任务长期停留在“生成报告”。
+
 记忆分层：
 
 - 短期记忆：会话消息、最近结果集和记录引用，仅在会话/TTL 内有效。
@@ -142,3 +144,9 @@ Agent 采用有界 ReAct 状态机：`Observe → Think → Act → Reflect`。�
 6. **P5**：更多 Action 和跨对象写 DAG。
 
 每阶段必须通过后端测试、前端构建、API 契约测试、真实测试租户联调、安全故障注入和审计追溯；未通过不得扩大白名单或进入下一阶段。代码实现必须待本技术方案与需求方案评审确认后开始。
+
+## 9. 会话侧边栏生命周期与阅读状态
+
+会话列表只展示已经产生可见模型回答的会话。创建会话和发送用户消息阶段使用 `DRAFT`，不进入“最近对话”；SSE 首个非空 `answer_delta` 到达后，服务端将会话标记为 `RUNNING`，前端将其加入侧边栏并显示主题色等待指示。流结束且助手回答非空时标记为 `COMPLETED`，并将 `unread=true`；异常或取消分别落为 `FAILED`/`CANCELLED`，只有已经产生输出的失败/取消才保留未读提示。
+
+`RUNNING` 是前端流式期间的瞬时展示状态，`COMPLETED`、`FAILED`、`CANCELLED` 与 `unread` 是服务端持久状态。后端只在生命周期边界写库，不按 token 写入，避免流式输出放大数据库写入。`PUT /api/conversations/{id}/read` 是幂等的已读接口；用户打开会话成功或消息容器真正滚动到底部（距底部不超过 24px）时调用，清除绿色未读圆点。阅读状态必须在未来接入真实登录后扩展为用户主体维度，不能使用全局共享未读标记。

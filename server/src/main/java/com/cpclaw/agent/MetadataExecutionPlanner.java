@@ -299,7 +299,7 @@ public class MetadataExecutionPlanner {
     }
 
     private FieldHint toFieldHint(CloudPivotDataItem item) {
-        return new FieldHint(item.getName(), item.getDataItemCode(), item.getDataType(), item.isReference(), item.getDescription());
+        return new FieldHint(item.getName(), item.getDataItemCode(), item.getDataType(), item.isReference(), item.getFieldCategory(), item.getDescription());
     }
 
     private RelationHint toRelationHint(CloudPivotEntityRelation relation, CloudPivotEntity source, CloudPivotEntity target) {
@@ -384,7 +384,7 @@ public class MetadataExecutionPlanner {
         }
     }
 
-    public record FieldHint(String name, String code, String dataType, boolean reference, String description) {
+    public record FieldHint(String name, String code, String dataType, boolean reference, String fieldCategory, String description) {
         public String displayName() { return name + "(" + code + ")"; }
     }
 

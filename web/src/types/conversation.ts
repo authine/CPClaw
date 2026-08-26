@@ -4,6 +4,8 @@ export interface ConversationSummary {
   id: string
   title: string
   updatedAt: string
+  lifecycleStatus: 'DRAFT' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+  unread: boolean
 }
 
 export interface MessageItem {

@@ -16,7 +16,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import jakarta.annotation.PreDestroy;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,19 +44,30 @@ public class ConversationController {
     private final ConversationExecutionRegistry executionRegistry;
     private final ObjectMapper objectMapper;
     private final long streamTimeoutMs;
+    private final long progressHeartbeatMs;
+    private final ConversationLifecycleService conversationLifecycleService;
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "cpclaw-conversation-progress");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public ConversationController(
         ConversationService conversationService,
         MessageFeedbackService messageFeedbackService,
         ConversationExecutionRegistry executionRegistry,
         ObjectMapper objectMapper,
-        @Value("${cpclaw.conversation.stream-timeout-ms:600000}") long streamTimeoutMs
+        @Value("${cpclaw.conversation.stream-timeout-ms:600000}") long streamTimeoutMs,
+        @Value("${cpclaw.conversation.progress-heartbeat-ms:5000}") long progressHeartbeatMs,
+        ConversationLifecycleService conversationLifecycleService
     ) {
         this.conversationService = conversationService;
         this.messageFeedbackService = messageFeedbackService;
         this.executionRegistry = executionRegistry;
         this.objectMapper = objectMapper;
         this.streamTimeoutMs = streamTimeoutMs;
+        this.progressHeartbeatMs = Math.max(1000L, progressHeartbeatMs);
+        this.conversationLifecycleService = conversationLifecycleService;
     }
 
     @GetMapping
@@ -80,6 +97,12 @@ public class ConversationController {
         throw new IllegalArgumentException("会话ID缺失，无法删除");
     }
 
+    @PutMapping("/{id}/read")
+    public ApiResponse<Void> markRead(@PathVariable String id) {
+        conversationLifecycleService.markRead(id);
+        return ApiResponse.ok(null);
+    }
+
     @GetMapping("/{id}/messages")
     public ApiResponse<List<MessageItem>> messages(@PathVariable String id) {
         return ApiResponse.ok(conversationService.listMessages(id));
@@ -106,18 +129,45 @@ public class ConversationController {
         emitter.onTimeout(() -> streamOpen.set(false));
         emitter.onError(ignored -> streamOpen.set(false));
         ConversationExecutionRegistry.ExecutionHandle execution = executionRegistry.register(request == null ? null : request.executionId());
+        AtomicBoolean outputStarted = new AtomicBoolean(false);
+        long startedAtNanos = System.nanoTime();
+        AtomicReference<StreamProgress> latestProgress = new AtomicReference<>(
+            new StreamProgress("执行会话任务", "请求已接收，正在准备执行环境", "progress", "running")
+        );
+        ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(
+            () -> sendHeartbeat(emitter, streamOpen, execution, latestProgress.get(), startedAtNanos),
+            progressHeartbeatMs,
+            progressHeartbeatMs,
+            TimeUnit.MILLISECONDS
+        );
         executionRegistry.submit(execution, () -> {
             try {
-                AgentResponse response = conversationService.sendMessage(request, streamListener(emitter, execution, streamOpen));
+                AgentResponse response = conversationService.sendMessage(request, streamListener(
+                    emitter,
+                    execution,
+                    streamOpen,
+                    request == null ? null : request.conversationId(),
+                    request == null ? null : request.content(),
+                    outputStarted,
+                    latestProgress
+                ));
                 if (execution.isCancelled()) {
                     throw new AgentExecutionCancelledException();
+                }
+                String assistantContent = response.assistantMessage() == null ? "" : response.assistantMessage().content();
+                if (assistantContent != null && !assistantContent.isBlank()) {
+                    conversationLifecycleService.markCompleted(request == null ? null : request.conversationId());
+                } else {
+                    conversationLifecycleService.markFailed(request == null ? null : request.conversationId(), outputStarted.get());
                 }
                 if (sendEvent(emitter, streamOpen, "final", response)) {
                     emitter.complete();
                 }
             } catch (AgentExecutionCancelledException exception) {
+                conversationLifecycleService.markCancelled(request == null ? null : request.conversationId(), outputStarted.get());
                 completeSafely(emitter, streamOpen);
             } catch (Exception exception) {
+                conversationLifecycleService.markFailed(request == null ? null : request.conversationId(), outputStarted.get());
                 if (execution.isCancelled()) {
                     completeSafely(emitter, streamOpen);
                     return;
@@ -131,6 +181,7 @@ public class ConversationController {
                     emitter.complete();
                 }
             } finally {
+                heartbeat.cancel(false);
                 executionRegistry.complete(execution);
             }
         });
@@ -146,7 +197,11 @@ public class ConversationController {
     private AgentProgressListener streamListener(
         SseEmitter emitter,
         ConversationExecutionRegistry.ExecutionHandle execution,
-        AtomicBoolean streamOpen
+        AtomicBoolean streamOpen,
+        String conversationId,
+        String conversationTitle,
+        AtomicBoolean outputStarted,
+        AtomicReference<StreamProgress> latestProgress
     ) {
         return new AgentProgressListener() {
             @Override
@@ -172,18 +227,21 @@ public class ConversationController {
             @Override
             public void onProgress(String title, String status) {
                 checkCancelled();
+                latestProgress.set(new StreamProgress(title, status, "progress", "running"));
                 sendEvent(emitter, streamOpen, "progress", Map.of("title", title, "status", status));
             }
 
             @Override
             public void onThought(String phase, String title, String status, String state) {
                 checkCancelled();
+                latestProgress.set(new StreamProgress(safe(title), safe(status), "thought", safeState(state)));
                 sendEvent(emitter, streamOpen, "thought", Map.of("phase", phase, "title", title, "status", status, "state", state));
             }
 
             @Override
             public void onExecution(String title, String status, Map<String, Object> data, String state) {
                 checkCancelled();
+                latestProgress.set(new StreamProgress(safe(title), safe(status), "execution", safeState(state)));
                 sendEvent(emitter, streamOpen, "execution", Map.of(
                     "title", title,
                     "status", status,
@@ -195,6 +253,7 @@ public class ConversationController {
             @Override
             public void onAnswerStart(String mode) {
                 checkCancelled();
+                latestProgress.set(new StreamProgress("正式回答", "大模型正在生成，将实时展示输出内容", "execution", "running"));
                 sendEvent(emitter, streamOpen, "answer_start", Map.of("mode", mode));
             }
 
@@ -202,6 +261,10 @@ public class ConversationController {
             public void onAnswerChunk(String content) {
                 checkCancelled();
                 if (content != null && !content.isEmpty()) {
+                    latestProgress.set(new StreamProgress("正式回答", "正在接收大模型流式输出", "execution", "running"));
+                    if (outputStarted.compareAndSet(false, true)) {
+                        conversationLifecycleService.markOutputStarted(conversationId, conversationTitle);
+                    }
                     sendEvent(emitter, streamOpen, "answer_delta", Map.of("content", content));
                 }
             }
@@ -215,6 +278,7 @@ public class ConversationController {
             @Override
             public void onAnswerComplete(String mode) {
                 checkCancelled();
+                latestProgress.set(new StreamProgress("正式回答", "回答已生成完成", "execution", "completed"));
                 sendEvent(emitter, streamOpen, "answer_end", Map.of("mode", mode));
             }
         };
@@ -240,11 +304,50 @@ public class ConversationController {
         }
     }
 
+    private String safe(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String safeState(String value) {
+        return value == null || value.isBlank() ? "running" : value;
+    }
+
+    private void sendHeartbeat(
+        SseEmitter emitter,
+        AtomicBoolean streamOpen,
+        ConversationExecutionRegistry.ExecutionHandle execution,
+        StreamProgress progress,
+        long startedAtNanos
+    ) {
+        if (!streamOpen.get() || execution.isCancelled()) {
+            return;
+        }
+        StreamProgress current = progress == null
+            ? new StreamProgress("执行会话任务", "任务仍在执行", "progress", "running")
+            : progress;
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(Math.max(0L, System.nanoTime() - startedAtNanos));
+        sendEvent(emitter, streamOpen, "heartbeat", Map.of(
+            "title", current.title(),
+            "status", current.status() + "；仍在执行，已耗时 " + Math.max(1L, elapsedMs / 1000L) + " 秒",
+            "kind", current.kind(),
+            "state", current.state(),
+            "elapsedMs", elapsedMs
+        ));
+    }
+
+    @PreDestroy
+    public void shutdownHeartbeatScheduler() {
+        heartbeatScheduler.shutdownNow();
+    }
+
     private String toJson(Object payload) {
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to serialize stream event", exception);
         }
+    }
+
+    private record StreamProgress(String title, String status, String kind, String state) {
     }
 }

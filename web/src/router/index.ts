@@ -16,6 +16,7 @@ const router = createRouter({
         // Keep legacy audit links inside the unified system-settings experience.
         // The former standalone page exposed raw run IDs and duplicated the log-analysis capability.
         { path: 'audit', name: 'audit', redirect: '/settings?section=log-analytics' },
+        { path: 'settings/metadata/:appId', name: 'settings-metadata-app', component: SettingsView },
         { path: 'settings', name: 'settings', component: SettingsView }
       ]
     },

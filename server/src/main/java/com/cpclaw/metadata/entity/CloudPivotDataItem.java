@@ -16,6 +16,7 @@ public class CloudPivotDataItem {
     @Column(name = "data_type") private String dataType;
     @Column(nullable = false) private boolean required;
     @Column(name = "is_reference", nullable = false) private boolean reference;
+    @Column(name = "field_category", nullable = false) private String fieldCategory = "BUSINESS";
     @Column(name = "reference_entity_id") private String referenceEntityId;
     @Column(columnDefinition = "TEXT") private String description;
     @Column(name = "raw_json", columnDefinition = "LONGTEXT") private String rawJson;
@@ -35,6 +36,8 @@ public class CloudPivotDataItem {
     public void setRequired(boolean required) { this.required = required; }
     public boolean isReference() { return reference; }
     public void setReference(boolean reference) { this.reference = reference; }
+    public String getFieldCategory() { return fieldCategory; }
+    public void setFieldCategory(String fieldCategory) { this.fieldCategory = fieldCategory; }
     public String getReferenceEntityId() { return referenceEntityId; }
     public void setReferenceEntityId(String referenceEntityId) { this.referenceEntityId = referenceEntityId; }
     public String getDescription() { return description; }

@@ -2,6 +2,7 @@ package com.cpclaw.metadata;
 
 import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
+import com.cpclaw.cloudpivot.CloudPivotMetadataSemantics;
 import com.cpclaw.credential.CredentialService;
 import com.cpclaw.credential.CredentialUnavailableException;
 import com.cpclaw.metadata.dto.MetadataAppSummary;
@@ -27,6 +28,7 @@ import com.cpclaw.settings.repository.SystemSettingsRepository;
 import com.cpclaw.vector.MetadataVectorSearch;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -134,7 +136,7 @@ public class MetadataService {
                 app.getId(),
                 app.getAppCode(),
                 app.getName(),
-                app.getDescription(),
+                CloudPivotMetadataSemantics.appDescription(app.getAppCode(), app.getName(), app.getDescription()),
                 instantText(app.getSyncedAt()),
                 entitiesByAppId.getOrDefault(app.getId(), List.of()).stream()
                     .map(entity -> toEntityModel(app, entity, dataItemsByEntityId, relationsByEntityId, entitiesById, dataItemsById))
@@ -153,6 +155,8 @@ public class MetadataService {
         Map<String, CloudPivotDataItem> dataItemsById
     ) {
         List<MetadataModelResponse.DataItemModel> dataItems = dataItemsByEntityId.getOrDefault(entity.getId(), List.of()).stream()
+            .sorted(Comparator.comparingInt((CloudPivotDataItem item) -> CloudPivotMetadataSemantics.fieldOrder(item.getDataItemCode()))
+                .thenComparing((CloudPivotDataItem item) -> safe(item.getDataItemCode(), ""), String.CASE_INSENSITIVE_ORDER))
             .map(dataItem -> toDataItemModel(dataItem, entitiesById))
             .toList();
         List<MetadataModelResponse.RelationModel> relations = relationsByEntityId.getOrDefault(entity.getId(), List.of()).stream()
@@ -165,6 +169,7 @@ public class MetadataService {
             entity.getEntityCode(),
             entity.getName(),
             entity.getEntityType(),
+            CloudPivotMetadataSemantics.entityDescription(entity.getEntityCode(), entity.getName(), entity.getDescription()),
             instantText(entity.getSyncedAt()),
             dataItems.size(),
             relations.size(),
@@ -287,9 +292,11 @@ public class MetadataService {
             dataItem.getId(),
             dataItem.getDataItemCode(),
             dataItem.getName(),
+            CloudPivotMetadataSemantics.fieldTypeDisplayName(dataItem.getDataType()),
             dataItem.getDataType(),
             dataItem.isRequired(),
             dataItem.isReference(),
+            dataItem.getFieldCategory(),
             dataItem.getReferenceEntityId(),
             referenceEntity == null ? "" : referenceEntity.getEntityCode(),
             referenceEntity == null ? "" : referenceEntity.getName(),
@@ -384,7 +391,7 @@ public class MetadataService {
         Map<String, CloudPivotApp> appsByCode = indexAppsByCode(apps);
 
         List<CloudPivotEntity> entities = snapshot.entities().stream()
-            .map(entity -> createEntity(appIdByCode(apps, entity.appCode()), entity.code(), entity.name(), entity.type(), now))
+            .map(entity -> createEntity(appIdByCode(apps, entity.appCode()), entity.code(), entity.name(), entity.type(), entity.description(), now))
             .toList();
         entityRepository.saveAll(entities);
         Map<String, CloudPivotEntity> entitiesByKey = indexEntitiesByKey(apps, entities);
@@ -419,7 +426,8 @@ public class MetadataService {
 
         List<MetadataSearchDocument> searchDocuments = new ArrayList<>();
         for (CloudPivotApp app : apps) {
-            searchDocuments.add(createDocument("app", app.getId(), app.getId(), null, app.getName(), app.getAppCode(), app.getDescription(), app.getName(), "low", syncId, now));
+            String appDescription = CloudPivotMetadataSemantics.appDescription(app.getAppCode(), app.getName(), app.getDescription());
+            searchDocuments.add(createDocument("app", app.getId(), app.getId(), null, app.getName(), app.getAppCode(), appDescription, app.getName(), "low", syncId, now));
         }
         for (CloudPivotEntity entity : entities) {
             CloudPivotApp app = apps.stream().filter(item -> item.getId().equals(entity.getAppId())).findFirst().orElseThrow();
@@ -430,7 +438,7 @@ public class MetadataService {
                 entity.getId(),
                 entity.getName(),
                 entity.getEntityCode(),
-                app.getName() + " " + entity.getName() + " 查询 新增 修改 删除 表单 数据 字段 附件 流程 操作",
+                app.getName() + " " + entity.getName() + " 查询 新增 修改 删除 表单 数据 字段 附件 流程 操作 " + CloudPivotMetadataSemantics.entityDescription(entity.getEntityCode(), entity.getName(), entity.getDescription()),
                 app.getName() + " / " + entity.getName(),
                 riskLevelByCode(snapshot, entity.getEntityCode()),
                 syncId,
@@ -451,7 +459,7 @@ public class MetadataService {
                 entity.getId(),
                 dataItem.getName(),
                 dataItem.getDataItemCode(),
-                app.getName() + " " + entity.getName() + " 查询 新增 修改 删除 表单 数据 字段 附件 流程 操作" + dataItem.getName() + " " + dataItem.getDataItemCode() + " " + dataItem.getDataType() + relationText,
+                app.getName() + " " + entity.getName() + " 查询 新增 修改 删除 表单 数据 字段 附件 流程 操作" + dataItem.getName() + " " + dataItem.getDataItemCode() + " " + dataItem.getDataType() + " " + safe(dataItem.getDescription(), "") + " " + (CloudPivotMetadataSemantics.SYSTEM_FIELD.equals(dataItem.getFieldCategory()) ? "系统字段" : "业务字段") + relationText,
                 app.getName() + " / " + entity.getName() + " / " + dataItem.getName(),
                 riskLevelByCode(snapshot, entity.getEntityCode()),
                 syncId,
@@ -529,11 +537,11 @@ public class MetadataService {
      * upstream failure or an incorrectly scoped administrator account.
      */
     private boolean isEmptySnapshot(CloudPivotMetadataSnapshot snapshot) {
-        return snapshot.apps().isEmpty()
-            && snapshot.entities().isEmpty()
-            && snapshot.dataItems().isEmpty()
-            && snapshot.relations().isEmpty()
-            && snapshot.apiEndpoints().isEmpty();
+        // API capability entries (including the locally defined workflow
+        // catalogue) can exist even when the remote application catalogue was
+        // not returned. The application list is the authoritative replacement
+        // boundary: without it, never delete the current catalogue.
+        return snapshot.apps().isEmpty();
     }
 
 
@@ -611,20 +619,21 @@ public class MetadataService {
         app.setId(UUID.randomUUID().toString());
         app.setAppCode(code);
         app.setName(name);
-        app.setDescription(description);
+        app.setDescription(CloudPivotMetadataSemantics.appDescription(code, name, description));
         app.setRawJson("{\"source\":\"cloudpivot-connector\"}");
         app.setSyncBatchId(syncId);
         app.setSyncedAt(now);
         return app;
     }
 
-    private CloudPivotEntity createEntity(String appId, String code, String name, String type, Instant now) {
+    private CloudPivotEntity createEntity(String appId, String code, String name, String type, String description, Instant now) {
         CloudPivotEntity entity = new CloudPivotEntity();
         entity.setId(UUID.randomUUID().toString());
         entity.setAppId(appId);
         entity.setEntityCode(code);
         entity.setName(name);
         entity.setEntityType(type);
+        entity.setDescription(CloudPivotMetadataSemantics.entityDescription(code, name, description));
         entity.setRawJson("{\"source\":\"cloudpivot-connector\"}");
         entity.setSyncedAt(now);
         return entity;
@@ -652,7 +661,9 @@ public class MetadataService {
         item.setRequired(dataItem.required());
         item.setReference(dataItem.reference());
         item.setReferenceEntityId(referenceEntity == null ? null : referenceEntity.getId());
-        item.setDescription(dataItem.description());
+        String fieldCategory = hasText(dataItem.fieldCategory()) ? dataItem.fieldCategory() : CloudPivotMetadataSemantics.fieldCategory(dataItem.code(), dataItem.name());
+        item.setFieldCategory(fieldCategory);
+        item.setDescription(CloudPivotMetadataSemantics.fieldDescription(dataItem.code(), dataItem.name(), dataItem.dataType(), dataItem.description(), fieldCategory));
         item.setRawJson(hasText(dataItem.rawJson()) ? dataItem.rawJson() : "{\"source\":\"cloudpivot-data-item\"}");
         item.setSyncedAt(now);
         return item;

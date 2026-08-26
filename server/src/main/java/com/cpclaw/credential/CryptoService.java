@@ -1,6 +1,10 @@
 package com.cpclaw.credential;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -20,8 +24,11 @@ public class CryptoService {
     private final SecureRandom secureRandom = new SecureRandom();
     private final SecretKeySpec keySpec;
 
-    public CryptoService(@Value("${cpclaw.encryption-key:}") String configuredKey) {
-        this.keySpec = new SecretKeySpec(normalizeKey(configuredKey), "AES");
+    public CryptoService(
+        @Value("${cpclaw.encryption-key:}") String configuredKey,
+        @Value("${cpclaw.encryption-key-file:./storage/.encryption-key}") String keyFile
+    ) {
+        this.keySpec = new SecretKeySpec(resolveKey(configuredKey, keyFile), "AES");
     }
 
     public EncryptedValue encrypt(String value) {
@@ -60,15 +67,61 @@ public class CryptoService {
         }
     }
 
-    private byte[] normalizeKey(String configuredKey) {
-        if (configuredKey == null || configuredKey.isBlank()) {
-            throw new IllegalStateException("必须配置 CPC_ENCRYPTION_KEY，拒绝使用不稳定的默认凭据加密密钥");
-        }
+    private byte[] resolveKey(String configuredKey, String keyFile) {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(configuredKey.getBytes(StandardCharsets.UTF_8));
+            byte[] configuredDigest = hasText(configuredKey)
+                ? MessageDigest.getInstance("SHA-256").digest(configuredKey.trim().getBytes(StandardCharsets.UTF_8))
+                : null;
+            Path path = Path.of(hasText(keyFile) ? keyFile.trim() : "./storage/.encryption-key").toAbsolutePath().normalize();
+            if (configuredDigest != null) {
+                persistOrValidate(path, configuredDigest);
+                return configuredDigest;
+            }
+            if (Files.exists(path)) {
+                byte[] persisted = decodePersistedKey(Files.readString(path, StandardCharsets.UTF_8));
+                if (persisted.length != 32) throw new IllegalStateException("本地凭据加密密钥文件格式无效：" + path);
+                return persisted;
+            }
+            byte[] generated = new byte[32];
+            new SecureRandom().nextBytes(generated);
+            persistOrValidate(path, generated);
+            return generated;
         } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("Failed to initialize encryption key", exception);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("无法读取或保存 CPClaw 凭据加密密钥文件", exception);
         }
+    }
+
+    private void persistOrValidate(Path path, byte[] expected) throws java.io.IOException {
+        Path parent = path.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        String encoded = Base64.getEncoder().encodeToString(expected) + System.lineSeparator();
+        try {
+            Files.writeString(path, encoded, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try {
+                Files.setPosixFilePermissions(path, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+            } catch (UnsupportedOperationException ignored) {
+                // Windows ACLs are managed by the account running CPClaw.
+            }
+        } catch (FileAlreadyExistsException ignored) {
+            byte[] persisted = decodePersistedKey(Files.readString(path, StandardCharsets.UTF_8));
+            if (!MessageDigest.isEqual(expected, persisted)) {
+                throw new IllegalStateException("CPC_ENCRYPTION_KEY 与本地密钥文件不一致，已停止启动以保护现有凭据");
+            }
+        }
+    }
+
+    private byte[] decodePersistedKey(String value) {
+        try {
+            return Base64.getDecoder().decode(value.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("本地凭据加密密钥文件格式无效", exception);
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     public record EncryptedValue(String encryptedValue, String iv, String authTag) {

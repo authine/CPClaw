@@ -182,7 +182,9 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 continue;
             }
             String appName = firstText(appNode, "name", "appName", "displayName", "name_i18n").orElse(appCode);
-            apps.putIfAbsent(appCode, new CloudPivotMetadataSnapshot.AppMetadata(appCode, appName, textValue(appNode)));
+            String appDescription = firstText(appNode, "description", "appDescription", "remark", "helpText", "tips").orElse(null);
+            apps.putIfAbsent(appCode, new CloudPivotMetadataSnapshot.AppMetadata(
+                appCode, appName, CloudPivotMetadataSemantics.appDescription(appCode, appName, appDescription)));
             fetchEntitiesForApp(host, session, appCode, apps, entities);
         }
 
@@ -193,6 +195,17 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             ))) {
                 addEntity(entityNode, null, apps, entities);
             }
+        }
+
+        // The workflow catalogue is added locally below, so it must not be used
+        // to decide whether the remote application catalogue was retrieved.
+        // If the remote app endpoints return nothing (for example because of a
+        // transient response or an insufficient admin permission), allowing the
+        // workflow catalogue to make the snapshot look non-empty would make the
+        // caller replace all previously synchronized applications with only the
+        // local workflow entries.
+        if (apps.isEmpty()) {
+            throw new IllegalStateException("云枢应用目录接口未返回可用应用，已停止同步并保留现有元数据");
         }
 
         fetchDataItemsForEntities(host, session, entities, dataItems, relations);
@@ -243,7 +256,10 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         }
         String entityName = firstText(entityNode, "name", "schemaName", "displayName", "name_i18n").orElse(entityCode);
         String entityType = firstText(entityNode, "type", "modelType", "entityType").orElse("data");
-        entities.putIfAbsent(appCode + ":" + entityCode, new CloudPivotMetadataSnapshot.EntityMetadata(appCode, entityCode, entityName, entityType, "low"));
+        String entityDescription = firstText(entityNode, "description", "remark", "helpText", "tips").orElse(null);
+        entities.putIfAbsent(appCode + ":" + entityCode, new CloudPivotMetadataSnapshot.EntityMetadata(
+            appCode, entityCode, entityName, entityType, "low",
+            CloudPivotMetadataSemantics.entityDescription(entityCode, entityName, entityDescription)));
     }
 
     private void fetchDataItemsForEntities(
@@ -397,6 +413,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         boolean required = firstBoolean(itemNode, "required", "isRequired", "mustInput", "requiredFlag").orElse(false);
         String referenceEntityCode = referenceEntityCode(itemNode, entityCodes, entity.code()).orElse("");
         boolean reference = isReferenceDataItem(itemNode, dataType) || hasText(referenceEntityCode);
+        String fieldCategory = CloudPivotMetadataSemantics.fieldCategory(code, name);
         dataItems.add(new CloudPivotMetadataSnapshot.DataItemMetadata(
             entity.appCode(),
             entity.code(),
@@ -406,8 +423,9 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             required,
             reference,
             referenceEntityCode,
-            firstText(itemNode, "description", "remark", "helpText", "tips").orElse(""),
-            textValue(itemNode)
+            CloudPivotMetadataSemantics.fieldDescription(code, name, dataType, firstText(itemNode, "description", "remark", "helpText", "tips").orElse(""), fieldCategory),
+            textValue(itemNode),
+            fieldCategory
         ));
         if (reference && hasText(referenceEntityCode)) {
             String relationKey = entity.appCode() + ":" + entity.code() + ":" + code + ":" + referenceEntityCode;

@@ -55,6 +55,7 @@ public class ConversationService {
     private final AuditService auditService;
     private final TaskGateway taskGateway;
     private final PrincipalContextService principalContextService;
+    private final ConversationLifecycleService conversationLifecycleService;
 
     public ConversationService(
         ConversationRepository conversationRepository,
@@ -68,7 +69,8 @@ public class ConversationService {
         ModelUsageContext modelUsageContext,
         AuditService auditService,
         TaskGateway taskGateway,
-        PrincipalContextService principalContextService
+        PrincipalContextService principalContextService,
+        ConversationLifecycleService conversationLifecycleService
     ) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
@@ -82,10 +84,11 @@ public class ConversationService {
         this.auditService = auditService;
         this.taskGateway = taskGateway;
         this.principalContextService = principalContextService;
+        this.conversationLifecycleService = conversationLifecycleService;
     }
 
     public List<ConversationSummary> listConversations() {
-        return conversationRepository.findAllByOrderByUpdatedAtDesc().stream().map(this::toSummary).toList();
+        return conversationRepository.findAllByLifecycleStatusNotOrderByUpdatedAtDesc("DRAFT").stream().map(this::toSummary).toList();
     }
 
     @Transactional
@@ -96,6 +99,8 @@ public class ConversationService {
         conversation.setTitle(hasText(request.title()) ? request.title() : "新会话");
         conversation.setDefaultModelConfigId(request.modelConfigId());
         conversation.setDefaultThinkingEnabled(request.thinkingEnabled());
+        conversation.setLifecycleStatus("DRAFT");
+        conversation.setUnread(false);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
         return toSummary(conversationRepository.save(conversation));
@@ -200,6 +205,10 @@ public class ConversationService {
 
         conversation.setTitle(buildConversationTitle(conversation.getTitle(), content));
         conversation.setUpdatedAt(Instant.now());
+        if (hasText(responseMessage.content())) {
+            conversation.setLifecycleStatus("COMPLETED");
+            conversation.setUnread(true);
+        }
         conversationRepository.save(conversation);
 
         if (cancelled) {
@@ -494,7 +503,13 @@ public class ConversationService {
     }
 
     private ConversationSummary toSummary(Conversation conversation) {
-        return new ConversationSummary(conversation.getId(), conversation.getTitle(), conversation.getUpdatedAt() == null ? null : conversation.getUpdatedAt().toString());
+        return new ConversationSummary(
+            conversation.getId(),
+            conversation.getTitle(),
+            conversation.getUpdatedAt() == null ? null : conversation.getUpdatedAt().toString(),
+            conversation.getLifecycleStatus(),
+            conversation.isUnread()
+        );
     }
 
     private MessageItem toMessageItem(Message message) {

@@ -14,6 +14,7 @@ export type MessageStreamEvent =
   | { type: 'progress'; step: ExecutionStep }
   | { type: 'thought'; step: ExecutionStep }
   | { type: 'execution'; step: ExecutionStep }
+  | { type: 'heartbeat'; step: ExecutionStep }
   | { type: 'answer_start'; mode: string }
   | { type: 'answer_delta'; content: string }
   | { type: 'answer_reset'; reason: string }
@@ -34,6 +35,12 @@ export function createConversation(payload: CreateConversationRequest) {
 
 export function getConversation(id: string) {
   return requestJson<ConversationDetail>(`/conversations/${id}`)
+}
+
+export function markConversationRead(id: string) {
+  return requestJson<void>(`/conversations/${encodeURIComponent(id)}/read`, {
+    method: 'PUT'
+  })
 }
 
 export function deleteConversation(id: string) {
@@ -169,6 +176,20 @@ function parseSseEvent(block: string): MessageStreamEvent | undefined {
         phase: String(payload.phase || ''),
         state: String(payload.state || ''),
         kind: 'execution',
+        data: isRecord(payload.data) ? payload.data : {},
+        elapsedMs: optionalNumber(payload.elapsedMs)
+      }
+    }
+  }
+  if (eventName === 'heartbeat') {
+    return {
+      type: 'heartbeat',
+      step: {
+        id: optionalString(payload.id),
+        title: String(payload.title || '执行会话任务'),
+        status: String(payload.status || '任务仍在执行'),
+        state: String(payload.state || 'running'),
+        kind: String(payload.kind || 'progress') as ExecutionStep['kind'],
         data: isRecord(payload.data) ? payload.data : {},
         elapsedMs: optionalNumber(payload.elapsedMs)
       }

@@ -75,6 +75,7 @@ export interface MetadataEntityModel {
   code: string
   name: string
   type?: string
+  description?: string
   syncedAt?: string
   dataItemCount: number
   relationCount: number
@@ -88,8 +89,10 @@ export interface MetadataDataItemModel {
   code: string
   name: string
   dataType?: string
+  dataTypeCode?: string
   required: boolean
   reference: boolean
+  fieldCategory?: 'SYSTEM' | 'BUSINESS' | string
   referenceEntityId?: string
   referenceEntityCode?: string
   referenceEntityName?: string

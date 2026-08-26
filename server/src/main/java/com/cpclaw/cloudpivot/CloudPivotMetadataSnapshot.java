@@ -29,7 +29,10 @@ public record CloudPivotMetadataSnapshot(
     public record AppMetadata(String code, String name, String description) {
     }
 
-    public record EntityMetadata(String appCode, String code, String name, String type, String riskLevel) {
+    public record EntityMetadata(String appCode, String code, String name, String type, String riskLevel, String description) {
+        public EntityMetadata(String appCode, String code, String name, String type, String riskLevel) {
+            this(appCode, code, name, type, riskLevel, null);
+        }
     }
 
     public record DataItemMetadata(
@@ -42,8 +45,15 @@ public record CloudPivotMetadataSnapshot(
         boolean reference,
         String referenceEntityCode,
         String description,
-        String rawJson
+        String rawJson,
+        String fieldCategory
     ) {
+        public DataItemMetadata(
+            String appCode, String entityCode, String code, String name, String dataType,
+            boolean required, boolean reference, String referenceEntityCode, String description, String rawJson
+        ) {
+            this(appCode, entityCode, code, name, dataType, required, reference, referenceEntityCode, description, rawJson, null);
+        }
     }
 
     public record EntityRelationMetadata(

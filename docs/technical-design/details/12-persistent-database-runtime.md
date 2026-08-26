@@ -14,14 +14,14 @@ MySQL 是 CPClaw 的唯一运行数据库。`system_settings`、`encrypted_crede
 
 1. 数据库连接存在且数据库产品为 MySQL；
 2. JDBC URL 不是 `jdbc:h2:mem:` 或其他内存库；
-3. `CPC_ENCRYPTION_KEY` 已配置，禁止使用代码内置默认密钥；
+3. `CPC_ENCRYPTION_KEY` 可由部署平台注入；未注入时，首次启动自动在 `CPC_ENCRYPTION_KEY_FILE`（默认 `storage/.encryption-key`）生成并持久化随机密钥，禁止使用代码内置默认密钥；
 4. Flyway 已启用并完成迁移。
 
 任一条件不满足即失败退出，不能用临时 H2 代替 MySQL。测试资源显式关闭此门禁，并只在测试 JVM 中使用 H2。
 
 ## 密钥与恢复
 
-凭据采用 AES-GCM 密文保存。`CPC_ENCRYPTION_KEY` 应由部署平台的密钥管理能力稳定注入，并纳入备份/灾备清单；改变该值前必须先以旧密钥解密、以新密钥重加密后再切换。数据库备份至少覆盖配置、凭据和所有 `cloudpivot_*` / `metadata_*` 表，并通过恢复后的只读校验验证。
+凭据采用 AES-GCM 密文保存。`CPC_ENCRYPTION_KEY` 应由部署平台的密钥管理能力稳定注入，并纳入备份/灾备清单；单机部署未注入时，必须备份默认的 `storage/.encryption-key` 文件。应用启动时若环境变量与密钥文件不一致会主动失败，防止静默使已有凭据失效。改变该值前必须先以旧密钥解密、以新密钥重加密后再切换。数据库备份至少覆盖配置、凭据和所有 `cloudpivot_*` / `metadata_*` 表，并通过恢复后的只读校验验证。
 
 ## 现有内存数据迁移
 

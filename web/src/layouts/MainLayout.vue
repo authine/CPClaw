@@ -38,7 +38,7 @@ import { ChatDotRound, Collection, DocumentChecked, Setting } from '@element-plu
 const route = useRoute()
 const activePath = computed(() => route.path)
 const isChatRoute = computed(() => route.name === 'chat')
-const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'settings')
+const isWorkbenchRoute = computed(() => isChatRoute.value || route.name === 'settings' || route.name === 'settings-metadata-app')
 </script>
 
 <style scoped>

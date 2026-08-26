@@ -34,6 +34,8 @@ cpclaw:
     continuation-ttl-seconds: ${CPCLAW_TASK_CONTINUATION_TTL_SECONDS:900}
   # This must be stable across restarts; it protects values in encrypted_credentials.
   encryption-key: ${CPC_ENCRYPTION_KEY:}
+  # If no deployment secret is injected, reuse a local key created on first start.
+  encryption-key-file: ${CPC_ENCRYPTION_KEY_FILE:${CPC_STORAGE_ROOT:./storage}/.encryption-key}
   # Public CPClaw origin used by the SSE MCP configuration returned to clients.
   # Set this to the externally reachable HTTPS origin behind the reverse proxy.
   mcp:
@@ -43,6 +45,7 @@ cpclaw:
   storage-root: ${CPC_STORAGE_ROOT:./storage}
   conversation:
     stream-timeout-ms: ${CPCLAW_STREAM_TIMEOUT_MS:600000}
+    progress-heartbeat-ms: ${CPCLAW_CONVERSATION_PROGRESS_HEARTBEAT_MS:5000}
   cloudpivot:
     corp-id: ${CPC_CLOUDPIVOT_CORP_ID:dingbb40ac2a2529cb14}
     runtime:

@@ -167,6 +167,28 @@ class InsightReportServiceTests {
     }
 
     @Test
+    void ignoresNullValuesWhenBuildingRecordSummary() {
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("createdTime", null);
+        data.put("owner", Map.of("name", "赵六"));
+        data.put("sales_stage", "需求沟通");
+        data.put("pre_sign_dam_yuan", 120000);
+        when(dataReader.query(eq(opportunity), eq(true), eq(20_000), anyList()))
+            .thenReturn(result("int_bu_oppor", List.of(Map.of("id", "opp-null-field", "data", data))));
+
+        InsightExecutionResult result = service.execute(
+            match(),
+            "分析商机整体情况",
+            "model-id",
+            true,
+            AgentProgressListener.NOOP
+        );
+
+        assertFalse(result.answer().isBlank());
+        assertTrue(result.answer().contains("关键发现"));
+    }
+
+    @Test
     void doesNotReturnAllUsersWhenPersonalIdentityCannotBeMapped() {
         InsightExecutionResult result = service.execute(
             match(),
