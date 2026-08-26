@@ -16,8 +16,8 @@ public final class DefaultYunshuQuestionSemantics implements SkillQuestionSemant
     @Override public int queryPageSize(String content, CloudPivotRuntimeProperties.Query query, boolean ignored) { return isCountQuestion(content) ? query.getCountPageSize() : isAnalysisQuestion(content) ? query.getAnalysisPageSize() : query.getListPageSize(); }
     @Override public int queryRecordLimit(String content, CloudPivotRuntimeProperties.Query query, boolean ignored) { return isCountQuestion(content) ? query.getCountRecordLimit() : isAnalysisQuestion(content) ? query.getAnalysisRecordLimit() : query.getListRecordLimit(); }
     @Override public String detectIntent(String content) {
-        if (hasAny(content, "处理待办", "审批通过", "审批驳回", "同意", "驳回", "转交", "撤回")) return "workflow_action";
-        if (hasAny(content, "待办", "流程", "审批", "工作项", "发起", "已办")) return "query_workflow";
+        if (hasAny(content, "处理待办", "审批通过", "审批驳回", "同意", "驳回", "审核", "批准", "批复", "转交", "撤回", "发起流程", "提交流程", "启动流程")) return "workflow_action";
+        if (hasAny(content, "待办", "流程", "审批", "工作项", "我发起的流程", "我发起", "已办")) return "query_workflow";
         return isAnalysisQuestion(content) ? "analyze_data" : isCountQuestion(content) || isDetailCollectionQuestion(content) ? "query_data" : "unknown";
     }
     private boolean hasAny(String value, String... terms) { if (value == null) return false; for (String term : terms) if (value.contains(term)) return true; return false; }

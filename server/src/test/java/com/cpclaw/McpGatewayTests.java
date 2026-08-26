@@ -13,6 +13,8 @@ import com.cpclaw.credential.repository.EncryptedCredentialRepository;
 import com.cpclaw.metadata.entity.CloudPivotEntity;
 import com.cpclaw.metadata.entity.MetadataSearchDocument;
 import com.cpclaw.metadata.repository.CloudPivotEntityRepository;
+import com.cpclaw.metadata.repository.CloudPivotApiEndpointRepository;
+import com.cpclaw.metadata.entity.CloudPivotApiEndpoint;
 import com.cpclaw.metadata.repository.MetadataSearchDocumentRepository;
 import com.cpclaw.settings.entity.SystemSettings;
 import com.cpclaw.settings.repository.SystemSettingsRepository;
@@ -42,6 +44,7 @@ class McpGatewayTests {
     @Autowired private SystemSettingsRepository settingsRepository;
     @Autowired private EncryptedCredentialRepository credentialRepository;
     @Autowired private CloudPivotEntityRepository entityRepository;
+    @Autowired private CloudPivotApiEndpointRepository apiEndpointRepository;
     @Autowired private MetadataSearchDocumentRepository metadataSearchDocumentRepository;
     @MockBean private CloudPivotConnector cloudPivotConnector;
 
@@ -264,5 +267,128 @@ class McpGatewayTests {
             .andExpect(jsonPath("$.result.content[0].text").value(org.hamcrest.Matchers.containsString("### 数据范围与口径")))
             .andExpect(jsonPath("$.result.content[0].text").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Project"))));
         org.junit.jupiter.api.Assertions.assertEquals(0, credentialRepository.count());
+    }
+
+    @Test
+    void returnsSafeTerminalStatesForWorkflowActionAndFormWriteRequests() throws Exception {
+        SystemSettings settings = new SystemSettings();
+        settings.setId("default");
+        settings.setAdminCloudPivotBaseUrl("https://cloudpivot.example");
+        settings.setCreatedAt(Instant.now());
+        settings.setUpdatedAt(Instant.now());
+        settingsRepository.save(settings);
+
+        CloudPivotEntity entity = new CloudPivotEntity();
+        entity.setId("mcp-write-scenario-entity");
+        entity.setAppId("mcp-write-scenario-app");
+        entity.setEntityCode("ScenarioEntity");
+        entity.setName("业务对象");
+        entity.setEntityType("biz");
+        entity.setSyncedAt(Instant.now());
+        entityRepository.save(entity);
+        MetadataSearchDocument document = new MetadataSearchDocument();
+        document.setId("mcp-write-scenario-search");
+        document.setObjectType("entity");
+        document.setObjectId(entity.getId());
+        document.setAppId(entity.getAppId());
+        document.setEntityId(entity.getId());
+        document.setName(entity.getName());
+        document.setCode(entity.getEntityCode());
+        document.setSearchText("业务对象 ScenarioEntity");
+        document.setEmbeddingText("业务对象");
+        document.setGraphPath("应用 / 业务对象");
+        document.setRiskLevel("low");
+        document.setIndexedAt(Instant.now());
+        document.setCreatedAt(Instant.now());
+        metadataSearchDocumentRepository.save(document);
+
+        mockMvc.perform(post("/api/settings/mcp/cloudpivot/enable")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"installationId\":\"scenario-mcp\",\"displayName\":\"场景验证\"}"))
+            .andExpect(status().isOk());
+
+        String headers = "\"X-CPClaw-Installation-Id\":\"scenario-mcp\",\"X-CPClaw-CloudPivot-Username\":\"alice\",\"X-CPClaw-CloudPivot-Password\":\"secret\"";
+        mockMvc.perform(post("/api/mcp/cloudpivot")
+                .header("X-CPClaw-Installation-Id", "scenario-mcp")
+                .header("X-CPClaw-CloudPivot-Username", "alice")
+                .header("X-CPClaw-CloudPivot-Password", "secret")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"jsonrpc\":\"2.0\",\"id\":\"workflow-action-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"yunshu_handle_request\",\"arguments\":{\"request\":\"审核第一条待办\",\"conversationId\":\"scenario-workflow\"}}}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.result.structuredContent.status").value("completed_with_gaps"))
+            .andExpect(jsonPath("$.result.structuredContent.summary.intent").value("workflow_action"))
+            .andExpect(jsonPath("$.result.structuredContent.hostAction.type").value("compose_answer"));
+
+        mockMvc.perform(post("/api/mcp/cloudpivot")
+                .header("X-CPClaw-Installation-Id", "scenario-mcp")
+                .header("X-CPClaw-CloudPivot-Username", "alice")
+                .header("X-CPClaw-CloudPivot-Password", "secret")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"jsonrpc\":\"2.0\",\"id\":\"form-write-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"yunshu_handle_request\",\"arguments\":{\"request\":\"填单创建一条业务对象记录\",\"conversationId\":\"scenario-form\"}}}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.result.structuredContent.status").value("confirmation_required"))
+            .andExpect(jsonPath("$.result.structuredContent.summary.intent").value("create_data"))
+            .andExpect(jsonPath("$.result.structuredContent.hostAction.type").value("open_cpclaw_confirmation"))
+            .andExpect(jsonPath("$.result.structuredContent.hostAction.allowAnotherMcpCallThisTurn").value(false));
+
+        verifyNoInteractions(cloudPivotConnector);
+    }
+
+    @Test
+    void queriesPendingFinishedAndStartedWorkflowsThroughTheMcpSkill() throws Exception {
+        SystemSettings settings = new SystemSettings();
+        settings.setId("default");
+        settings.setAdminCloudPivotBaseUrl("https://cloudpivot.example");
+        settings.setCreatedAt(Instant.now());
+        settings.setUpdatedAt(Instant.now());
+        settingsRepository.save(settings);
+        for (String apiCode : List.of("workflow_list_pending", "workflow_list_finished", "workflow_list_started")) {
+            CloudPivotApiEndpoint endpoint = new CloudPivotApiEndpoint();
+            endpoint.setId("mcp-" + apiCode);
+            endpoint.setApiCode(apiCode);
+            endpoint.setName(apiCode);
+            endpoint.setCategory("workflow_center");
+            endpoint.setOperationType("query_workflow");
+            endpoint.setRiskLevel("low");
+            endpoint.setRequiresConfirmation(false);
+            endpoint.setMethod("POST");
+            endpoint.setPath("/api/" + apiCode);
+            endpoint.setInputSchemaJson("{}");
+            endpoint.setOutputSchemaJson("{}");
+            endpoint.setDataScope("当前账号可见流程");
+            endpoint.setApplicableObjectType("workflow");
+            endpoint.setRawJson("{\"verified\":true,\"requestKeys\":[\"page\",\"size\"]}");
+            endpoint.setSyncedAt(Instant.now());
+            apiEndpointRepository.save(endpoint);
+        }
+        when(cloudPivotConnector.queryWorkflowRead(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyList()))
+            .thenAnswer(invocation -> new com.cpclaw.cloudpivot.WorkflowReadResult(
+                invocation.getArgument(3), "流程事项", 2,
+                List.of(java.util.Map.of("title", "审批事项", "status", "待处理")),
+                java.util.Map.of("itemFields", List.of("title", "status"))));
+        mockMvc.perform(post("/api/settings/mcp/cloudpivot/enable")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"installationId\":\"workflow-mcp\",\"displayName\":\"流程验证\"}"))
+            .andExpect(status().isOk());
+
+        for (String request : List.of("查看我的待办", "查看已办流程", "查看我发起的流程")) {
+            mockMvc.perform(post("/api/mcp/cloudpivot")
+                    .header("X-CPClaw-Installation-Id", "workflow-mcp")
+                    .header("X-CPClaw-CloudPivot-Username", "alice")
+                    .header("X-CPClaw-CloudPivot-Password", "secret")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"jsonrpc\":\"2.0\",\"id\":\"workflow-read\",\"method\":\"tools/call\",\"params\":{\"name\":\"cpclaw_cloudpivot_agent\",\"arguments\":{\"request\":\"" + request + "\"}}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.structuredContent.status").value("completed"))
+                .andExpect(jsonPath("$.result.structuredContent.summary.intent").value("query_workflow"))
+                .andExpect(jsonPath("$.result.structuredContent.output.result.total").value(2));
+        }
+        org.mockito.Mockito.verify(cloudPivotConnector, org.mockito.Mockito.times(3)).queryWorkflowRead(
+            org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyList());
     }
 }

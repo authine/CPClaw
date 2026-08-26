@@ -12,6 +12,7 @@ class YunshuIntentPlannerTests {
         assertEquals("query_data", planner.classify("查询数据列表"));
         assertEquals("analyze_data", planner.classify("分析整体趋势"));
         assertEquals("workflow_query", planner.classify("查看待办"));
+        assertEquals("workflow_action", planner.classify("审核第一条待办"));
         assertEquals("update_data", planner.classify("修改这条记录"));
         assertEquals("clarify_intent", planner.classify("你好"));
     }
@@ -23,5 +24,12 @@ class YunshuIntentPlannerTests {
         assertEquals("workflow_list_finished", planner.workflowApiCode("查看已处理流程"));
         assertEquals("workflow_list_started", planner.workflowApiCode("查看我发起的流程"));
         assertEquals("workflow_list_pending", planner.workflowApiCode("查看流程"));
+    }
+
+    @Test
+    void distinguishesStartingAWorkflowFromListingStartedWorkflows() {
+        DefaultYunshuIntentPlanner planner = new DefaultYunshuIntentPlanner();
+        assertEquals("workflow_action", planner.classify("发起流程").toString());
+        assertEquals("workflow_query", planner.classify("查看我发起的流程").toString());
     }
 }

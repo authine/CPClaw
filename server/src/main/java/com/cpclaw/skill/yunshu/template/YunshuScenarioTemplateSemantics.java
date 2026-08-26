@@ -134,7 +134,7 @@ public class YunshuScenarioTemplateSemantics implements SkillQuestionSemantics, 
     }
     @Override public String detectIntent(String content) {
         String value = compact(content);
-        if (contains(value, "同意", "审批通过", "通过审批", "驳回", "退回", "转交", "转办", "加签", "协办", "撤回流程", "终止流程")) return "workflow_action";
+        if (contains(value, "同意", "审批通过", "通过审批", "驳回", "退回", "审核", "批准", "批复", "转交", "转办", "加签", "协办", "撤回流程", "终止流程", "发起流程", "提交流程", "启动流程")) return "workflow_action";
         if (contains(value, "待办", "未办", "未完成工作项", "已办", "已处理", "我发起的流程", "我发起", "流程实例", "流程节点", "审批记录", "工作项")) return "query_workflow";
         if (contains(value, "填写", "填报", "填一下", "补全", "根据附件", "从附件", "识别发票")) return "fill_form_from_attachment";
         if (isStatusMetricAggregationQuestion(value) || isMetricRankingQuestion(value)) return "analyze_data";
