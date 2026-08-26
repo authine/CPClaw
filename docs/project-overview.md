@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-CPClaw 是多 Skill、元数据驱动、受治理的企业系统对话式任务平台。云枢是首个核心 Skill；平台同时支持其他遵循 Skill 契约的 Markdown/MCP 扩展，并可通过 MCP/CLI 向 OpenClaw 类宿主提供同一云枢能力。
+CPClaw 是可扩展、可治理的多 Skill 企业级对话式智能体与任务平台。平台负责 Skill 生命周期、任务编排、记忆、权限、确认、审计和多宿主接入；云枢是首个核心 Skill，并在 Skill 内部采用元数据驱动方式理解和操作云枢系统。平台同时支持其他遵循 Skill 契约的 Markdown/MCP 扩展，并可通过 MCP/CLI 向 OpenClaw 类宿主提供云枢能力。
 
 ## 当前运行基线
 

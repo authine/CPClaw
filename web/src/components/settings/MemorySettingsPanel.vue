@@ -1,10 +1,10 @@
 <template>
   <section class="settings-section memory-settings-panel">
-    <div class="section-heading"><div><div class="section-kicker">记忆中心</div><h1>个人与全局记忆</h1><p>当前用户：{{ memory?.displayName || '黄杰' }}（{{ memory?.principalId || 'huangj' }}）</p></div><el-tag effect="plain" round>{{ memory?.superAdmin ? '超级管理员' : '个人记忆' }}</el-tag></div>
-    <el-alert type="info" :closable="false" show-icon title="记忆边界"><template #default>个人记忆只对当前用户生效；全局记忆由超级管理员维护，并作为系统级上下文参与任务处理。</template></el-alert>
+    <div class="section-heading"><div><div class="section-kicker">记忆中心</div><h1>用户设置记忆与平台设置记忆</h1><p>当前用户：{{ memory?.displayName || '黄杰' }}（{{ memory?.principalId || 'huangj' }}）</p></div><el-tag effect="plain" round>{{ memory?.superAdmin ? '超级管理员' : '个人用户' }}</el-tag></div>
+    <el-alert type="info" :closable="false" show-icon title="三层记忆边界"><template #default>用户会话记忆只用于当前对话连续性，不在此处展示；用户设置记忆只对当前用户生效；平台设置记忆由超级管理员维护，并作为系统级上下文参与任务处理。</template></el-alert>
     <el-card class="config-card" shadow="never">
-      <template #header><div class="card-title-row"><div><strong>我的记忆</strong><small>当前用户可查看、添加和删除自己的长期记忆。</small></div><el-button type="primary" @click="openEditor('USER')"><el-icon><Plus /></el-icon>新增个人记忆</el-button></div></template>
-      <el-table :data="memory?.personal || []" empty-text="暂无个人记忆">
+      <template #header><div class="card-title-row"><div><strong>用户设置记忆</strong><small>当前用户可查看、添加和删除自己的长期偏好与使用约定。</small></div><el-button type="primary" @click="openEditor('USER')"><el-icon><Plus /></el-icon>新增用户设置记忆</el-button></div></template>
+      <el-table :data="memory?.personal || []" empty-text="暂无用户设置记忆">
         <el-table-column prop="memoryType" label="类型" width="160" />
         <el-table-column prop="content" label="内容" min-width="360" show-overflow-tooltip />
         <el-table-column prop="priority" label="优先级" width="100" />
@@ -13,8 +13,8 @@
       </el-table>
     </el-card>
     <el-card v-if="memory?.globalVisible" class="config-card" shadow="never">
-      <template #header><div class="card-title-row"><div><strong>系统全局记忆</strong><small>仅超级管理员可以查看、添加或删除；普通用户不会收到该区域数据。</small></div><el-button type="primary" @click="openEditor('SYSTEM')"><el-icon><Plus /></el-icon>新增全局记忆</el-button></div></template>
-      <el-table :data="memory?.global || []" empty-text="暂无系统全局记忆">
+      <template #header><div class="card-title-row"><div><strong>平台设置记忆</strong><small>仅超级管理员可以查看、添加或删除；普通用户不会收到该区域数据。</small></div><el-button type="primary" @click="openEditor('SYSTEM')"><el-icon><Plus /></el-icon>新增平台设置记忆</el-button></div></template>
+      <el-table :data="memory?.global || []" empty-text="暂无平台设置记忆">
         <el-table-column prop="memoryType" label="类型" width="160" />
         <el-table-column prop="content" label="内容" min-width="360" show-overflow-tooltip />
         <el-table-column prop="priority" label="优先级" width="100" />
@@ -22,8 +22,8 @@
         <el-table-column label="操作" width="100"><template #default="{ row }"><el-button text type="danger" @click="remove(row.id, 'SYSTEM')">删除</el-button></template></el-table-column>
       </el-table>
     </el-card>
-    <el-empty v-else description="全局记忆仅对超级管理员开放" />
-    <el-dialog v-model="editorVisible" :title="editorScope === 'SYSTEM' ? '新增系统全局记忆' : '新增个人记忆'" width="520px">
+    <el-empty v-else description="平台设置记忆仅对超级管理员开放" />
+    <el-dialog v-model="editorVisible" :title="editorScope === 'SYSTEM' ? '新增平台设置记忆' : '新增用户设置记忆'" width="520px">
       <el-form label-position="top"><el-form-item label="记忆类型"><el-input v-model="form.memoryType" placeholder="例如：业务口径、偏好、规则" /></el-form-item><el-form-item label="记忆内容"><el-input v-model="form.content" type="textarea" :rows="6" placeholder="输入需要长期保留的内容" /></el-form-item><el-form-item label="优先级"><el-input-number v-model="form.priority" :min="0" :max="100" /></el-form-item><el-form-item label="有效期（天，0 表示长期）"><el-input-number v-model="form.ttlDays" :min="0" :max="3650" /></el-form-item></el-form>
       <template #footer><el-button @click="editorVisible = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!form.content.trim()" @click="save">保存记忆</el-button></template>
     </el-dialog>

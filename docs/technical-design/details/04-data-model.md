@@ -19,7 +19,7 @@
 | 检索 | `metadata_search_documents`、`metadata_vector_documents` | 可重建的全文/向量召回增强 |
 | 任务与委派 | `semantic_task_runs`、`semantic_task_events` | 任务、幂等键、主体/安装实例、委派规范、完成度、证据、续接与事件 |
 | 结果与确认 | `query_result_references`、`confirmations` | 记录级引用、计划哈希、影响范围和一次性确认 |
-| 记忆 | `agent_memories` | 会话、个人、全局范围及主体/租户隔离 |
+| 记忆 | `agent_memories` | 用户会话、用户自定义设置、平台设置三层记忆及主体/租户隔离 |
 | 审计 | `agent_runs`、`tool_calls`、`agent_model_calls`、`message_feedback_events`、`mcp_tool_call_audits` | 受控输入输出摘要、模型调用、反馈和 MCP 审计 |
 | 模板与安装 | `report_skill_templates`、`mcp_installations`、`mcp_installation_bindings` | 模板 Manifest/发布状态与外部安装绑定 |
 
@@ -29,7 +29,7 @@
 - 任务事件按 `task_id + event_sequence` 有序；续接记录父任务、主体、安装实例和一次性消费状态。
 - `query_result_references` 绑定来源消息/任务、对象编码、记录 ID、行号和过期时间，作为后续写风险操作的唯一记录锚点。
 - `confirmations` 绑定计划哈希、执行开始时间和脱敏影响范围；过期、变更或主体不一致必须失效。
-- `agent_memories` 使用 `memory_scope`、`owner_principal`、`tenant_id` 和优先级区分会话、个人和全局记忆。
+- `agent_memories` 使用 `memory_scope`、`owner_principal`、`tenant_id` 和优先级区分三层产品记忆：`SESSION` 为用户会话记忆，`USER` 为用户自定义设置记忆，`SYSTEM` 为平台设置记忆。若运行时使用 `TASK`，仅表示任务生命周期内的内部执行记忆，不作为独立设置层。
 - `report_skill_templates` 的 Manifest、发布状态和签名由 V29 引入；V30 清除内置领域触发提示。
 
 ## 4. 元数据语义

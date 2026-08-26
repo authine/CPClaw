@@ -220,7 +220,7 @@ MCP、Remote API、CLI 共用同一 `TaskGateway`。MCP `content.text` 必须是
 
 外部 OpenClaw 的安装标识不是用户身份。跨会话记忆、确认和写操作必须绑定可信 `externalPrincipal + tenantId`。无可信主体时只开放只读和确认计划。
 
-记忆分层为 `SYSTEM / USER / SESSION / TASK`。设置页只暴露 `SYSTEM`（仅超级管理员）和 `USER`（当前用户）两类可管理长期记忆；`SESSION` 仍落在 `agent_memories` 用户记忆存储表中，但仅绑定当前 `conversationId + ownerPrincipal + tenantId`，只供运行时上下文召回，不返回设置接口，也不提供人工编辑入口。`TASK` 按任务生命周期管理。所有可管理记忆需具备优先级、TTL、来源和审计。
+产品记忆分为三层：用户会话记忆、用户自定义设置记忆和平台设置记忆。技术存储对应 `SESSION / USER / SYSTEM`：`SESSION` 绑定当前 `conversationId + ownerPrincipal + tenantId`，只供运行时上下文召回，不返回设置接口；`USER` 允许当前用户管理个人偏好和长期约定；`SYSTEM` 仅允许超级管理员管理平台规则与公共知识。运行时如使用 `TASK`，它只是任务生命周期内的内部执行记忆，不是独立产品设置层。所有可管理记忆需具备优先级、TTL、来源和审计。
 
 写操作确认票绑定：
 
@@ -251,7 +251,7 @@ planHash + metadataVersion + permissionSnapshot + principal + expiresAt + idempo
 4. 将 `McpSemanticTaskService` 和 `AgentOrchestrator` 降为适配器；
 5. 将云枢查询、分析、操作和流程改为标准 Skill Provider；
 6. 增加身份/租户/确认票；
-7. 实现 SYSTEM / USER / SESSION 记忆；
+7. 实现用户会话记忆、用户自定义设置记忆和平台设置记忆（技术范围为 SYSTEM / USER / SESSION）；
 8. 增加 Markdown Skill 安装治理；
 9. 按真实云枢契约逐项开放写入、流程处理、Action 和导入。
 
