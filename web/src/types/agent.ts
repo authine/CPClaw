@@ -83,6 +83,21 @@ export interface AgentResponse {
   answerElapsedMs?: number
   insightReport?: InsightReport
   assistantMessage: MessageItem
+  /** Channel-neutral runtime contract; optional during legacy response replay. */
+  taskExperience?: TaskExperienceEnvelope
+}
+
+export interface TaskExperienceEnvelope {
+  experienceVersion: string
+  task: { id: string; status: string; updatedAt?: string; retryable: boolean }
+  summary: Record<string, unknown>
+  visibleTrace: ExecutionStep[]
+  output: Record<string, unknown>
+  interaction: Record<string, unknown>
+  hostAction: { type?: string; allowAnotherMcpCallThisTurn?: boolean; [key: string]: unknown }
+  completion: Record<string, unknown>
+  evidence: Record<string, unknown>
+  continuation: Record<string, unknown>
 }
 
 export interface AttachmentResponse {

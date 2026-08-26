@@ -1319,7 +1319,8 @@ function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionS
   }
   const responseSteps = normalizeExecutionSteps(response.steps)
   const hasRichResponseSteps = responseSteps.some((step) => step.id || step.kind || Boolean(step.data && Object.keys(step.data).length))
-  const sourceSteps = hasRichResponseSteps ? responseSteps : pendingSteps
+  const envelopeSteps = normalizeExecutionSteps(response.taskExperience?.visibleTrace || [])
+  const sourceSteps = hasRichResponseSteps ? responseSteps : envelopeSteps.length ? envelopeSteps : pendingSteps
   const steps = coalesceTimeline(sourceSteps).map((step, index) => ({
     ...normalizeVisibleStep(step),
     id: step.id || `${response.agentRunId}-event-${index + 1}`
@@ -1332,7 +1333,9 @@ function withCompletedTimeline(response: AgentResponse, pendingSteps: ExecutionS
       ? '已直接完成通用对话回答，未调用业务能力。'
       : response.requiresConfirmation ? '执行计划已生成，等待用户确认后继续。' : '执行链路已结束，正式回答已返回。',
     kind: 'progress',
-    state: response.requiresConfirmation ? 'needs_input' : 'completed',
+    state: response.requiresConfirmation || response.taskExperience?.task.status === 'confirmation_required'
+      ? 'needs_input'
+      : response.taskExperience?.task.status === 'needs_input' ? 'needs_input' : 'completed',
     data: {
       thinkingElapsedMs: response.thinkingElapsedMs,
       answerElapsedMs: response.answerElapsedMs,

@@ -59,4 +59,25 @@ class SemanticTaskRuntimeTests {
         assertEquals(1, executions.get());
         assertEquals(first.task().id(), replay.task().id());
     }
+
+    @Test
+    void presentationModeControlsCompletedHostActionWithoutBusinessCoupling() {
+        SemanticTaskRunRepository runs = mock(SemanticTaskRunRepository.class);
+        SemanticTaskEventRepository events = mock(SemanticTaskEventRepository.class);
+        when(runs.saveAndFlush(any(SemanticTaskRun.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(runs.save(any(SemanticTaskRun.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        SemanticTaskRuntime runtime = new SemanticTaskRuntime(
+            runs, events, mapper, new TaskContinuationTokenService("test-secret", 900), new TaskEvidencePlanner()
+        );
+        TaskSpec reportSpec = new TaskSpec("cpclaw-delegation/1.0", "生成 CPClaw 报告", List.of(), Map.of(), List.of(), "cpclaw_report", "conv", "turn", "req", "");
+        SemanticTaskRequest reportRequest = new SemanticTaskRequest("mcp", "installation-1", "principal-a", "req", "turn", "生成报告", List.of(), reportSpec);
+        TaskExperienceEnvelope report = runtime.execute(reportRequest, (taskId, progress) -> Map.of("status", "completed", "understandingSummary", "完成"), ignored -> { });
+        assertEquals("respond_directly", report.hostAction().get("type"));
+
+        TaskSpec evidenceSpec = TaskSpec.empty("提供证据", "conv", "turn-2", "req-2");
+        SemanticTaskRequest evidenceRequest = new SemanticTaskRequest("mcp", "installation-1", "principal-a", "req-2", "turn-2", "提供证据", List.of(), evidenceSpec);
+        TaskExperienceEnvelope evidence = runtime.execute(evidenceRequest, (taskId, progress) -> Map.of("status", "completed", "understandingSummary", "完成"), ignored -> { });
+        assertEquals("compose_answer", evidence.hostAction().get("type"));
+    }
 }

@@ -45,7 +45,11 @@ public class MetadataSearchService {
     }
 
     public MetadataSearchService(MetadataSearchDocumentRepository searchDocumentRepository, MetadataVectorSearch metadataVectorSearch) {
-        this(searchDocumentRepository, metadataVectorSearch, new com.cpclaw.skill.YunshuQuestionSemantics());
+        // Keep the framework-level search service independent from any
+        // installed domain template. A template provider may be injected by
+        // the application context; this fallback only performs generic text
+        // expansion and never adds business vocabulary.
+        this(searchDocumentRepository, metadataVectorSearch, new SkillQuestionSemantics() { });
     }
 
     public List<MetadataSearchResult> searchLocalMetadata(String query) {

@@ -9,34 +9,23 @@ import java.util.List;
  * for a particular business domain or analysis style.
  */
 public interface SkillQuestionSemantics {
-    boolean isCountQuestion(String content);
-    boolean isAnalysisQuestion(String content);
-    boolean isDetailCollectionQuestion(String content);
-    boolean isSingleRecordDetailQuestion(String content);
-    boolean isNewOldCustomerQuestion(String content);
-    boolean isOwnerOpportunityRankingQuestion(String content);
-    boolean isStatusAmountAggregationQuestion(String content);
-    boolean isAmountAggregationQuestion(String content);
-    boolean isAmountRankingQuestion(String content);
-    boolean isStageDistributionQuestion(String content);
-    boolean isYearlyDistributionQuestion(String content);
-    boolean isProvinceDistributionQuestion(String content);
-    boolean isBroadBusinessAnalysisQuestion(String content);
-    boolean isPlainListQuestion(String content);
-    boolean requiresCompleteAggregation(String content);
-    boolean requiresFullDimensionDetails(String content);
-    List<String> requestedStatusFilters(String content);
-    boolean statusMatches(String actualStatus, List<String> targetStatuses);
-    QuestionPlan plan(String content);
-    int requestedRecordOrdinal(String content);
-    int queryPageSize(String content, CloudPivotRuntimeProperties.Query query, boolean ownerFilterPresent);
-    int queryRecordLimit(String content, CloudPivotRuntimeProperties.Query query, boolean ownerFilterPresent);
-    String detectIntent(String content);
-    boolean looksLikeAnalysis(String content);
-    String analysisDimension(String content);
-    String filterSummary(String content);
-    String ownerFilter(String content);
-    List<String> expandSearchTerms(List<String> terms);
+    default boolean isCountQuestion(String content) { return false; }
+    default boolean isAnalysisQuestion(String content) { return false; }
+    default boolean isDetailCollectionQuestion(String content) { return false; }
+    default boolean isSingleRecordDetailQuestion(String content) { return false; }
+    default boolean isPlainListQuestion(String content) { return true; }
+    default boolean requiresFullDimensionDetails(String content) { return false; }
+    default List<String> requestedStatusFilters(String content) { return List.of(); }
+    default QuestionPlan plan(String content) { return new QuestionPlan("DEFAULT", "NONE", 10); }
+    default int requestedRecordOrdinal(String content) { return 1; }
+    default int queryPageSize(String content, CloudPivotRuntimeProperties.Query query, boolean ownerFilterPresent) { return query.getListPageSize(); }
+    default int queryRecordLimit(String content, CloudPivotRuntimeProperties.Query query, boolean ownerFilterPresent) { return query.getListRecordLimit(); }
+    default String detectIntent(String content) { return "unknown"; }
+    default boolean looksLikeAnalysis(String content) { return false; }
+    default String analysisDimension(String content) { return ""; }
+    default String filterSummary(String content) { return ""; }
+    default String ownerFilter(String content) { return ""; }
+    default List<String> expandSearchTerms(List<String> terms) { return terms == null ? List.of() : terms; }
 
     record QuestionPlan(String operation, String metric, int limit) {
         public boolean ranking() { return "RANKING".equals(operation); }

@@ -6,21 +6,22 @@ CPClaw 平台需要处理任务生命周期、Skill 注册、元数据约束、�
 
 ## 设计约束
 
-- `AgentOrchestrator`、MCP 网关和平台运行时不维护具体业务对象词、对象别名或业务分析问法。
-- 业务 Skill 通过 `SkillQuestionSemantics` 提供意图、维度、筛选、分页策略、元数据搜索扩展和结果聚合语义。
-- 当前云枢 Skill 的实现为 `YunshuQuestionSemantics`。后续 Markdown Skill 或其他系统 Skill 可提供自己的实现，不修改平台框架。
-- 元数据检索只消费 Skill 提供的搜索扩展；平台保留通用的全文、向量、路径和对象类型排序能力。
+- `AgentOrchestrator`、MCP 网关、通用任务运行时和云枢 Provider 不维护具体业务对象词、对象别名或业务分析问法。
+- 场景模板插件通过版本化 `AnalysisTemplateManifest` 声明触发词、对象选择器、字段角色、算子计划和输出结构；这些内容不属于通用 Skill 契约。
+- 云枢 Skill 只提供连接器、元数据同步、运行态查询、写操作授权和证据返回能力；没有匹配模板时只执行通用结构化分析。
+- 元数据检索只消费当前已选 Skill/模板提供的搜索扩展；平台保留通用的全文、向量、路径和对象类型排序能力。
 
 ## 运行链路
 
 ```text
 用户目标
   -> 平台选择已注册 Skill
-  -> SkillQuestionSemantics 解析业务语言
-  -> 平台按通用任务/证据/确认协议执行
-  -> Skill 解释数据和生成领域结果
+  -> 可选 Template Plugin 解析场景语义并生成受限 AnalysisPlan
+  -> 平台校验元数据、权限、风险和白名单算子
+  -> 通用执行引擎获取数据并生成证据
+  -> 模板渲染领域结果；无模板则返回通用结构化结果
 ```
 
 ## 验收要求
 
-新增业务对象或业务分析问法时，应新增/更新对应 Skill，不得在 `AgentOrchestrator`、MCP Gateway 或通用任务生命周期中增加关键词分支。
+新增业务对象或业务分析问法时，应新增/更新对应 Template Plugin，不得在 `AgentOrchestrator`、MCP Gateway、云枢 Provider 或通用任务生命周期中增加关键词分支。

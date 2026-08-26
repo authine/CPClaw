@@ -1,6 +1,8 @@
-# CPClaw 云枢 MCP 可落地技术架构方案
+# CPClaw 云枢 MCP 交付架构方案（历史提案）
 
-> 状态：已确认技术基线｜版本：v1.0｜目标：在不修改云枢的前提下，将云枢能力稳定封装为面向 WorkBuddy 和其他 OpenClaw 类宿主的 MCP 服务。
+> 文档类型：历史评审｜状态：已被 `20-universal-yunshu-skill-runtime-spec.md`、`19-openclaw-class-ai-tool-integration.md` 和 `18-openclaw-delegation-evidence-contract.md` 取代。保留用于追溯早期方案，不作为当前实现或验收依据。
+
+> 口径说明：本文中的具体对象名称仅用于早期协议示例，不是框架或通用 Skill 的内置判断。
 
 ## 1. 设计原则
 
@@ -201,10 +203,10 @@ public interface SemanticSkill {
 
 | 状态 | 宿主动作 |
 | --- | --- |
-| `completed` | 直接展示结果，不再调用 MCP |
-| `needs_input` | 只向用户追问 |
+| `completed` | `agent_evidence` 模式由宿主基于证据组织答案；`cpclaw_report` 模式直接展示结果；两种模式均不再调用 MCP |
+| `needs_input` | 只向用户追问，补充后携带 continuation 继续 |
 | `confirmation_required` | 展示影响范围并引导确认 |
-| `failed` | 展示脱敏错误，仅按 retryable 决定重试 |
+| `failed` | 展示脱敏错误，仅按 `task.retryable=true` 决定重试 |
 | `running` | 等待进度通知；宿主断线时由平台生命周期通道恢复 |
 
 ## 6. 云枢执行范围与凭据

@@ -26,6 +26,9 @@ import com.cpclaw.metadata.repository.CloudPivotEntityRelationRepository;
 import com.cpclaw.metadata.repository.CloudPivotEntityRepository;
 import com.cpclaw.model.IntentPlanningResult;
 import com.cpclaw.model.ModelGateway;
+import com.cpclaw.skill.yunshu.template.YunshuScenarioInsightReportTemplate;
+import com.cpclaw.skill.yunshu.template.YunshuScenarioVisualizationTemplate;
+import com.cpclaw.insight.template.ReportSkillCatalog;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +58,8 @@ class InsightReportServiceTests {
             dataReader,
             modelGateway,
             new ObjectMapper(),
-            new InsightVisualizationPlanner(new ObjectMapper())
+            new InsightVisualizationPlanner(new ObjectMapper()),
+            new YunshuScenarioInsightReportTemplate(entityRepository, dataItemRepository, relationRepository, dataReader, modelGateway, new ObjectMapper(), new YunshuScenarioVisualizationTemplate(new ObjectMapper()), new ReportSkillCatalog())
         );
         opportunity = entity("opp-id", "crm-app", "int_bu_oppor", "商机");
         lead = entity("lead-id", "crm-app", "sql_line", "私海线索");

@@ -1,5 +1,7 @@
 # 云枢 MCP Gateway 技术设计
 
+> 文档类型：专项技术设计｜状态：当前 MCP 协议与安全边界；执行链以 `TaskGateway → SemanticTaskRuntime → SkillRegistry` 为准。文中 `McpSemanticTaskService` 仅表示历史适配层名称，不得再承载独立业务执行。
+
 ## 1. 身份边界
 
 首期提供 SSE MCP 服务，因此 CPClaw 不假设存在客户端用户或租户 JWT。调用方通过 `x-cpclaw-installation-id` 请求头声明安装实例；该值只标识 MCP 安装实例，不承载身份或权限，不能作为外网访问令牌。
@@ -26,7 +28,7 @@ OAuth、市场发布和企业租户透传尚未有正式契约。SSE 地址对�
 
 ## 5. 语义任务网关与进度协议
 
-`yunshu_handle_request` 是对外优先使用的自然语言工具。网关创建短生命周期任务标识，调用 `McpSemanticTaskService`：该服务以 `BoundCloudPivotConnection` 的临时账号密码为唯一云枢凭据来源，使用 `MetadataSearchService` 和 `MetadataExecutionPlanner` 定位已同步对象及能力，再执行允许的只读查询或返回澄清/确认结果。它不得调用依赖 CPClaw 本地个人凭据或会话副作用的 `ConversationService`、`AgentOrchestrator.handleMessage` 或确认执行器。
+`yunshu_handle_request` 是对外优先使用的自然语言工具。网关创建短生命周期任务标识并进入统一 `TaskGateway`；MCP 适配层可使用 `BoundCloudPivotConnection` 注入临时凭据，但不得调用依赖 CPClaw 本地个人凭据或会话副作用的旧 `AgentOrchestrator.handleMessage` 执行云枢业务。
 
 `McpProgressListener` 将内部的安全过程事件转换为两份输出：
 
@@ -37,13 +39,13 @@ OAuth、市场发布和企业租户透传尚未有正式契约。SSE 地址对�
 
 ## 6. 一期边界与后续演进
 
-一期只在当前 SSE 会话内实时推送，并将最终任务摘要写入既有 MCP 脱敏审计；客户端断开后以最终结果为准。跨断线轮询、取消和长期步骤回放需要独立的持久化任务表与可信外部用户/租户主体，作为后续版本实施，不能用可猜测安装标识代替身份。
+当前版本已持久化语义任务、脱敏事件、最终结果，并提供受保护部署范围内的状态、事件回放和取消接口；SSE 进度断开后可通过原 `taskId` 恢复。该生命周期接口仍不等同于完整的多租户授权：跨组织生产部署必须接入可信外部主体和网关认证，不能用可猜测安装标识代替身份。
 
 外部 MCP 写操作保持 `confirmation_required`。未来只有在宿主提供可验证的用户身份和人工确认回调（或签名确认票）后，才能将确认计划转换为实际写入；客户端模型的二次 `tools/call` 不是可信人工确认。
 
 ## 7. 统一语义任务运行时
 
-`McpSemanticTaskService` 退化为 MCP 宿主适配层，不能继续承载分析、查询、填单、流程和导入的全部分支。统一运行时负责规划、技能选择、受控执行、可见事件和结果体验：
+MCP 宿主适配层不能承载分析、查询、填单、流程和导入的业务分支。统一运行时负责规划、技能选择、受控执行、可见事件和结果体验：
 
 ```text
 yunshu_handle_request

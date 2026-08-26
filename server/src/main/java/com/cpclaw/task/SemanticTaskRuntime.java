@@ -249,7 +249,7 @@ public class SemanticTaskRuntime {
             default -> Map.of("type", "none");
         };
         Map<String, Object> hostAction = switch (status) {
-            case "completed", "completed_with_gaps", "partial" -> Map.of("type", "compose_answer", "allowAnotherMcpCallThisTurn", false);
+            case "completed", "completed_with_gaps", "partial" -> hostActionForCompleted(taskSpec);
             case "needs_input" -> Map.of("type", "ask_user", "allowAnotherMcpCallThisTurn", false);
             case "confirmation_required" -> Map.of("type", "open_cpclaw_confirmation", "allowAnotherMcpCallThisTurn", false);
             default -> Map.of("type", "report_failure", "allowAnotherMcpCallThisTurn", false);
@@ -261,6 +261,20 @@ public class SemanticTaskRuntime {
             continuation = Map.of("allowed", true, "taskId", taskId, "expiresInSeconds", continuationTokenService.ttlSeconds(), "token", continuationTokenService.issue(taskId, request.externalPrincipal()));
         }
         return new TaskExperienceEnvelope("2.0", new TaskExperienceEnvelope.Task(taskId, status, Instant.now(), "failed".equals(status) && Boolean.parseBoolean(text(safe.get("retryable")))), summary, finalTrace, output, interaction, hostAction, completion, evidence, continuation);
+    }
+
+    /**
+     * The host action is derived from the requested presentation contract, not
+     * from the business object or the text of the answer. OpenClaw-style hosts
+     * receive evidence and compose the cross-domain response; CPClaw-report
+     * hosts can render the already-composed Markdown directly.
+     */
+    private Map<String, Object> hostActionForCompleted(TaskSpec taskSpec) {
+        String mode = taskSpec == null ? "agent_evidence" : taskSpec.presentationMode();
+        if ("cpclaw_report".equalsIgnoreCase(mode)) {
+            return Map.of("type", "respond_directly", "allowAnotherMcpCallThisTurn", false);
+        }
+        return Map.of("type", "compose_answer", "allowAnotherMcpCallThisTurn", false);
     }
 
     private Map<String, Object> deriveCompletion(com.cpclaw.task.dto.TaskSpec taskSpec, String status, Map<String, Object> safe) {

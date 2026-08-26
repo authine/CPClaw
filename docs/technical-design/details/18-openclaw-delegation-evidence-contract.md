@@ -212,6 +212,10 @@ cpclaw_cloudpivot_agent
 
 MCP、Remote API、CLI 共用同一 `TaskGateway`。MCP `content.text` 必须是完整 Markdown 降级结果，`structuredContent` 必须包含事实证据和完成契约；进度通知只是增强，不是终态依赖。
 
+### 9.1 宿主终态决策（必须实现）
+
+宿主先读取 `structuredContent.completion`，再读取 `evidence` 与 `hostAction`，不得依据 Markdown 文本长短重新判断证据是否充分。`agent_evidence` 模式下，完成态使用 `compose_answer` 交给 OpenClaw 组织最终表达；`cpclaw_report` 模式下使用 `respond_directly` 直接展示 CPClaw 结果。`partial` 是终态，不得因表达不够完整而自动补查。只有 `needs_input`、可信确认票、用户新增约束或 `task.retryable=true` 的技术失败允许继续。
+
 ## 10. 身份、记忆与确认
 
 外部 OpenClaw 的安装标识不是用户身份。跨会话记忆、确认和写操作必须绑定可信 `externalPrincipal + tenantId`。无可信主体时只开放只读和确认计划。
@@ -260,7 +264,7 @@ planHash + metadataVersion + permissionSnapshot + principal + expiresAt + idempo
 - MCP 同时暴露推荐名称 `cpclaw_cloudpivot_agent` 和兼容名称 `yunshu_handle_request`，两者使用同一执行链；
 - 当执行器尚未提供逐项证据时，运行时将结构化任务标记为 `partial` 并列出证据缺口，不把“有一张结果表”伪装成复合任务完成。
 
-已补齐基础实现：`TaskGateway` 已成为 MCP 的生命周期入口；Web 已通过兼容适配进入 `TaskGateway → SemanticTaskRuntime` 生命周期（当前仍保留 `AgentResponse` UI 兼容桥接，尚未启用 Web 终态幂等 replay）；V22/V23/V24 提供任务幂等、并发冲突保护、签名 continuation ticket、父子任务关系、任务状态/事件/取消 API，以及默认用户和分层记忆存储；新增 `cli/cpclaw.mjs` 复用 Remote/MCP API。云枢复合任务的真实风险信号/关系补查仍需按真实元数据逐步完善，Skill Markdown 的持久化发布工作台仍需继续建设。
+已补齐基础实现：`TaskGateway` 已成为 MCP 和 Web 的生命周期入口；Web 通过 `WebTaskExperienceAdapter` 将统一 `TaskExperienceEnvelope` 映射为旧 `AgentResponse` 展示 DTO，不再保留第二条云枢执行链；V22/V23/V24 提供任务幂等、并发冲突保护、签名 continuation ticket、父子任务关系、任务状态/事件/取消 API，以及默认用户和分层记忆存储；新增 `cli/cpclaw.mjs` 复用 Remote/MCP API。云枢复合任务的真实风险信号/关系补查仍需按真实元数据逐步完善，Skill Markdown 的持久化发布工作台仍需继续建设。
 
 ## 14. 当前无登录阶段的默认身份
 

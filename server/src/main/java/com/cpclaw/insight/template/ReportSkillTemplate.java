@@ -22,6 +22,17 @@ public class ReportSkillTemplate {
     private String triggerHintsJson;
     @Column(name = "config_json", columnDefinition = "LONGTEXT")
     private String configJson;
+    /** Full declarative template manifest. It is validated before publication. */
+    @Column(name = "manifest_json", columnDefinition = "LONGTEXT")
+    private String manifestJson;
+    @Column(name = "template_kind")
+    private String templateKind = "generic";
+    @Column(name = "skill_id")
+    private String skillId;
+    @Column(name = "publication_status")
+    private String publicationStatus = "approved";
+    @Column(name = "signature")
+    private String signature;
     @Column(nullable = false)
     private boolean enabled = true;
     @Column(nullable = false)
@@ -47,6 +58,16 @@ public class ReportSkillTemplate {
     public void setTriggerHintsJson(String triggerHintsJson) { this.triggerHintsJson = triggerHintsJson; }
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
+    public String getManifestJson() { return manifestJson; }
+    public void setManifestJson(String manifestJson) { this.manifestJson = manifestJson; }
+    public String getTemplateKind() { return templateKind; }
+    public void setTemplateKind(String templateKind) { this.templateKind = templateKind; }
+    public String getSkillId() { return skillId; }
+    public void setSkillId(String skillId) { this.skillId = skillId; }
+    public String getPublicationStatus() { return publicationStatus; }
+    public void setPublicationStatus(String publicationStatus) { this.publicationStatus = publicationStatus; }
+    public String getSignature() { return signature; }
+    public void setSignature(String signature) { this.signature = signature; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public int getPriority() { return priority; }

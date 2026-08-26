@@ -2,7 +2,6 @@ package com.cpclaw.insight.template;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -35,7 +34,9 @@ public class ReportSkillCatalog {
         String query = normalize(question);
         List<ReportSkillTemplate> templates = repository == null
             ? builtInFallbackTemplates()
-            : repository.findByEnabledTrueOrderByPriorityDesc();
+            : repository.findByEnabledTrueOrderByPriorityDesc().stream()
+                .filter(template -> "approved".equalsIgnoreCase(template.getPublicationStatus()))
+                .toList();
         ReportSkillTemplate best = null;
         int bestScore = 0;
         for (ReportSkillTemplate template : templates) {
@@ -47,7 +48,7 @@ public class ReportSkillCatalog {
         }
         if (best == null) {
             return new ReportSkillDefinition(
-                "generic-business-analysis", "通用业务分析", "根据用户要求组织可验证的业务分析报告", 1,
+                "yunshu-intelligent-inquiry", "通用业务分析", "根据用户要求组织可验证的业务分析报告", 1,
                 "{\"sections\":\"dynamic\",\"charts\":\"dynamic\"}", "未匹配专项报告 Skill，使用通用分析"
             );
         }
@@ -75,10 +76,10 @@ public class ReportSkillCatalog {
     }
 
     private List<ReportSkillTemplate> builtInFallbackTemplates() {
-        List<ReportSkillTemplate> templates = new ArrayList<>();
-        templates.add(template("yunshu-intelligent-inquiry", "云枢智能问数", "根据用户目标动态规划数据、图形和业务总结", "[]", "[\"分析\",\"报告\",\"洞察\",\"概览\",\"诊断\",\"经营\"]", 100));
-        templates.add(template("generic-business-analysis", "通用业务分析", "在未匹配专用分析能力时组织可验证的业务分析报告", "[]", "[\"分析\",\"报告\",\"洞察\",\"概览\",\"诊断\"]", 1));
-        return templates;
+        // The framework has no built-in business scenario vocabulary. Concrete
+        // templates are persisted/installed plugins and are resolved only when
+        // explicitly published by an administrator.
+        return List.of(template("yunshu-intelligent-inquiry", "通用分析", "根据已核验数据生成结构化结果", "[]", "[]", 1));
     }
 
     private ReportSkillTemplate template(String code, String name, String description, String aliases, String hints, int priority) {

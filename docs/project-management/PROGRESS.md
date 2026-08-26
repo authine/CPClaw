@@ -1,5 +1,13 @@
 # CPClaw 项目进度
 
+2026-08-26 开始落地统一云枢 Skill Runtime 技术规范：新增 `YunshuProvider`、`YunshuExecutionScope`、`YunshuSkillRuntime` 通用契约，MCP 云枢查询执行器改为通过 Provider 访问云枢连接器；新增 Provider 委托测试。后端 compile、test-compile、Runtime/Provider 专项测试通过。当前仍需继续抽取阶段化 Runtime、让 Web 与 MCP 完全共享执行器，并由开发完成后启动独立测试专家进行全量验收。
+
+2026-08-26 第二轮继续抽取运行时职责：新增可替换 `YunshuIntentPlanner`，将 MCP 执行器中的查询/分析/写入/流程动作分类和流程只读 API 选择迁移到规划器；新增规划器专项测试。后端 compile 与规划器、Provider、任务运行时专项测试通过。当前仍需继续拆分元数据发现、计划校验、证据完成度和 Web 适配，全部开发完成后启动独立测试专家验收。
+
+2026-08-26 第三轮继续抽取运行时职责：新增 `YunshuMetadataDiscovery`、`YunshuDiscovery` 和默认实现，将元数据对象匹配与可执行计划生成从 MCP 执行器迁移到共享发现组件；MCP 执行器改为消费发现结果。新增元数据发现专项测试，后端 compile 与规划器、Provider、发现组件测试通过。当前仍需拆分计划校验、证据完成度和 Web 适配。
+
+2026-08-26 第四轮继续抽取运行时职责：新增 `YunshuPlanValidator`、`YunshuPlanValidation` 和默认实现，统一校验元数据计划、认证执行范围、流程契约及写操作确认门禁；MCP 执行器接入 VALIDATE 阶段。新增计划校验专项测试，后端 compile 与规划器、Provider、发现组件、计划校验测试通过。当前仍需拆分证据完成度、结果编排和 Web 适配。
+
 2026-08-24 形成云枢 MCP / WorkBuddy 接入方案：WorkBuddy 首期按本地 MCP 安装实例标识接入，不假设其自动提供可信用户/租户身份；终端用户在 CPClaw 系统设置中填写云枢地址、账号和密码，必须测试通过后才能启用。凭据按安装实例加密隔离，MCP 只读能力复用现有云枢连接器，写能力保持确认计划门禁。专项产品、技术和测试文档：`docs/product-design/details/08-cloudpivot-mcp-workbuddy.md`、`docs/technical-design/details/16-cloudpivot-mcp-gateway.md`、`docs/test-cases/20-cloudpivot-mcp-binding.md`。
 
 本文件是 CPClaw 项目的实时进度看板。之后每完成一个任务、一次验证、一次阻塞排查或一次交付，都先更新本文件，再单独提交并推送到 GitHub，方便远程查看最新状态。
@@ -663,3 +671,17 @@ MVP 核心要求：
 2026-08-22 根据侧栏底部截图反馈，用户身份区不再仅做近似字号对齐，而是逐项复制 ChatView 的内容容器规则：32px 头像、9px 栅格间距、2px 文本间距、12px/600 主文本、10px 次文本及截断规则；消除此前 10.5px 次文本、3px 间距和显式 1.35 行高造成的视觉差异。
 
 2026-08-25：完成 CPClaw 任务内核第二轮闭环改造。Web 对话入口通过 `TaskGateway → SemanticTaskRuntime` 进入统一任务生命周期，同时保留 `AgentResponse` 兼容桥接，未改变现有 UI、流式进度、取消和消息持久化契约；MCP continuation 补齐签名票据解析、父任务上下文恢复、父子任务关系、主体/租户/安装实例绑定、一次性消费和并发保护；新增 `cli/cpclaw.mjs`，提供 `delegate run`、任务状态、事件、续接和取消命令，CLI 不包含任何云枢业务判断。新增证据完成度、幂等 replay、票据边界和渲染专项测试。验证结果：后端 `mvn test` 全部通过；专项任务测试全部通过；前端 `npm run build` 通过；CLI/MCP adapter `node --check` 通过。当前明确边界：Web 仍是兼容桥接，尚未把 `AgentResponse` 完整映射为 Web 端 `TaskExperienceEnvelope` 并启用 Web 幂等；Markdown Skill 持久化治理、可信 OIDC/JWT 主体和云枢写入/流程处理的真实契约验证仍未宣称完成。
+
+2026-08-26：继续完善统一云枢 Skill Runtime。修复 `YunshuEvidenceAndCompletionTests` 的 `TaskDeliverable` 构造契约并通过证据/完成度、计划校验、元数据发现、意图规划和 Provider 专项测试；新增 `YunshuRuntimePhase` 稳定阶段枚举，MCP 执行轨迹统一记录 `UNDERSTAND/DISCOVER/PLAN/VALIDATE/EXECUTE/ANALYZE/PROCESS/COMPLETE` 阶段，便于各宿主一致展示进度；移除 MCP 执行器中未使用的业务辅助方法，边界扫描测试通过，确认通用云枢 Skill 未出现商机/项目/客户等业务词。技术规范第 14 节已同步更新当前落地状态与剩余差距。尚未启动最终独立测试专家，待本轮开发项全部收敛后执行。
+2026-08-26（续）：抽取 `YunshuResultComposer`/`DefaultYunshuResultComposer` 统一普通查询结果结构，并保留兼容字段；场景报告模板通过显式组件装配接入 Runtime，通用服务只负责委派，不再承载场景报告逻辑。专项回归与前端构建通过。全量 Maven 测试当前仍有历史契约失败：`CpClawApiTests` 的元数据搜索断言依赖旧业务 fixture，属于测试数据/断言迁移项；独立测试专家已启动，最终交付以其验收结论为准。
+2026-08-26（再续）：根据独立测试专家 P1 意见，移除场景报告/可视化模板的默认 `@Component`，新增 `YunshuScenarioTemplateConfiguration`，仅当 `cpclaw.templates.scenario.enabled=true` 时显式注册；通用语义保持唯一默认 Bean，避免插件未安装时污染框架。MCP 流程失败载荷和 Agent 流程进度移除 `apiCode` 等内部编码。专项 Runtime、边界、CLI/MCP 检查继续通过；全量测试仍需在历史断言迁移完成后重新跑绿。
+2026-08-26（最终验收回流）：独立测试专家确认 Runtime 专项、证据/完成度、幂等/续接、边界、前端构建和 CLI/MCP 检查通过；复测发现 `CpClawApiTests` 中仍有一条模型流式旧断言失败，属于测试环境未配置模型流式响应的历史契约问题。已继续移除 Agent 失败进度中的 `schemaCode`，内部编码仅保留在受控审计字段。真实云枢写入、流程处理、导入和跨宿主网络 E2E 仍未覆盖，当前不宣称最终生产交付。
+2026-08-26（继续）：为历史场景测试增加显式模板启用配置，生产默认仍关闭；通用 Runtime 专项和边界回归继续通过。全量 `mvn test` 当前剩余失败集中在 `CpClawApiTests` 的旧场景文案/模型流式断言，未改变生产默认行为；后端编译、前端构建、CLI/MCP 语法检查通过。真实云枢写入、流程处理、导入和跨宿主网络 E2E 仍未覆盖。
+2026-08-26（本轮收敛）：将 `CpClawApiTests` 中依赖场景模板输出的固定阶段、金额、地域、趋势和报告标题断言迁移为通用 Runtime 契约断言，避免测试反向要求框架默认承载业务逻辑；同时移除多轮上下文目标拼接中的内部 `schemaCode`，用户可见回答仅校验正文非空和无技术编码泄露。验证结果：后端全量 `mvn test` 通过（93 tests, 0 failures, 0 errors），`CpClawApiTests` 单类通过；前端 `npm run build` 通过；`node --check cli/cpclaw.mjs`、`node --check mcp-adapter/cpclaw-yunshu.mjs` 通过；`git diff --check` 无空白错误。生产默认场景模板仍关闭，真实云枢写入、流程处理、导入和跨宿主网络 E2E 仍属于未覆盖边界。
+2026-08-26（脱敏收敛）：根据独立测试专家复验关闭 Web/Agent 编码泄露 P1。`ConversationService` 将内部消息与外部消息 DTO 分离，普通会话详情/响应在序列化前移除 `schemaCode`、`apiCode`、`metadataCode` 和运行态内部上下文字段；运行态进度、计划摘要、未匹配提示和可选场景模板回答不再展示内部编码，内部审计与受控执行上下文仍保留必要编码。新增回归断言覆盖助手正文与 `metadataJson` 脱敏；`CpClawApiTests` 与全量 Maven 测试重新通过（93 tests, 0 failures, 0 errors）。
+2026-08-26（递归脱敏补强）：外部消息 metadata 改为递归清理嵌套 `executionTimeline` 中的 `schemaCode/apiCode/metadataCode/runtimeContextSchema`，避免技术字段通过历史轨迹嵌套结构外发；内部持久化 metadata 与审计数据保持不变。补强后全量 Maven 测试、前端构建、CLI/MCP 语法和 `git diff --check` 均再次通过。
+2026-08-26（架构落地复核与补齐）：复核技术蓝图与现有代码后，Web 对话入口已在保留 AgentResponse 兼容字段的同时返回统一 TaskExperienceEnvelope，并优先消费统一运行时可见轨迹；新增声明式分析模板管理员工作台 API，覆盖 Manifest 白名单校验、草稿、审核、发布、停用，运行时仅解析 approved 模板；无登录部署下外部主体默认仅映射到 huangj，任意未验证宿主标识不会创建已认证主体。后端全量 Maven 测试通过，前端生产构建通过。剩余发布门禁为可信 OIDC/JWT、真实云枢写入/流程/导入契约、跨断线后台协调及模板版本历史回滚，均需对应外部基础设施或真实环境验证，未宣称已完成。
+
+2026-08-26（共享执行器闭环）：Web 已由 `ConversationService → TaskGateway → SkillRegistry → YunshuMcpTaskExecutor` 执行，与 MCP 使用同一 Spring 单例 Runtime 执行器；`AgentResponse` 仅由 `WebTaskExperienceAdapter` 对 `TaskExperienceEnvelope` 做展示协议兼容，不参与云枢语义解析或执行。无云枢连接时，通用对话仍由统一 Runtime 安全完成；未匹配真实元数据的业务请求返回澄清，不回退本地演示数据。同步更新旧 Web 兼容测试的 metadata 来源断言，避免反向要求旧的 `direct-conversation` 执行链。
+
+2026-08-26（项目级文档收敛）：按项目视角重新审查并重写项目入口、文档治理、产品蓝图、规范性需求、产品概要设计、技术架构、系统架构、Agent、数据模型、受控操作、关键技术策略和模板插件契约。权威口径统一为“多 Skill 平台、云枢为首个核心 Skill、Web/MCP/CLI 复用 TaskGateway Runtime、模板承载场景逻辑”；明确了 MySQL/Flyway V1–V30、MCP/CLI 契约、默认主体和发布门禁。文档不再把通用写入、流程处理、导入、OIDC/JWT、后台断线恢复、模板回滚和跨网络 E2E 写为已完成；同步登记旧 `AgentOrchestrator → YunshuAgentOrchestrator` 兼容入口仍存在历史关键词规则这一架构技术债，未将其虚报为已清除。待本轮 Markdown 链接、状态与边界扫描完成后形成文档验收结论；文档尚未提交 Git，需用户确认后提交。

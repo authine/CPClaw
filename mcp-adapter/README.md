@@ -50,4 +50,8 @@ CPClaw 在服务端完成意图理解、元数据验证、Skill 选择、关联�
 
 OpenClaw 以 CPClaw 返回的 `completion` 和 `evidence` 为云枢事实边界：可以自然组织最终回答，但不得修改数字、口径、范围、风险信号或警告。`partial` 是终态，不因表达不够漂亮而自动重试；只有 `needs_input`、可信确认或用户新增约束且带有效 continuation 才能继续。同一 `turnId` 的重复调用由 CPClaw 服务端 replay 原结果，不重新访问云枢。任何写入、删除、流程处理或导入在确认前均不会执行。
 
+宿主必须先读取 `structuredContent.completion` 和 `structuredContent.evidence`，不能根据 `content.text` 自行猜测缺口。`hostAction.type=compose_answer` 时由宿主组织语言，`respond_directly` 时直接展示 CPClaw 结果；当 `allowAnotherMcpCallThisTurn=false` 时，本轮禁止再次调用。SSE 断开应使用原 `taskId` 恢复状态/事件，不得重新创建任务。
+
 仅配置 MCP 服务地址不足以让宿主稳定遵循结果呈现契约。请同时加载同目录的 `CPClaw-Yunshu-Skill.md`；它定义了唯一工具、上下文传递及四类 `hostAction` 的处理规则。
+
+接入方的完整协议、状态机、断线恢复、CLI/Remote 方式和验收用例见 [`docs/technical-design/details/19-openclaw-class-ai-tool-integration.md`](../docs/technical-design/details/19-openclaw-class-ai-tool-integration.md)。统一云枢 Skill Runtime 的目标架构和落地路线见 [`docs/technical-design/details/20-universal-yunshu-skill-runtime-spec.md`](../docs/technical-design/details/20-universal-yunshu-skill-runtime-spec.md)。

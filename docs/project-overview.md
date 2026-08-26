@@ -1,22 +1,24 @@
-# CPClaw
+# CPClaw 项目概览
 
-> 本文是仓库入口摘要，不是产品或技术规范。规范性内容分别以 `docs/product-design/`、`docs/technical-design/` 和 `docs/test-cases/` 为准。
+> 本文是仓库入口摘要，不替代产品、技术或测试规范。
 
-## 当前边界
+## 项目定位
 
-CPClaw 当前是 Vue 3 + Spring Boot 的云枢对话式操作工作台：用已同步的本地元数据理解用户目标，再调用云枢运行态能力查询或执行受控操作。它不是任意网页自动化器，也不是可以无约束调用接口的通用聊天机器人。
+CPClaw 是多 Skill、元数据驱动、受治理的企业系统对话式任务平台。云枢是首个核心 Skill；平台同时支持其他遵循 Skill 契约的 Markdown/MCP 扩展，并可通过 MCP/CLI 向 OpenClaw 类宿主提供同一云枢能力。
 
-已验证的核心链路是：持久化 MySQL/Flyway → 云枢元数据同步与应用级图谱 → 本地确定性检索（可选 pgvector 增强）→ 受约束 Agent 规划 → 真实运行态查询/确认后的操作 → 脱敏审计与业务化结果。
+## 当前运行基线
 
-当前仍需按阶段开放的能力包括通用新增/更新、流程处理、Action、附件填单和多应用写入 DAG；“支持所有系统场景”是长期目标，不是当前验收承诺。
+- 后端：Java 21 / Spring Boot 3，默认 8080。
+- 前端：Vue 3 / TypeScript / Vite，默认 5173，`/api` 代理到后端。
+- 持久化：MySQL + Flyway；H2 仅测试。
+- 统一执行：`TaskGateway → SemanticTaskRuntime → SkillRegistry → YunshuMcpTaskExecutor`。
+- 对外 MCP：`yunshu_handle_request`，兼容 `cpclaw_cloudpivot_agent`。
+- 当前无登录安全模式：固定默认主体 `huangj`；正式主体认证与多租户仍是发布门禁。
 
-## 运行事实
+## 已验证与未完成
 
-- 后端：Java 21 / Spring Boot 3，默认 8080；正常运行只允许显式配置的持久化 MySQL。
-- 前端：Vue 3 / TypeScript / Vite，默认 5173；通过 `/api` 访问后端。
-- Flyway 迁移是 schema 唯一入口；H2 只在测试 JVM 使用。
-- 数据库和向量库连接属于部署配置，不由业务设置页编辑。
+查询/分析、元数据同步与图谱、会话/记忆/审计、Web/MCP/CLI 共享 Runtime、幂等/续接/取消和模板 Manifest 治理已具备自动化证据。真实云枢写入、流程处理、导入、跨断线后台恢复、OIDC/JWT 和跨网络生产 E2E 尚未完成。
 
 ## 文档入口
 
-阅读顺序和状态定义见 [`docs/README.md`](README.md)。若代码与文档不一致，先记录为状态漂移，完成核对后再更新规范文档，不直接把未验证代码行为写成产品承诺。
+阅读顺序和权威矩阵见 [`README.md`](README.md)。代码与文档不一致时，先记录状态漂移并核对测试证据，再更新规范。

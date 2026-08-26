@@ -33,7 +33,8 @@ import org.springframework.test.web.servlet.MockMvc;
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
-    "cpclaw.persistence.runtime-guard-enabled=false"
+    "cpclaw.persistence.runtime-guard-enabled=false",
+    "cpclaw.templates.scenario.enabled=true"
 })
 @AutoConfigureMockMvc
 class McpGatewayTests {

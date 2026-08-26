@@ -1,197 +1,53 @@
-# CPClaw 系统架构详细设计
+# 系统架构详细设计
 
-> 本文是系统架构专项详细设计。整体技术路径见 `../00-technical-blueprint.md`。
+> 文档类型：专项技术设计｜状态：当前实现架构。总体蓝图见 `../00-technical-blueprint.md`；云枢 Runtime 契约见 `20-universal-yunshu-skill-runtime-spec.md`。
 
-## 1. 技术栈
+## 1. 部署组件
 
-### 1.1 前端
+| 组件 | 技术 | 责任 |
+| --- | --- | --- |
+| Web | Vue 3 + TypeScript + Vite | 对话、设置、任务过程、结果与确认展示；只调用 `/api` |
+| API 服务 | Java 21 + Spring Boot | 主体、会话、任务、Skill、元数据、连接器、审计和 MCP 网关 |
+| MySQL | Flyway 管理 | 配置密文、元数据图谱、会话/记忆、任务、确认和审计 |
+| 云枢 | 设计态/运行态 API | 元数据同步、连接测试、授权查询和经确认操作 |
+| 模型服务 | OpenAI-compatible | 受限规划、自然语言解释和流式输出 |
+| CLI/MCP 宿主 | Node CLI / JSON-RPC | 外部委派协议，复用 API 服务 Runtime |
 
-- Vue 3
-- TypeScript
-- Vite
-- Pinia
-- Vue Router
-- Element Plus
-- Markdown 渲染组件
-- 附件上传组件
-- SSE 或流式响应预留
+前端默认端口为 5173，后端默认端口为 8080；Vite 仅代理 `/api`。生产部署必须由环境注入数据库、加密密钥和外部连接配置，禁止将凭据写入仓库。
 
-### 1.2 后端
-
-- Java 21
-- Spring Boot 3
-- Spring Web MVC
-- Spring Data JPA
-- Flyway
-- MySQL
-- Playwright Java
-- OpenAI 兼容模型网关
-
-### 1.3 中间件
-
-- MySQL：会话、设置、凭据密文、云枢元数据、应用级知识图谱、审计、记忆。
-- Elasticsearch/OpenSearch：后续用于全文检索、中文分词和混合召回增强；当前阶段核心匹配先使用 MySQL Metadata Index 的非向量检索。
-- 本地文件存储或 MinIO：附件存储。
-- 可选 Milvus：大规模向量检索。
-- 可选 Redis：短期状态、锁、任务进度。
-
-## 2. 总体架构
+## 2. 运行时调用图
 
 ```text
-Vue 3 Web UI
-  -> Spring Boot Backend API
-    -> Conversation Service
-    -> Settings Service
-    -> Model Gateway
-    -> Attachment Service
-    -> Agent Orchestrator
-    -> Metadata Service
-    -> Search Service
-    -> Memory Service
-    -> CloudPivot Connector
-    -> Credential Service
-    -> Audit Service
-    -> MySQL Persistence
-    -> Elasticsearch/OpenSearch
+Web ConversationService ─┐
+MCP McpGatewayController ├─> TaskGateway ─> SemanticTaskRuntime
+CLI / Remote Adapter ────┘                         │
+                                                    ▼
+                                             SkillRegistry
+                                                    ▼
+                                      YunshuMcpTaskExecutor
+                                                    ▼
+                           YunshuProvider / Metadata / Runtime API / Model
 ```
 
-## 3. 后端包结构建议
+所有入口使用同一任务标识、主体范围、幂等策略、事件模型和结果信封。Web 兼容层由 `WebTaskExperienceAdapter` 承担 DTO 转换，不能将旧 `AgentResponse` 反向用于执行。
 
-```text
-server/src/main/java/com/cpclaw/
-  CpClawApplication.java
-  common/
-    api/
-    config/
-    security/
-    exception/
-  settings/
-  credential/
-  conversation/
-  attachment/
-  model/
-  metadata/
-  search/
-  memory/
-  agent/
-  cloudpivot/
-  audit/
-```
+## 3. 服务边界
 
-## 4. 模块边界
+- `conversation`：会话、消息、SSE 与 Web 展示适配。
+- `task`：`SemanticTaskRequest`、生命周期、状态/事件、续接、取消、幂等和完成度。
+- `skill`：Skill 注册、执行上下文和通用能力接口。
+- `skill.yunshu`：云枢 Runtime、Provider、元数据发现、计划校验和结果编排。
+- `metadata` / `cloudpivot`：同步、图谱、检索和云枢 API 连接。
+- `identity` / `memory` / `audit`：主体、受控上下文、确认与脱敏审计。
+- `mcp` / `cli`：协议适配与安装实例绑定，不实现云枢业务语义。
 
-### 4.1 Web UI
+## 4. 韧性与错误处理
 
-负责用户交互，不处理敏感凭据，不直接调用云枢。
+- 未匹配 Skill/元数据、权限不足或信息不足返回澄清，不执行猜测请求。
+- 网络/模型错误转换为可解释终态，保留受控审计，不泄露内部编码或载荷。
+- 任务使用幂等键、continuation 票据和事件顺序保护重放与重复续接。
+- 长任务逐步发送真实进度与流式回答；无法给出 `final` 时明确失败，不把断流伪装为成功。
 
-关键组件：
+## 5. 架构限制
 
-- `ModelSelector`：模型选择。
-- `ThinkingToggle`：思考模式开关。
-- `AttachmentUploader`：附件上传和解析状态。
-- `MarkdownMessage`：Markdown 渲染。
-- `CandidateSelector`：候选应用/功能选择。
-- `PlanPreviewCard`：执行计划预览。
-- `RiskConfirmationCard`：高风险确认。
-- `ResultTable`：查询结果表格。
-- `FieldMappingTable`：附件填单字段映射。
-- `ExecutionTimeline`：执行步骤时间线。
-
-### 4.2 Backend API
-
-负责会话、消息、设置、架构同步、智能体执行、附件和审计。
-
-核心 API：
-
-- `GET /api/settings`
-- `PUT /api/settings/cloudpivot`
-- `POST /api/settings/cloudpivot/test`
-- `GET /api/settings/models`
-- `POST /api/settings/models`
-- `PUT /api/settings/models/{id}`
-- `POST /api/settings/models/{id}/test`
-- `PUT /api/settings/search`
-- `POST /api/settings/search/test`
-- `POST /api/conversations`
-- `GET /api/conversations`
-- `GET /api/conversations/{id}`
-- `POST /api/conversations/{id}/messages`
-- `GET /api/conversations/{id}/events`
-- `POST /api/conversations/{id}/confirmations/{confirmationId}`
-- `POST /api/attachments`
-- `POST /api/metadata/sync`
-- `GET /api/metadata/apps`
-- `GET /api/metadata/apps/{appId}/graph`
-- `POST /api/search/metadata`
-- `GET /api/audit/agent-runs/{id}`
-
-### 4.3 Model Gateway
-
-统一封装 OpenAI 兼容模型调用。业务代码不直接拼接模型请求。普通用户可配置自己的模型 API 地址、API Key、模型名称和思考模式能力，用于自己的对话式操作。
-
-请求抽象包含：
-
-- `modelConfigId`
-- `model`
-- `messages`
-- `stream`
-- `temperature`
-- `max_tokens`
-- `response_format`
-- `metadata`
-- `extra_body`
-
-设计原则：
-
-- API Base URL、API Key、模型名称来自 `model_configs`。
-- API Key 运行时解密，只用于 HTTP Header。
-- 思考模式通过模型能力配置控制。
-- 供应商差异放入适配器或 `extra_body`。
-- 输入输出只记录脱敏摘要。
-
-### 4.4 Agent Orchestrator
-
-负责从用户消息到云枢操作的完整链路。Agent 只访问本地 Metadata Index 做匹配，不实时连接云枢检索。
-
-### 4.5 Metadata Service
-
-负责管理员授权下的云枢设计态元数据同步、知识图谱构建、检索文档生成、索引写入和索引重建。普通用户对话时只使用已初始化的本地元数据索引，不实时连接云枢做能力检索。
-
-### 4.6 CloudPivot Connector
-
-封装云枢访问：
-
-- 登录与 Token 管理。
-- 连接测试。
-- 设计态元数据同步。
-- 运行态数据查询和写入。
-- Action 和流程提交。
-- 附件上传。
-- 浏览器自动化兜底。
-
-## 5. 部署形态
-
-MVP 推荐单体部署：
-
-```text
-cpclaw/
-  web/
-  server/
-  docs/
-```
-
-后续可拆分：
-
-- browser-worker：浏览器自动化任务。
-- metadata-worker：元数据同步和索引重建。
-- attachment-worker：附件解析任务。
-- agent-worker：长任务 Agent 执行。
-
-## 6. 安全边界
-
-- 前端不保存明文密码、Token、Cookie、API Key。
-- 后端配置加密密钥 `CPC_ENCRYPTION_KEY`。
-- MySQL 中只保存凭据密文。
-- 日志统一脱敏。
-- 高风险工具调用需要用户确认。
-- `.env`、本地配置、日志、浏览器状态和密钥文件不得入库。
+当前尚无可信 OIDC/JWT、后台队列化断线恢复和真实云枢写入/流程/导入 E2E。旧 `/api/agent/preview` 兼容入口仍依赖历史 Agent 编排器，详见技术蓝图的技术债说明；它不应成为新功能入口。

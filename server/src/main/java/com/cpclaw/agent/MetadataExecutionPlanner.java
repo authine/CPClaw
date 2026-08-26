@@ -351,16 +351,16 @@ public class MetadataExecutionPlanner {
         List<String> reasoningSteps,
         boolean executable
     ) {
-        static MetadataExecutionPlan of(MetadataSearchResult original, String entityName, String schemaCode, List<FieldHint> fields, List<RelationHint> relations, List<ApiHint> apiHints, List<String> reasoning) {
+        public static MetadataExecutionPlan of(MetadataSearchResult original, String entityName, String schemaCode, List<FieldHint> fields, List<RelationHint> relations, List<ApiHint> apiHints, List<String> reasoning) {
             MetadataSearchResult executable = new MetadataSearchResult("entity", original.objectId(), entityName, schemaCode, original.graphPath(), original.riskLevel(), original.reason());
             return new MetadataExecutionPlan(original, executable, fields, relations, apiHints, reasoning, hasSchema(schemaCode));
         }
 
-        static MetadataExecutionPlan inherited(MetadataSearchResult candidate, List<ApiHint> apiHints) {
+        public static MetadataExecutionPlan inherited(MetadataSearchResult candidate, List<ApiHint> apiHints) {
             return new MetadataExecutionPlan(candidate, candidate, List.of(), List.of(), apiHints, List.of("inherited previous runtime object schemaCode=" + candidate.code()), hasSchema(candidate.code()));
         }
 
-        static MetadataExecutionPlan empty(MetadataSearchResult candidate, String reason) {
+        public static MetadataExecutionPlan empty(MetadataSearchResult candidate, String reason) {
             return new MetadataExecutionPlan(candidate, candidate, List.of(), List.of(), List.of(), List.of(reason), false);
         }
 

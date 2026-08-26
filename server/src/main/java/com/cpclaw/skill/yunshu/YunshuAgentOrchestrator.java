@@ -186,7 +186,7 @@ public class YunshuAgentOrchestrator {
                 actResult = new ActResult(assistantMessage, null, planSummary, null, null, "workflow_action_unavailable");
             } else {
                 String workflowApiCode = workflowApiCode(content);
-                progress.onExecution("查询流程中心", "正在使用已验证的流程只读接口读取当前用户可见数据。", Map.of("apiCode", workflowApiCode), "running");
+                progress.onExecution("查询流程中心", "正在使用已验证的流程只读能力读取当前用户可见数据。", Map.of(), "running");
                 try {
                     WorkflowReadResult workflowResult = workflowCenterService.query(workflowApiCode, 20);
                     assistantMessage = withContent(assistantMessage, workflowAnswer(content, workflowResult));
@@ -265,11 +265,11 @@ public class YunshuAgentOrchestrator {
                     progress.checkCancelled();
                     String failureStage = useInsightReport ? "洞察报告处理" : "云枢运行态查询";
                     String failureStatus = useInsightReport ? "insight_report_failed" : "runtime_query_failed";
-                    log.error("{} failed, schemaCode={}", failureStage, match.code(), exception);
+                    log.error("{} failed", failureStage, exception);
                     progress.onExecution(
                         failureStage,
                         (useInsightReport ? "数据整理或分析失败" : "查询失败") + "，已停止生成业务结论",
-                        Map.of("schemaCode", safeContextValue(match.code()), "error", safeContextValue(exception.getMessage())),
+                        Map.of("error", safeContextValue(exception.getMessage())),
                         "fallback"
                     );
                     auditService.recordToolCall(
@@ -759,18 +759,6 @@ public class YunshuAgentOrchestrator {
         return candidate != null && "entity".equals(candidate.objectType()) && candidate.code() != null && !candidate.code().isBlank();
     }
 
-    private boolean isNewOldCustomerComparisonIntent(String value) {
-        return false;
-    }
-
-    private boolean isStatusMetricAggregationIntent(String value) {
-        return questionSemantics.isStatusAmountAggregationQuestion(value);
-    }
-
-    private boolean isMetricRankingIntent(String value) {
-        return questionSemantics.isAmountRankingQuestion(value);
-    }
-
     private boolean isDeleteIntent(String value) {
         if (containsAny(value, "删除", "删掉", "移除", "作废")) {
             return true;
@@ -778,7 +766,7 @@ public class YunshuAgentOrchestrator {
         if (!value.contains("取消")) {
             return false;
         }
-        boolean asksMetric = containsAny(value, "多少", "几个", "几条", "数量", "金额", "总额", "合计", "汇总", "统计", "分析");
+        boolean asksMetric = containsAny(value, "多少", "几个", "几条", "数量", "指标", "总数", "合计", "汇总", "统计", "分析");
         boolean statusRead = containsAny(value, "取消的", "已取消", "被取消", "状态为取消");
         if (asksMetric || statusRead) {
             return false;
@@ -940,22 +928,7 @@ public class YunshuAgentOrchestrator {
         if (!plannedFilters.isEmpty()) {
             return plannedFilters;
         }
-        Optional<String> ownerName = requestedOwnerName(userQuestion).filter(this::isLikelyPersonName);
-        if (ownerName.isEmpty()) {
-            return List.of();
-        }
-        return executionPlan.fieldHints().stream()
-            .filter(this::isOwnerFieldHint)
-            .findFirst()
-            .map(field -> List.of(new RuntimeQueryFilter(
-                field.code(),
-                field.name(),
-                "like",
-                ownerName.get(),
-                "metadata_field_hint",
-                0.86
-            )))
-            .orElse(List.of());
+        return List.of();
     }
 
     private List<String> buildMetricFieldCodes(String userQuestion, MetadataExecutionPlan executionPlan) {
@@ -967,16 +940,7 @@ public class YunshuAgentOrchestrator {
         if (!plannedMetricFields.isEmpty()) {
             return plannedMetricFields;
         }
-        if (executionPlan == null || !asksAmountMetric(userQuestion)) {
-            return List.of();
-        }
-        return executionPlan.fieldHints().stream()
-            .filter(this::isAmountFieldHint)
-            .map(MetadataExecutionPlanner.FieldHint::code)
-            .filter(code -> code != null && !code.isBlank())
-            .distinct()
-            .limit(5)
-            .toList();
+        return List.of();
     }
 
     private List<RuntimeQueryFilter> plannedRuntimeFilters(IntentPlanningResult modelPlan, MetadataExecutionPlan executionPlan) {
@@ -994,18 +958,7 @@ public class YunshuAgentOrchestrator {
         if (List.of("现在", "当前", "系统", "全部", "所有", "目前").contains(filterValue)) {
             return false;
         }
-        MetadataExecutionPlanner.FieldHint field = executionPlan.fieldHints().stream()
-            .filter(hint -> filter.fieldCode().equalsIgnoreCase(hint.code()))
-            .findFirst()
-            .orElse(null);
-        if (field == null || !isOwnerFieldHint(field)) {
-            return true;
-        }
-        if (!isLikelyPersonName(filter.value())) {
-            return false;
-        }
-        Optional<String> requestedOwner = requestedOwnerName(userQuestion).filter(this::isLikelyPersonName);
-        return requestedOwner.isPresent() && requestedOwner.get().equalsIgnoreCase(filter.value());
+        return true;
     }
 
     private Optional<RuntimeQueryFilter> toRuntimeFilter(Map<String, Object> value, MetadataExecutionPlan executionPlan) {
@@ -1051,144 +1004,6 @@ public class YunshuAgentOrchestrator {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private boolean asksAmountMetric(String content) {
-        String value = compact(content);
-        return value.contains("\u91d1\u989d")
-            || value.contains("\u5408\u540c\u989d")
-            || value.contains("\u6536\u5165")
-            || value.contains("\u603b\u989d")
-            || value.contains("amount")
-            || value.contains("money")
-            || value.contains("revenue");
-    }
-
-    private boolean isAmountFieldHint(MetadataExecutionPlanner.FieldHint hint) {
-        if (hint == null) {
-            return false;
-        }
-        String value = compact(hint.name() + hint.code() + hint.description());
-        return value.contains("\u91d1\u989d")
-            || value.contains("\u5408\u540c\u989d")
-            || value.contains("\u6536\u5165")
-            || value.contains("\u603b\u989d")
-            || value.contains("amount")
-            || value.contains("money")
-            || value.contains("revenue")
-            || value.contains("amt");
-    }
-
-    private Optional<String> requestedOwnerName(String content) {
-        String value = content == null ? "" : content.replaceAll("\\s+", "");
-        if (value.isBlank()) {
-            return Optional.empty();
-        }
-        Optional<String> unicodeOwner = requestedOwnerNameUnicode(value);
-        if (unicodeOwner.isPresent()) {
-            return unicodeOwner;
-        }
-        for (String suffix : List.of("名下有多少", "名下有几个", "名下有几条", "负责的", "负责多少", "销售的")) {
-            Optional<String> name = nameBefore(value, suffix);
-            if (name.isPresent()) {
-                return name;
-            }
-        }
-        java.util.regex.Matcher fieldMatcher = java.util.regex.Pattern.compile("(?:负责人|销售|业务员|归属销售|owner)(?:是|为|=|：|:)?([\\p{IsHan}A-Za-z][\\p{IsHan}A-Za-z0-9._-]{1,15})").matcher(value);
-        if (fieldMatcher.find()) {
-            return Optional.of(cleanOwnerName(fieldMatcher.group(1))).filter(text -> !text.isBlank());
-        }
-        java.util.regex.Matcher directMatcher = java.util.regex.Pattern.compile("^([\\p{IsHan}]{2,5}|[A-Za-z][A-Za-z0-9._-]{1,30})(?:有多少|有几个|有几条).*$").matcher(value);
-        if (directMatcher.matches()) {
-            return Optional.of(cleanOwnerName(directMatcher.group(1))).filter(text -> !text.isBlank());
-        }
-        return Optional.empty();
-    }
-
-    private Optional<String> nameBefore(String value, String suffix) {
-        int index = value.indexOf(suffix);
-        if (index <= 0) {
-            return Optional.empty();
-        }
-        String before = value.substring(0, index);
-        for (String prefix : List.of("请问", "帮我查", "帮我看看", "查询", "统计", "分析", "系统", "现在", "当前")) {
-            if (before.startsWith(prefix) && before.length() > prefix.length()) {
-                before = before.substring(prefix.length());
-            }
-        }
-        return Optional.of(cleanOwnerName(before)).filter(text -> !text.isBlank());
-    }
-
-    private Optional<String> requestedOwnerNameUnicode(String value) {
-        for (String suffix : List.of("\u540d\u4e0b\u6709\u591a\u5c11", "\u540d\u4e0b\u6709\u51e0\u4e2a", "\u540d\u4e0b\u6709\u51e0\u6761", "\u8d1f\u8d23\u7684", "\u9500\u552e\u7684")) {
-            Optional<String> name = nameBeforeUnicode(value, suffix);
-            if (name.isPresent()) {
-                return name;
-            }
-        }
-        java.util.regex.Matcher possessive = java.util.regex.Pattern
-            .compile("^([\\p{IsHan}]{2,5}|[A-Za-z][A-Za-z0-9._-]{1,30})\u7684(?:\u5546\u673a|\u9879\u76ee|\u5ba2\u6237|\u7ebf\u7d22|\u8ba2\u5355).*(?:\u591a\u5c11|\u51e0\u4e2a|\u51e0\u6761|\u91d1\u989d).*$")
-            .matcher(value);
-        if (possessive.matches()) {
-            return Optional.of(cleanOwnerNameUnicode(possessive.group(1))).filter(text -> !text.isBlank());
-        }
-        java.util.regex.Matcher direct = java.util.regex.Pattern
-            .compile("^([\\p{IsHan}]{2,5}|[A-Za-z][A-Za-z0-9._-]{1,30})(?:\u6709\u591a\u5c11|\u6709\u51e0\u4e2a|\u6709\u51e0\u6761)(?:\u5546\u673a|\u9879\u76ee|\u5ba2\u6237|\u7ebf\u7d22|\u8ba2\u5355).*$")
-            .matcher(value);
-        if (direct.matches()) {
-            return Optional.of(cleanOwnerNameUnicode(direct.group(1))).filter(text -> !text.isBlank());
-        }
-        java.util.regex.Matcher explicit = java.util.regex.Pattern
-            .compile("(?:\u8d1f\u8d23\u4eba|\u9500\u552e|\u4e1a\u52a1\u5458|owner)(?:\u662f|\u4e3a|=|:|\uff1a)?([\\p{IsHan}A-Za-z][\\p{IsHan}A-Za-z0-9._-]{1,15})")
-            .matcher(value);
-        if (explicit.find()) {
-            return Optional.of(cleanOwnerNameUnicode(explicit.group(1))).filter(text -> !text.isBlank());
-        }
-        return Optional.empty();
-    }
-
-    private Optional<String> nameBeforeUnicode(String value, String suffix) {
-        int index = value.indexOf(suffix);
-        if (index <= 0) {
-            return Optional.empty();
-        }
-        return Optional.of(cleanOwnerNameUnicode(value.substring(0, index))).filter(text -> !text.isBlank());
-    }
-
-    private String cleanOwnerNameUnicode(String value) {
-        if (value == null) {
-            return "";
-        }
-        String cleaned = value
-            .replaceAll("^(?:(\u8bf7\u95ee|\u5e2e\u6211\u67e5|\u67e5\u8be2|\u7edf\u8ba1|\u5206\u6790|\u7cfb\u7edf|\u73b0\u5728|\u5f53\u524d))+", "")
-            .replaceAll("", "")
-            .trim();
-        return isLikelyPersonName(cleaned) ? cleaned : "";
-    }
-
-    private String cleanOwnerName(String value) {
-        if (value == null) {
-            return "";
-        }
-        String cleaned = value
-            .replaceAll("^(?:(请问|帮我查|帮我看看|查询|统计|分析|系统|现在|当前))+", "")
-            .replaceAll("(的)?业务对象.*$", "")
-            .trim();
-        return isLikelyPersonName(cleaned) ? cleaned : "";
-    }
-
-    private boolean isOwnerFieldHint(MetadataExecutionPlanner.FieldHint hint) {
-        if (hint == null) {
-            return false;
-        }
-        String value = compact(hint.name() + hint.code() + hint.description());
-        return value.contains("负责人")
-            || value.contains("销售")
-            || value.contains("业务员")
-            || value.contains("归属销售")
-            || value.contains("owner")
-            || value.contains("sales")
-            || value.contains("seller");
     }
 
     private boolean shouldAskModelPlanner(AgentObservation observation, String detectedIntent, MetadataSearchResult match, IntentSlots slots) {
@@ -1384,7 +1199,7 @@ public class YunshuAgentOrchestrator {
             return "已尝试识别动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "，但无法稳定匹配真实云枢模型，进入澄清。";
         }
         if (observation.inheritedRuntimeObject()) {
-            return "已继承上一轮运行态对象=" + observation.runtimeContext().entityName() + "、schemaCode=" + observation.runtimeContext().schemaCode()
+            return "已继承上一轮运行态对象=" + observation.runtimeContext().entityName()
                 + "；检测到动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "、分析维度=" + slots.dimension() + "，匹配对象“" + match.name() + "”，可进入计划执行。";
         }
         return "检测到动作=" + slots.actionLabel() + "、业务对象=" + slots.businessObject() + "、分析维度=" + slots.dimension() + "，匹配对象“" + match.name() + "”，可进入计划执行。";
@@ -1410,36 +1225,6 @@ public class YunshuAgentOrchestrator {
         return questionSemantics.filterSummary(content);
     }
 
-    private String ownerFilterFromQuestion(String content) {
-        return questionSemantics.ownerFilter(content);
-    }
-
-    private String cleanOwnerFilterName(String value) {
-        if (value == null) {
-            return "";
-        }
-        String cleaned = value
-            .replaceAll("^(?:(请问|帮我查|帮我看看|查询|统计|分析|系统|现在|当前))+", "")
-            .replaceAll("(名下|负责|销售|负责人|业务员|归属销售|有多少|有几个|有几条|多少|几个|几条|数据|信息|情况)+$", "")
-            .trim();
-        return isLikelyPersonName(cleaned) ? cleaned : "";
-    }
-
-    private boolean isLikelyPersonName(String value) {
-        if (value == null || value.isBlank()) {
-            return false;
-        }
-        String text = value.replaceAll("\\s+", "");
-        if (text.contains("的") || text.contains("里") || text.contains("中") || text.contains("下")) {
-            return false;
-        }
-        if (text.contains("应用") || text.contains("系统") || text.contains("数据") || text.contains("基础")
-            || text.contains("现在") || text.contains("当前") || text.contains("今天") || text.contains("今年") || text.contains("本月") || text.contains("全部") || text.contains("所有")) {
-            return false;
-        }
-        return text.matches("[\\p{IsHan}]{2,5}") || text.matches("[A-Za-z][A-Za-z0-9._-]{1,30}");
-    }
-
     private String buildPlanSummary(String intent, MetadataSearchResult match, boolean writeRisk) {
         if (writeRisk) {
             return "已准备" + intentDisplayName(intent) + "“" + match.name() + "”。该操作会修改云枢数据，等待你确认后才会继续。";
@@ -1458,7 +1243,7 @@ public class YunshuAgentOrchestrator {
 
     private String unmatchedReadMessage(String intent, String content) {
         if ("analyze_data".equals(intent)) {
-            return "我理解你想分析“" + businessSubject(content) + "”相关数据，但当前本地 Metadata Index 还没有匹配到真实可查询的云枢应用模型。请先在元数据页同步真实云枢元数据，或补充应用/表单名称；同步后我会按“真实 schemaCode -> 运行态查询 -> 大模型分析”的链路返回结论。";
+            return "我理解你想分析“" + businessSubject(content) + "”相关数据，但当前本地 Metadata Index 还没有匹配到真实可查询的云枢应用模型。请先在元数据页同步真实云枢元数据，或补充应用/表单名称；同步后我会按“元数据匹配 -> 运行态查询 -> 大模型分析”的链路返回结论。";
         }
         return "我已识别到这是查询请求，目标对象是“" + businessSubject(content) + "”，但当前没有从真实云枢元数据中匹配到可查询的应用模型。请先同步真实云枢元数据，或补充更明确的应用名称、表单名称。我不会用本地演示数据返回业务结果。";
     }
@@ -1503,7 +1288,7 @@ public class YunshuAgentOrchestrator {
 
     private String workflowFailureMessage(String apiCode, RuntimeException exception) {
         String message = exception.getMessage() == null ? "真实接口调用失败" : shortText(exception.getMessage(), 180);
-        return "流程中心查询未完成（接口：" + apiCode + "）。系统没有猜测或调用写接口。\n\n错误摘要：" + message + "\n请先在系统设置中保存普通用户云枢连接，并执行流程只读接口探查。";
+        return "流程中心查询未完成。系统没有猜测或调用写接口。\n\n错误摘要：" + message + "\n请先在系统设置中保存普通用户云枢连接，并执行流程只读能力探查。";
     }
 
     private String runtimeFailureMessage(String content, MetadataSearchResult match, RuntimeException exception) {
@@ -1551,7 +1336,7 @@ public class YunshuAgentOrchestrator {
         message.append("\n请你补充一个方向即可：\n");
         message.append("1. 你想查询/分析哪个应用或表单？请提供应用名、表单名或业务对象名称。\n");
         message.append("2. 你想做什么动作？例如：查询、统计、分析、修改、新增。\n");
-        message.append("3. 有没有筛选条件？例如：时间、负责人、阶段或其他字段。\n");
+        message.append("3. 有没有筛选条件？例如时间范围、分类字段或其他已同步字段。\n");
         String suggestions = metadataSuggestions();
         if (!suggestions.isBlank()) {
             message.append("\n当前我能看到的部分对象：").append(suggestions).append("。");
@@ -1884,7 +1669,7 @@ public class YunshuAgentOrchestrator {
     private String confirmationRequiredMessage(String intent, Map<String, Object> writePlan) {
         if ("delete_data".equals(intent)) {
             return "已定位到要删除的云枢记录：应用=" + writePlan.get("appCode")
-                + "，业务对象=" + writePlan.get("schemaCode")
+                + "，业务对象=" + writePlan.getOrDefault("businessObject", "已匹配对象")
                 + "，记录ID=" + writePlan.get("bizObjectId")
                 + "。删除属于高风险操作，请确认后执行。";
         }
@@ -1935,7 +1720,7 @@ public class YunshuAgentOrchestrator {
                 }
                 String entityName = String.valueOf(metadata.getOrDefault("entityName", ""));
                 String schemaCode = String.valueOf(metadata.getOrDefault("schemaCode", ""));
-                if (!entityName.isBlank() && !schemaCode.isBlank()) {
+                if (!entityName.isBlank()) {
                     return new RuntimeContextObject(entityName, schemaCode);
                 }
             } catch (JsonProcessingException ignored) {
@@ -1950,7 +1735,7 @@ public class YunshuAgentOrchestrator {
             return false;
         }
         String value = compact(content);
-        boolean followUpDimensionQuestion = containsAny(value, "这些", "上述", "上面", "刚才", "上一轮", "上一条", "这个", "它", "它们", "他们", "该", "都", "分别", "各", "每个", "第一条", "第一个", "第二条", "第二个", "第三条", "第三个", "详情", "详细", "明细", "信息", "内容", "返回", "阶段", "状态", "进行中", "执行中", "实施中", "分布", "占比", "比例", "来源", "负责人", "金额", "收入", "总额", "合计", "汇总", "按", "有哪些", "哪些", "多少", "属于", "省份", "所属省", "哪些省", "哪个省", "地区", "区域", "城市", "地域", "归属地", "所在地", "省市", "哪个多", "谁多", "更多", "对比", "比较", "多", "还是", "分析", "洞察", "诊断", "趋势", "建议", "情况", "怎么样", "怎么看", "概览", "总结");
+        boolean followUpDimensionQuestion = containsAny(value, "这些", "上述", "上面", "刚才", "上一轮", "上一条", "这个", "它", "它们", "他们", "该", "都", "分别", "各", "每个", "第一条", "第一个", "详情", "详细", "明细", "信息", "内容", "返回", "分布", "占比", "比例", "来源", "按", "有哪些", "哪些", "多少", "属于", "哪个多", "谁多", "更多", "对比", "比较", "多", "还是", "分析", "洞察", "诊断", "趋势", "建议", "情况", "怎么样", "怎么看", "概览", "总结");
         if (!followUpDimensionQuestion) {
             return false;
         }

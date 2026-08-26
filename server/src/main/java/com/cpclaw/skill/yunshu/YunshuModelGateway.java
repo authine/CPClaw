@@ -198,10 +198,7 @@ public class YunshuModelGateway implements ModelGateway {
             body.put("model", modelConfig.get().getModelName());
             body.put("temperature", 0.2);
             body.put("messages", List.of(
-                Map.of(
-                    "role", "system",
-                    "content", "你是企业经营数据分析助手。请基于用户问题和已查询到的云枢业务数据做推理分析，输出中文结论、关键发现、风险信号和下一步建议。不要编造未提供的数据。"
-                ),
+                Map.of("role", "system", "content", "你是数据分析助手。请严格依据用户问题、元数据和已查询结果回答，不要编造数据；输出结论、证据和可执行的后续建议。"),
                 Map.of(
                     "role", "user",
                     "content", analysisPrompt(safeUserQuestion, entityName, total, records, thinkingEnabled, reasoningContext)
@@ -268,10 +265,7 @@ public class YunshuModelGateway implements ModelGateway {
             body.put("stream", true);
             body.put("stream_options", Map.of("include_usage", true));
             body.put("messages", List.of(
-                Map.of(
-                    "role", "system",
-                    "content", "你是企业经营数据分析助手。请基于用户问题、云枢元数据和真实查询结果，用中文直接回答。先给结论，再给关键依据；不要重复字段，不要输出原始表结构，不要编造未提供的数据。最终正文不超过约1000个中文字符，保证结尾完整。"
-                ),
+                Map.of("role", "system", "content", "你是数据分析助手。请基于用户问题、元数据和真实查询结果直接回答，先给结论再给依据；不要输出原始表结构或编造数据。"),
                 Map.of(
                     "role", "user",
                     "content", analysisPrompt(safeUserQuestion, entityName, total, records, thinkingEnabled, reasoningContext)
@@ -678,21 +672,17 @@ public class YunshuModelGateway implements ModelGateway {
 
     private String localAnalysis(String userQuestion, String entityName, long total, List<Map<String, Object>> records) {
         StringBuilder answer = new StringBuilder();
-        answer.append("### 结论摘要\n");
-        answer.append("已围绕“").append(entityName).append("”查询到 ").append(total).append(" 条数据，并根据返回样本生成本地分析结果。\n\n");
-        answer.append("### 关键发现\n");
+        answer.append("### 结果摘要\n");
+        answer.append("已围绕“").append(entityName).append("”查询到 ").append(total).append(" 条数据。\n\n");
+        answer.append("### 数据观察\n");
         if (records == null || records.isEmpty()) {
             answer.append("- 当前没有返回可分析记录，建议先确认云枢账号权限、元数据同步状态和业务数据是否存在。\n");
         } else {
-            answer.append("- 本次返回样本 ").append(records.size()).append(" 条，可结合金额、阶段、负责人和关联对象字段继续分析。\n");
-            answer.append("- 样本中存在多个推进阶段，可用于判断记录是否集中在早期或后期节点。\n");
+            answer.append("- 本次返回样本 ").append(records.size()).append(" 条，可结合已同步字段继续分析。\n");
+            answer.append("- 详细维度、指标和异常判断应由已发布模板或用户明确要求决定。\n");
         }
-        answer.append("\n### 风险信号\n");
-        answer.append("- 如果高金额记录集中在早期阶段，需要关注转化概率和推进节奏。\n");
-        answer.append("- 如果后期阶段记录数量偏少，可能意味着近期目标达成存在压力。\n");
-        answer.append("\n### 下一步建议\n");
-        answer.append("- 按阶段、负责人和金额分组继续下钻，识别需要优先推进的重点记录。\n");
-        answer.append("- 配置真实大模型后，可基于完整记录生成更细的趋势、风险和行动建议。\n");
+        answer.append("\n### 后续处理\n");
+        answer.append("- 如需专项指标、维度或风险规则，请安装或选择相应分析模板。\n");
         if (userQuestion != null && !userQuestion.isBlank()) {
             answer.append("\n原始问题：").append(userQuestion);
         }
@@ -719,23 +709,12 @@ public class YunshuModelGateway implements ModelGateway {
             || userGoal.contains("概览")
             || userGoal.contains("怎么样")
             || userGoal.contains("怎么看");
-        boolean fieldAnalysis = userGoal.contains("阶段")
-            || userGoal.contains("状态")
-            || userGoal.contains("分布")
-            || userGoal.contains("汇总")
-            || userGoal.contains("金额")
-            || userGoal.contains("负责人")
-            || userGoal.contains("销售")
-            || userGoal.contains("趋势")
-            || userGoal.contains("每年")
-            || userGoal.contains("按年");
+        boolean fieldAnalysis = userGoal.contains("维度") || userGoal.contains("指标") || userGoal.contains("分布") || userGoal.contains("汇总") || userGoal.contains("趋势");
         boolean analysis = broadAnalysis
             || fieldAnalysis
             || (userGoal.contains("情况") && (inherited || !explicitQuery))
             || (inherited && !explicitQuery);
-        List<String> dimensions = analysis
-            ? List.of("阶段/状态分布", "金额概览", "负责人分布", "时间趋势", "关联对象分析")
-            : List.of();
+        List<String> dimensions = analysis ? List.of("按已验证字段分析") : List.of();
         String reasoning = inherited
             ? "用户问题引用上一轮结果，结合上下文继续分析“" + entityName + "”。"
             : "根据用户问题和元数据候选识别目标对象为“" + entityName + "”。";
@@ -763,8 +742,8 @@ public class YunshuModelGateway implements ModelGateway {
             apiOperation,
             executionSteps,
             List.of(),
-            inferMetricFieldCodes(userGoal, stringList(planningContext.get("fieldHints"))),
-            inferGroupByFieldCodes(userGoal, stringList(planningContext.get("fieldHints"))),
+            List.of(),
+            List.of(),
             List.of(),
             0,
             creation || update,
@@ -853,54 +832,6 @@ public class YunshuModelGateway implements ModelGateway {
         return List.of();
     }
 
-    private List<String> inferMetricFieldCodes(String userGoal, List<String> fieldHints) {
-        String value = userGoal == null ? "" : userGoal.toLowerCase();
-        if (!(value.contains("金额") || value.contains("合同额") || value.contains("收入") || value.contains("amount") || value.contains("money") || value.contains("revenue"))) {
-            return List.of();
-        }
-        return fieldHints.stream()
-            .filter(item -> {
-                String text = item == null ? "" : item.toLowerCase();
-                return text.contains("金额") || text.contains("合同额") || text.contains("收入") || text.contains("amount") || text.contains("money") || text.contains("revenue");
-            })
-            .map(this::fieldCodeFromHint)
-            .filter(item -> !item.isBlank())
-            .distinct()
-            .toList();
-    }
-
-    private List<String> inferGroupByFieldCodes(String userGoal, List<String> fieldHints) {
-        String value = userGoal == null ? "" : userGoal.toLowerCase();
-        if (!(value.contains("阶段") || value.contains("状态") || value.contains("分布") || value.contains("分别") || value.contains("按"))) {
-            return List.of();
-        }
-        return fieldHints.stream()
-            .filter(item -> {
-                String text = item == null ? "" : item.toLowerCase();
-                return text.contains("阶段") || text.contains("状态") || text.contains("stage") || text.contains("status") || text.contains("state");
-            })
-            .map(this::fieldCodeFromHint)
-            .filter(item -> !item.isBlank())
-            .distinct()
-            .toList();
-    }
-
-    private String fieldCodeFromHint(String hint) {
-        if (hint == null) {
-            return "";
-        }
-        int start = hint.indexOf('(');
-        int end = hint.indexOf(',', start + 1);
-        if (start >= 0 && end > start) {
-            return hint.substring(start + 1, end).trim();
-        }
-        int close = hint.indexOf(')', start + 1);
-        if (start >= 0 && close > start) {
-            return hint.substring(start + 1, close).trim();
-        }
-        return hint.trim();
-    }
-
     private boolean isLocalTestUrl(String apiBaseUrl) {
         String value = apiBaseUrl == null ? "" : apiBaseUrl.toLowerCase();
         return value.contains("example.local") || value.contains("localhost") || value.contains("127.0.0.1");
@@ -975,19 +906,14 @@ public class YunshuModelGateway implements ModelGateway {
     }
 
     private Map<String, Object> compactRecordForModel(Map<String, Object> record) {
-        if (record == null || record.isEmpty()) {
-            return Map.of();
-        }
+        if (record == null || record.isEmpty()) return Map.of();
         Map<?, ?> data = record.get("data") instanceof Map<?, ?> dataMap ? dataMap : record;
         Map<String, Object> compact = new LinkedHashMap<>();
-        putFirst(compact, "id", record, "id", "objectId", "bizObjectId");
-        putFirst(compact, "name", data, "instanceName", "name", "title", "recordName", "displayName", "名称", "标题");
-        putFirst(compact, "amount", data, "amount", "money", "value", "totalAmount", "金额", "数值");
-        putFirst(compact, "stage", data, "stage", "status", "state", "阶段", "状态");
-        putFirst(compact, "owner", data, "owner", "ownerName", "sales", "salesName", "createdByName", "负责人", "销售", "业务员");
-        putFirst(compact, "relatedObject", data, "relatedObject", "relatedName", "relation", "关联对象", "关联名称");
-        putFirst(compact, "updatedAt", data, "updatedAt", "modifiedTime", "modifyTime", "updateTime", "修改时间");
-        return compact.isEmpty() ? firstUsefulFields(data) : compact;
+        data.entrySet().stream().filter(entry -> entry.getValue() != null).limit(20).forEach(entry -> {
+            String value = compactValue(entry.getValue());
+            if (!value.isBlank()) compact.put(String.valueOf(entry.getKey()), value);
+        });
+        return compact.isEmpty() ? Map.of() : compact;
     }
 
     private void putFirst(Map<String, Object> target, String outputKey, Map<?, ?> source, String... keys) {
@@ -1052,7 +978,7 @@ public class YunshuModelGateway implements ModelGateway {
               "businessObject": "业务对象名称",
               "dimension": "分析维度，没有则写无明确维度",
               "filters": "筛选条件，没有则写无明确筛选条件",
-              "analysisDimensions": ["阶段/状态分布", "金额概览"],
+              "analysisDimensions": ["由模板或用户明确要求的维度"],
               "fieldHints": ["字段线索"],
               "relationHints": ["关联线索"],
               "apiOperation": "query_collection|query_detail|create|update|delete|clarify",
@@ -1076,7 +1002,7 @@ public class YunshuModelGateway implements ModelGateway {
             规则：
             1. 用户说“这些/它/上述/继续”时，优先承接上下文实体；用户说“再详细设计一下/展开/补充/完善/不够详细”时，优先承接上一轮用户目标和助手回答，形成深化后的新目标。
             2. 如果用户引用上一轮结果，应继承已验证的运行态对象并继续分析。
-            3. 宽泛分析默认包含阶段/状态、金额、负责人、时间趋势和已验证关联对象等维度，前提是字段线索存在。
+             3. 不要自行假设分析维度；仅使用用户明确要求或已发布模板声明且在 fieldHints 中存在的字段。
             4. runtimeFilters、metricFieldCodes、groupByFieldCodes、sortFields 只能使用上下文 fieldHints 中真实存在的字段编码。
             5. apiOperation 必须来自上下文 apiHints 能力；查询集合用 query_collection，单条详情用 query_detail，新增用 create，修改用 update，删除用 delete。
             6. 不要输出不存在于上下文的 schemaCode 或字段编码。

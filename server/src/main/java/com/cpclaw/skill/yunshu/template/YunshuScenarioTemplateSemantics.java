@@ -1,17 +1,22 @@
-package com.cpclaw.skill;
+package com.cpclaw.skill.yunshu.template;
 
 import com.cpclaw.cloudpivot.CloudPivotRuntimeProperties;
+import com.cpclaw.skill.SkillCatalog;
+import com.cpclaw.skill.SkillQuestionSemantics;
+import com.cpclaw.skill.SkillSemanticProvider;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.OptionalInt;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.springframework.stereotype.Component;
 
-/** CloudPivot/Yunshu language and analysis semantics. */
-@Component
-public class YunshuQuestionSemantics implements SkillQuestionSemantics, SkillSemanticProvider {
+/**
+ * Optional Yunshu scenario template semantics. This class is deliberately
+ * outside the generic Skill contract; its vocabulary is a plugin concern and
+ * must not be used by the platform core as a default.
+ */
+public class YunshuScenarioTemplateSemantics implements SkillQuestionSemantics, SkillSemanticProvider {
     @Override public String skillId() { return SkillCatalog.YUNSHU_BUSINESS_SYSTEM; }
     @Override public SkillQuestionSemantics semantics() { return this; }
     @Override public boolean isCountQuestion(String content) {
@@ -21,71 +26,71 @@ public class YunshuQuestionSemantics implements SkillQuestionSemantics, SkillSem
     @Override public boolean isAnalysisQuestion(String content) {
         if (isSingleRecordDetailQuestion(content) || isDetailCollectionQuestion(content)) return false;
         return contains(content, "分析", "洞察", "诊断", "趋势", "建议", "怎么看", "怎么样", "情况", "概况", "整体", "按年", "每年", "年度")
-            || isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content)
-            || isOwnerOpportunityRankingQuestion(content) || isStatusAmountAggregationQuestion(content) || isAmountRankingQuestion(content) || isAmountAggregationQuestion(content);
+            || isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isLifecycleComparisonQuestion(content)
+            || isOwnerRankingQuestion(content) || isStatusMetricAggregationQuestion(content) || isMetricRankingQuestion(content) || isMetricAggregationQuestion(content);
     }
     @Override public boolean isDetailCollectionQuestion(String content) {
         String value = compact(content);
         if (!contains(value, "列表", "清单", "明细", "详情", "记录", "数据") || isSingleRecordDetailQuestion(value)) return false;
         return !(isStageDistributionQuestion(value) || isYearlyDistributionQuestion(value) || isProvinceDistributionQuestion(value)
-            || isNewOldCustomerQuestion(value) || isOwnerOpportunityRankingQuestion(value) || isStatusAmountAggregationQuestion(value)
-            || isAmountRankingQuestion(value) || isAmountAggregationQuestion(value) || contains(value, "趋势", "洞察", "诊断", "建议", "占比", "比例", "分布", "排行", "排名"));
+            || isLifecycleComparisonQuestion(value) || isOwnerRankingQuestion(value) || isStatusMetricAggregationQuestion(value)
+            || isMetricRankingQuestion(value) || isMetricAggregationQuestion(value) || contains(value, "趋势", "洞察", "诊断", "建议", "占比", "比例", "分布", "排行", "排名"));
     }
     @Override public boolean isSingleRecordDetailQuestion(String content) {
         String value = compact(content);
         return contains(value, "第一条", "第1条", "第一个", "第1个", "首条", "第一笔", "第1笔", "第一单", "第1单")
             && contains(value, "明细", "详情", "详细", "信息", "内容", "返回", "查看", "看一下");
     }
-    @Override public boolean isNewOldCustomerQuestion(String content) {
+    public boolean isLifecycleComparisonQuestion(String content) {
         String value = compact(content);
         boolean subject = contains(value, "新客户", "老客户", "新老客户", "新老", "新增客户", "存量客户") || (value.contains("客户") && value.contains("新") && value.contains("老"));
         return subject && contains(value, "多", "哪个", "哪类", "谁", "更多", "占比", "比例", "对比", "比较", "分布", "统计", "数量", "情况", "还是");
     }
-    @Override public boolean isOwnerOpportunityRankingQuestion(String content) {
+    public boolean isOwnerRankingQuestion(String content) {
         String value = compact(content);
         return contains(value, "商机", "机会", "销售机会") && contains(value, "谁", "谁的", "哪个销售", "哪位销售", "哪个负责人", "负责人", "销售")
             && contains(value, "最多", "最高", "最大", "更多", "汇总", "统计", "排行", "排名");
     }
-    @Override public boolean isStatusAmountAggregationQuestion(String content) {
+    public boolean isStatusMetricAggregationQuestion(String content) {
         String value = compact(content);
         return !requestedStatusFilters(value).isEmpty() && contains(value, "多少", "几个", "几条", "数量", "金额", "项目金额", "合同额", "收入", "汇总", "合计", "总额");
     }
-    @Override public boolean isAmountAggregationQuestion(String content) {
+    public boolean isMetricAggregationQuestion(String content) {
         String value = compact(content);
         return contains(value, "金额", "合同额", "收入", "总额", "多少钱", "多少金额") && contains(value, "多少", "多少钱", "多少金额", "合计", "汇总", "统计", "一共", "总共", "共有", "总额");
     }
-    @Override public boolean isAmountRankingQuestion(String content) {
+    public boolean isMetricRankingQuestion(String content) {
         String value = compact(content);
         return contains(value, "金额", "合同额", "收入", "总额", "预计金额", "商机金额", "项目金额", "多少钱") && asksRanking(value);
     }
-    @Override public boolean isStageDistributionQuestion(String content) {
+    public boolean isStageDistributionQuestion(String content) {
         String value = compact(content);
         return (contains(value, "阶段", "状态") && contains(value, "分别", "分布", "各", "哪些", "多少", "数量", "处于", "什么阶段", "什么状态"));
     }
-    @Override public boolean isYearlyDistributionQuestion(String content) {
+    public boolean isYearlyDistributionQuestion(String content) {
         String value = compact(content);
         return contains(value, "每年", "按年", "年度", "年份") || (value.contains("年") && contains(value, "数量", "量", "情况", "趋势"));
     }
-    @Override public boolean isProvinceDistributionQuestion(String content) {
+    public boolean isProvinceDistributionQuestion(String content) {
         String value = compact(content);
         return contains(value, "省份", "所属省", "哪些省", "哪个省", "省市", "地区", "区域", "城市", "地域", "归属地", "所在地")
             && contains(value, "分别", "分布", "各", "哪些", "多少", "数量", "属于", "都", "按", "情况", "有");
     }
-    @Override public boolean isBroadBusinessAnalysisQuestion(String content) {
+    public boolean isBroadBusinessAnalysisQuestion(String content) {
         return isAnalysisQuestion(content) && !isStageDistributionQuestion(content) && !isYearlyDistributionQuestion(content) && !isProvinceDistributionQuestion(content)
-            && !isNewOldCustomerQuestion(content) && !isOwnerOpportunityRankingQuestion(content) && !isStatusAmountAggregationQuestion(content)
-            && !isAmountRankingQuestion(content) && !isAmountAggregationQuestion(content);
+            && !isLifecycleComparisonQuestion(content) && !isOwnerRankingQuestion(content) && !isStatusMetricAggregationQuestion(content)
+            && !isMetricRankingQuestion(content) && !isMetricAggregationQuestion(content);
     }
     @Override public boolean isPlainListQuestion(String content) {
         return !isCountQuestion(content) && !isAnalysisQuestion(content) && !isSingleRecordDetailQuestion(content) && !isDetailCollectionQuestion(content);
     }
-    @Override public boolean requiresCompleteAggregation(String content) {
-        return isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content) || isOwnerOpportunityRankingQuestion(content)
-            || isStatusAmountAggregationQuestion(content) || isAmountRankingQuestion(content) || isAmountAggregationQuestion(content) || isYearlyDistributionQuestion(content) || isAnalysisQuestion(content);
+    public boolean requiresCompleteAggregation(String content) {
+        return isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isLifecycleComparisonQuestion(content) || isOwnerRankingQuestion(content)
+            || isStatusMetricAggregationQuestion(content) || isMetricRankingQuestion(content) || isMetricAggregationQuestion(content) || isYearlyDistributionQuestion(content) || isAnalysisQuestion(content);
     }
     @Override public boolean requiresFullDimensionDetails(String content) {
-        return isSingleRecordDetailQuestion(content) || isDetailCollectionQuestion(content) || isOwnerOpportunityRankingQuestion(content)
-            || isStatusAmountAggregationQuestion(content) || isBroadBusinessAnalysisQuestion(content) || isPlainListQuestion(content);
+        return isSingleRecordDetailQuestion(content) || isDetailCollectionQuestion(content) || isOwnerRankingQuestion(content)
+            || isStatusMetricAggregationQuestion(content) || isBroadBusinessAnalysisQuestion(content) || isPlainListQuestion(content);
     }
     @Override public List<String> requestedStatusFilters(String content) {
         String value = compact(content); List<String> statuses = new ArrayList<>();
@@ -96,7 +101,7 @@ public class YunshuQuestionSemantics implements SkillQuestionSemantics, SkillSem
         if (contains(value, "终止", "关闭", "取消")) statuses.add("终止");
         return statuses.stream().distinct().toList();
     }
-    @Override public boolean statusMatches(String actualStatus, List<String> targets) {
+    public boolean statusMatches(String actualStatus, List<String> targets) {
         if (targets == null || targets.isEmpty()) return true; String actual = compact(actualStatus);
         for (String target : targets) {
             if ("进行中".equals(target) && contains(actual, "进行中", "在建", "执行中", "实施中", "未完成")) return true;
@@ -120,19 +125,19 @@ public class YunshuQuestionSemantics implements SkillQuestionSemantics, SkillSem
     @Override public int queryPageSize(String content, CloudPivotRuntimeProperties.Query q, boolean owner) {
         if (owner) return q.getOwnerFilterPageSize(); if (isSingleRecordDetailQuestion(content)) return requestedRecordOrdinal(content); if (isDetailCollectionQuestion(content)) return q.getListPageSize();
         if (isYearlyDistributionQuestion(content)) return q.getYearlyPageSize(); if (isBroadBusinessAnalysisQuestion(content)) return q.getBroadAnalysisPageSize();
-        return (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content) || isOwnerOpportunityRankingQuestion(content) || isStatusAmountAggregationQuestion(content) || isAmountRankingQuestion(content) || isAmountAggregationQuestion(content) || isAnalysisQuestion(content)) ? q.getAnalysisPageSize() : (isCountQuestion(content) ? q.getCountPageSize() : q.getListPageSize());
+        return (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isLifecycleComparisonQuestion(content) || isOwnerRankingQuestion(content) || isStatusMetricAggregationQuestion(content) || isMetricRankingQuestion(content) || isMetricAggregationQuestion(content) || isAnalysisQuestion(content)) ? q.getAnalysisPageSize() : (isCountQuestion(content) ? q.getCountPageSize() : q.getListPageSize());
     }
     @Override public int queryRecordLimit(String content, CloudPivotRuntimeProperties.Query q, boolean owner) {
         if (owner) return requiresCompleteAggregation(content) ? q.getCompleteAggregationRecordLimit() : q.getOwnerFilterRecordLimit(); if (isSingleRecordDetailQuestion(content)) return requestedRecordOrdinal(content); if (isDetailCollectionQuestion(content)) return q.getListRecordLimit();
-        if (isStatusAmountAggregationQuestion(content) || isAmountAggregationQuestion(content)) return q.getCompleteAggregationRecordLimit(); if (isAmountRankingQuestion(content)) return q.getRankingRecordLimit(); if (isCountQuestion(content)) return q.getCountRecordLimit();
-        if (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isNewOldCustomerQuestion(content)) return q.getDimensionRecordLimit(); if (isOwnerOpportunityRankingQuestion(content)) return q.getOwnerRankingRecordLimit(); if (isYearlyDistributionQuestion(content)) return q.getYearlyRecordLimit(); if (isBroadBusinessAnalysisQuestion(content)) return q.getBroadAnalysisRecordLimit(); if (isAnalysisQuestion(content)) return q.getAnalysisRecordLimit(); return q.getListRecordLimit();
+        if (isStatusMetricAggregationQuestion(content) || isMetricAggregationQuestion(content)) return q.getCompleteAggregationRecordLimit(); if (isMetricRankingQuestion(content)) return q.getRankingRecordLimit(); if (isCountQuestion(content)) return q.getCountRecordLimit();
+        if (isStageDistributionQuestion(content) || isProvinceDistributionQuestion(content) || isLifecycleComparisonQuestion(content)) return q.getDimensionRecordLimit(); if (isOwnerRankingQuestion(content)) return q.getOwnerRankingRecordLimit(); if (isYearlyDistributionQuestion(content)) return q.getYearlyRecordLimit(); if (isBroadBusinessAnalysisQuestion(content)) return q.getBroadAnalysisRecordLimit(); if (isAnalysisQuestion(content)) return q.getAnalysisRecordLimit(); return q.getListRecordLimit();
     }
     @Override public String detectIntent(String content) {
         String value = compact(content);
         if (contains(value, "同意", "审批通过", "通过审批", "驳回", "退回", "转交", "转办", "加签", "协办", "撤回流程", "终止流程")) return "workflow_action";
         if (contains(value, "待办", "未办", "未完成工作项", "已办", "已处理", "我发起的流程", "我发起", "流程实例", "流程节点", "审批记录", "工作项")) return "query_workflow";
         if (contains(value, "填写", "填报", "填一下", "补全", "根据附件", "从附件", "识别发票")) return "fill_form_from_attachment";
-        if (isStatusAmountAggregationQuestion(value) || isAmountRankingQuestion(value)) return "analyze_data";
+        if (isStatusMetricAggregationQuestion(value) || isMetricRankingQuestion(value)) return "analyze_data";
         if (contains(value, "删除", "删掉", "移除", "作废") || (value.contains("取消") && contains(value, "取消这个", "取消这条", "取消第"))) return "delete_data";
         if (contains(value, "新增", "新建", "创建", "录入", "登记")) return "create_data";
         if (contains(value, "写入", "修改", "更新", "调整", "变更", "编辑", "保存", "提交", "发起", "分配", "转移", "关闭", "推进", "写一条跟进")) return "update_data";
