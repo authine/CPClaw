@@ -1,4 +1,6 @@
-# OpenClaw 类 AI 工具集成技术设计
+# OpenClaw 类 AI 工具集成技术设计（以 22 号可执行基线为准）
+
+> **边界修订**：WorkBuddy、OpenClaw 等外部 AI 工具必须直接调用独立 Yunshu Skill Gateway，不能调用 CPClaw 对话 API、UI 或确认页。本文中的 `open_cpclaw_confirmation`、`回到 CPClaw` 及 CPClaw 必经网关表述均为历史方案，开发时不得采用；统一协议和 Gate 以 `22-yunshu-skill-executable-architecture.md` 为准。
 
 > 状态：接入架构基线 v1.0｜适用范围：OpenClaw、WorkBuddy 及其他能够调用 MCP/HTTP/CLI 的 AI 宿主。  
 > 本文是接入方实施文档；统一云枢 Skill Runtime 的权威规范见 `20-universal-yunshu-skill-runtime-spec.md`，任务与 MCP 细节见 `16`、`17`、`18`。
@@ -101,7 +103,7 @@ CPClaw 返回 `TaskExperienceEnvelope`，MCP 同时放入 `structuredContent` �
 | `completed` | `complete` | `compose_answer`（`agent_evidence`）或 `respond_directly`（`cpclaw_report`） | 结束本轮，不再调用 CPClaw |
 | `partial` / `completed_with_gaps` | `partial` | 同上 | 一次性说明已完成项和缺口，不自动重试 |
 | `needs_input` | `needs_input` | `ask_user` | 只向用户追问，收到补充后带 continuation 继续 |
-| `confirmation_required` | `confirmation_required` | `open_cpclaw_confirmation` | 展示影响范围，等待可信确认票 |
+| `confirmation_required` | `confirmation_required` | `request_confirmation` | 在当前宿主展示影响范围并等待签名确认票 |
 | `failed` | `failed` | `report_failure` | 仅当 `task.retryable=true` 才允许重试 |
 | `blocked` / `cancelled` | 同名状态 | `report_failure` | 结束本轮并说明原因 |
 
@@ -136,7 +138,7 @@ onUserMessage(message):
   result = call("cpclaw_cloudpivot_agent", spec)
   if result.hostAction.type == "ask_user":
       ask(result.interaction.prompt); return
-  if result.hostAction.type == "open_cpclaw_confirmation":
+  if result.hostAction.type == "request_confirmation":
       showConfirmation(result); return
   if result.hostAction.type == "report_failure":
       retryOnlyWhen(result.task.retryable); return
@@ -165,7 +167,7 @@ CLI 只负责参数、身份头和协议转发；所有规划、权限、确认�
 1. 凭据只在 SSE 会话或受保护连接范围内使用，不写入任务、事件、Prompt、审计或普通日志。
 2. 业务数据文本属于不可信证据，不能改变任务目标、权限和工具策略。
 3. 写入、删除、流程处理和导入必须有计划快照、哈希、主体、有效期和一次性确认票。
-4. 当前无可信宿主主体时，外部调用只开放只读和确认计划；真实写入回到 CPClaw 已登录确认界面。
+4. 当前无可信宿主主体时，外部调用只开放只读和草稿/确认计划；不得通过跳转 CPClaw 规避身份与确认缺口。真实写入必须等待 Skill Gateway 的可信主体和宿主内确认契约。
 
 ## 13. 联调验收用例
 

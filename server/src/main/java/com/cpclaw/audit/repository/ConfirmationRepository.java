@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface ConfirmationRepository extends JpaRepository<Confirmation, String> {
 
+    Optional<Confirmation> findFirstByAgentRunIdAndStatusOrderByCreatedAtDesc(String agentRunId, String status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Confirmation c where c.id = :id")
     Optional<Confirmation> findByIdForExecution(@Param("id") String id);

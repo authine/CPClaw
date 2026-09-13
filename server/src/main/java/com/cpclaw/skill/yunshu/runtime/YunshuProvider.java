@@ -4,6 +4,8 @@ import com.cpclaw.cloudpivot.CloudPivotConnector;
 import com.cpclaw.cloudpivot.CloudPivotMetadataSnapshot;
 import com.cpclaw.cloudpivot.CloudPivotRuntimeQueryResult;
 import com.cpclaw.mcp.McpInstallationService.BoundCloudPivotConnection;
+import com.cpclaw.skill.yunshu.form.FormFieldSlot;
+import java.util.List;
 
 /**
  * Provider boundary for the universal Yunshu Skill. It owns CloudPivot
@@ -14,6 +16,38 @@ public interface YunshuProvider {
 
     CloudPivotRuntimeQueryResult query(BoundCloudPivotConnection connection, String schemaCode,
             int pageSize, boolean enrichAllDetails, int maxRecords);
+
+    /**
+     * Write-related methods intentionally default to CONTRACT_UNVERIFIED. They
+     * must not be wired to a guessed CloudPivot HTTP endpoint.
+     */
+    default ProviderFormSchema loadFormSchema(BoundCloudPivotConnection connection, FormReference formRef) {
+        return new ProviderFormSchema(formRef, null, List.of());
+    }
+
+    default ProviderDraftValidation validateDraft(BoundCloudPivotConnection connection, FormReference formRef,
+            List<FormFieldSlot> draft, String metadataVersion) {
+        return ProviderDraftValidation.unverified("CloudPivot form validation contract has not been verified");
+    }
+
+    default ProviderOperationResult createRecord(BoundCloudPivotConnection connection, FormReference formRef,
+            List<FormFieldSlot> draft, String idempotencyKey) {
+        return ProviderOperationResult.unverified("createRecord", "CloudPivot create contract has not been verified");
+    }
+
+    default ProviderOperationResult updateRecord(BoundCloudPivotConnection connection, String recordRef,
+            List<FormFieldSlot> patch, String idempotencyKey) {
+        return ProviderOperationResult.unverified("updateRecord", "CloudPivot update contract has not been verified");
+    }
+
+    default ProviderOperationResult submitAction(BoundCloudPivotConnection connection, String actionRef,
+            java.util.Map<String, Object> payload, String idempotencyKey) {
+        return ProviderOperationResult.unverified("submitAction", "CloudPivot submit contract has not been verified");
+    }
+
+    default ProviderOperationResult getOperationResult(BoundCloudPivotConnection connection, String idempotencyKey) {
+        return ProviderOperationResult.unverified("getOperationResult", "CloudPivot operation lookup contract has not been verified");
+    }
 
     static YunshuProvider from(CloudPivotConnector connector) {
         return new ConnectorYunshuProvider(connector);

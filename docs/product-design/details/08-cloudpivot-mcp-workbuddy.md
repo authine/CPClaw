@@ -1,8 +1,10 @@
-# 云枢 MCP 与 OpenClaw 兼容客户端接入能力
+# 云枢 Skill 与 OpenClaw 兼容客户端接入能力
+
+> **重要修订**：WorkBuddy 仅作为宿主示例，必须直接调用独立 Yunshu Skill Gateway。CPClaw 不作为外部 AI 的对话 API、UI 或确认中转层。统一可执行协议与开发门禁见 `docs/technical-design/details/22-yunshu-skill-executable-architecture.md`。
 
 ## 1. 产品能力
 
-CPClaw 提供一个受治理的“云枢能力连接器”，以 MCP 工具形式向 OpenClaw 兼容客户端暴露已验证的云枢 Skill。客户端负责承载工具调用与终端凭据注入，CPClaw 负责云枢环境复用、工具边界、确认、审计和结果解释；首期不宣称已获得客户端用户或租户身份绑定。
+Yunshu Skill Gateway 提供受治理的云枢 Skill，并以 MCP/HTTP 形式向 OpenClaw 兼容客户端暴露。CPClaw Web、WorkBuddy 和其他宿主负责承载对话、用户输入与宿主内确认；Skill Gateway 负责云枢环境、工具边界、权限、审计和结果解释。CPClaw 不作为外部 AI 的对话或确认中转层。
 
 ## 2. 首期用户流程
 

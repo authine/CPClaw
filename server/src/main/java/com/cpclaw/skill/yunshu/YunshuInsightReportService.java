@@ -19,10 +19,10 @@ import java.util.Map;
 import com.cpclaw.skill.yunshu.template.YunshuScenarioInsightReportTemplate;
 
 /**
- * Generic Skill report entry point. Scenario report layouts and KPI rules are
- * supplied by published template plugins; the framework has no default report
- * vocabulary. When no template claims a request, the runtime model path is
- * used instead of guessing a business report.
+ * Generic Skill report entry point. The default engine is metadata-driven and
+ * can analyze any executable business object with synchronized fields and
+ * relations. Published report skills are optional overlays for custom KPIs,
+ * wording or layout; they are never a prerequisite for a report.
  */
 @Service
 public class YunshuInsightReportService {
@@ -59,7 +59,10 @@ public class YunshuInsightReportService {
     }
 
     public boolean supports(String question, String intent) {
-        return template != null && template.supports(question, intent);
+        // Generic analysis is a built-in Yunshu capability. A report template
+        // may enrich wording, metrics or layout, but it must not decide
+        // whether an otherwise valid metadata-backed analysis can run.
+        return template != null && ("analyze_data".equals(intent) || "summarize_data".equals(intent));
     }
 
     public InsightExecutionResult execute(

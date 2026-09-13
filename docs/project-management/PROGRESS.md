@@ -1,5 +1,7 @@
 # CPClaw 项目进度
 
+2026-09-10 完成 CPClaw 助手化核心方案专家评审与首项实现：架构、后端运行时、产品体验/安全三方一致判定方案方向可行，可进入契约先行的分阶段开发，但当前不可生产交付。新增 `docs/technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md`，冻结 BusinessTask、TaskUnderstanding、AnalysisSpec、能力图、Provider 契约和首阶段验收；同步调整 `YunshuInsightReportService.supports`，使通用分析在 `analyze_data/summarize_data` 已通过 Runtime 对象与计划校验后默认可进入，专项模板只做后置增强。后端定向回归测试通过：InsightReportServiceTests 9、CpClawApiTests、McpGatewayTests 8、YunshuProtocolTests 3、PersistentFormTaskRuntimeTests 8、WebTaskExperienceAdapterTests 1、McpTaskExperienceRendererTests 1、YunshuSkillHttpControllerTests 3，失败/错误均为 0。下一步按 A 阶段落地统一 BusinessTask 与 TaskUnderstanding，禁止 Web 写操作创建 FormTask 旁路任务。
+
 2026-08-26 开始落地统一云枢 Skill Runtime 技术规范：新增 `YunshuProvider`、`YunshuExecutionScope`、`YunshuSkillRuntime` 通用契约，MCP 云枢查询执行器改为通过 Provider 访问云枢连接器；新增 Provider 委托测试。后端 compile、test-compile、Runtime/Provider 专项测试通过。当前仍需继续抽取阶段化 Runtime、让 Web 与 MCP 完全共享执行器，并由开发完成后启动独立测试专家进行全量验收。
 
 2026-08-26 第二轮继续抽取运行时职责：新增可替换 `YunshuIntentPlanner`，将 MCP 执行器中的查询/分析/写入/流程动作分类和流程只读 API 选择迁移到规划器；新增规划器专项测试。后端 compile 与规划器、Provider、任务运行时专项测试通过。当前仍需继续拆分元数据发现、计划校验、证据完成度和 Web 适配，全部开发完成后启动独立测试专家验收。

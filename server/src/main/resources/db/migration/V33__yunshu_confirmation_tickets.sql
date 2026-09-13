@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS yunshu_confirmation_tickets (
+    id VARCHAR(36) PRIMARY KEY,
+    task_id VARCHAR(36) NOT NULL,
+    tenant_id VARCHAR(128) NOT NULL,
+    subject_id VARCHAR(128) NOT NULL,
+    host_id VARCHAR(128) NOT NULL,
+    skill_version VARCHAR(128) NOT NULL,
+    form_ref VARCHAR(512) NOT NULL,
+    metadata_version VARCHAR(128) NOT NULL,
+    state_version BIGINT NOT NULL,
+    draft_version BIGINT NOT NULL,
+    plan_hash VARCHAR(128) NOT NULL,
+    idempotency_key VARCHAR(256) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    consumed_at TIMESTAMP NULL,
+    row_version BIGINT NOT NULL DEFAULT 0,
+    INDEX idx_yunshu_confirmation_ticket_scope (tenant_id, subject_id, host_id, task_id),
+    INDEX idx_yunshu_confirmation_ticket_status (status, expires_at)
+);

@@ -28,6 +28,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -50,7 +51,12 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** Optional scenario report template. Registered explicitly by plugin configuration. */
+/**
+ * Generic metadata-driven analysis engine. It discovers fields, relations,
+ * time ranges and metrics from synchronized metadata. Published report
+ * skills may customize the resulting report through ReportSkillCatalog, but
+ * are not required for analysis to run.
+ */
 public class YunshuScenarioInsightReportTemplate {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
@@ -106,6 +112,11 @@ public class YunshuScenarioInsightReportTemplate {
             return false;
         }
         String value = normalize(question);
+        // Count plus business-stage questions are a generic, metadata-driven
+        // aggregation. They do not require a pre-published report template.
+        boolean countAndStage = containsAny(value, "多少", "几条", "几个", "数量", "总数")
+            && containsAny(value, "阶段", "状态", "进展");
+        if (countAndStage) return true;
         boolean focusedDimension = containsAny(
             value,
             "每年", "按年", "年度", "阶段分布", "状态分布", "金额有多少", "金额合计", "按省", "省份", "排名", "第一条", "详情"
@@ -588,6 +599,7 @@ public class YunshuScenarioInsightReportTemplate {
         Optional<NodeData> downstream = nodes.stream().filter(NodeData::usable).filter(node -> "downstream".equals(node.task().role())).findFirst();
         Optional<Long> linkedUpstreamCount = upstream.flatMap(node -> linkedRelatedCount(primaryData, node));
         Optional<Long> linkedDownstreamCount = downstream.flatMap(node -> linkedRelatedCount(primaryData, node));
+        Optional<ConversionStats> conversionStats = upstream.flatMap(node -> conversionStats(primaryData, node));
         long amountCoverage = metricCoverage(primaryData, primaryData.task().amountField(), FieldKind.AMOUNT);
         long stageCoverage = metricCoverage(primaryData, primaryData.task().stageField(), FieldKind.STAGE);
         boolean broadAnalysis = isBroadAnalysis(question, modelPlan);
@@ -618,6 +630,15 @@ public class YunshuScenarioInsightReportTemplate {
         } else {
             downstream.ifPresent(node -> linkedDownstreamCount.ifPresent(linked -> kpis.add(new Kpi(node.task().entity().getName() + "数", formatInteger(linked), "条", "success", "依据关联字段核验"))));
         }
+        if (flowRequested) {
+            conversionStats.ifPresent(stats -> kpis.add(new Kpi(
+                "平均转化用时",
+                formatDays(stats.averageDays()),
+                "天",
+                stats.averageDays() > 30 ? "warning" : "neutral",
+                "基于" + stats.coverage() + "条已关联记录的日期字段计算"
+            )));
+        }
 
         List<Chart> charts = new ArrayList<>();
         if (flowRequested) {
@@ -644,6 +665,9 @@ public class YunshuScenarioInsightReportTemplate {
         upstream.ifPresent(node -> linkedUpstreamCount.ifPresentOrElse(
             linked -> coreFindings.add(node.task().entity().getName() + "共 " + node.count() + " 条，其中 " + linked + " 条通过关联字段确认已进入" + primary.getName() + "，关联转化率为 " + percent(linked, node.count()) + "。"),
             () -> coreFindings.add(node.task().entity().getName() + "同期共 " + node.count() + " 条，但当前数据未能验证与" + primary.getName() + "的逐条关联。")
+        ));
+        conversionStats.ifPresent(stats -> coreFindings.add(
+            "已关联记录从“" + upstream.map(node -> node.task().entity().getName()).orElse("上游对象") + "”进入“" + primary.getName() + "”平均用时 " + formatDays(stats.averageDays()) + " 天（" + stats.coverage() + " 条有完整日期）。"
         ));
         downstream.ifPresent(node -> linkedDownstreamCount.ifPresentOrElse(
             linked -> coreFindings.add("通过关联字段确认已有 " + linked + " 条" + node.task().entity().getName() + "由本期" + primary.getName() + "形成，占本期" + primary.getName() + "的 " + percent(linked, primaryCount) + "。"),
@@ -1195,6 +1219,52 @@ public class YunshuScenarioInsightReportTemplate {
         return String.format(Locale.ROOT, "%,d", value);
     }
 
+    private String formatDays(double value) {
+        return BigDecimal.valueOf(value).setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    /**
+     * Calculates elapsed days only for records whose relation id and both
+     * metadata-selected dates can be verified in the same runtime result.
+     * Missing or reversed dates are excluded rather than estimated.
+     */
+    private Optional<ConversionStats> conversionStats(NodeData primary, NodeData related) {
+        RelationEdge edge = related.task().edge();
+        CloudPivotDataItem primaryDate = conversionDateField(primary.task().fields());
+        CloudPivotDataItem relatedDate = related.task().dateField();
+        if (edge == null || edge.field() == null || primaryDate == null || relatedDate == null) return Optional.empty();
+        Map<String, Map<String, Object>> relatedById = related.records().stream()
+            .map(record -> recordId(record).map(id -> Map.entry(id, record)).orElse(null))
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (left, right) -> left, LinkedHashMap::new));
+        if (relatedById.isEmpty()) return Optional.empty();
+        List<Double> elapsed = new ArrayList<>();
+        if (edge.primaryIsSource()) {
+            for (Map<String, Object> primaryRecord : primary.records()) {
+                Optional<LocalDateTime> end = parseDate(value(primaryRecord, primaryDate));
+                if (end.isEmpty()) continue;
+                for (String relatedId : relationIds(value(primaryRecord, edge.field()))) {
+                    Map<String, Object> relatedRecord = relatedById.get(relatedId);
+                    if (relatedRecord == null) continue;
+                    Optional<LocalDateTime> start = parseDate(value(relatedRecord, relatedDate));
+                    if (start.isPresent() && !end.get().isBefore(start.get())) {
+                        elapsed.add(Duration.between(start.get(), end.get()).toHours() / 24D);
+                        break;
+                    }
+                }
+            }
+        }
+        if (elapsed.isEmpty()) return Optional.empty();
+        return Optional.of(new ConversionStats(elapsed.stream().mapToDouble(Double::doubleValue).average().orElse(0D), elapsed.size()));
+    }
+
+    private CloudPivotDataItem conversionDateField(List<CloudPivotDataItem> fields) {
+        return fields.stream()
+            .filter(field -> containsAny(normalize(field.getName() + " " + field.getDataItemCode()), "转化时间", "转换时间", "转商机时间", "转化日期", "conversiontime", "convertedat"))
+            .max(Comparator.comparingInt(field -> fieldScore(field, FieldKind.DATE)))
+            .orElse(null);
+    }
+
     private String formatAmount(double value) {
         if (Math.abs(value) >= 100_000_000) return decimal(value / 100_000_000) + "亿";
         if (Math.abs(value) >= 10_000) return decimal(value / 10_000) + "万";
@@ -1312,6 +1382,9 @@ public class YunshuScenarioInsightReportTemplate {
     }
 
     private record AvailableField(CloudPivotDataItem field, long coverage, int semanticScore) {
+    }
+
+    private record ConversionStats(double averageDays, int coverage) {
     }
 
     private record TimeRange(LocalDateTime start, LocalDateTime endExclusive, String label) {

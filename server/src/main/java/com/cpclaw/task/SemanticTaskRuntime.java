@@ -244,13 +244,15 @@ public class SemanticTaskRuntime {
         if ("completed".equals(status) && "partial".equals(completionState)) status = "partial";
         Map<String, Object> interaction = switch (status) {
             case "needs_input" -> Map.of("type", "clarify", "prompt", text(safe.getOrDefault("question", answer)));
-            case "confirmation_required" -> Map.of("type", "confirm", "prompt", answer, "executionBlocked", true, "channel", "cpclaw_authenticated_ui");
+            // Confirmation is rendered and completed by the calling host. The
+            // legacy runtime must not send any host back to a CPClaw UI.
+            case "confirmation_required" -> Map.of("type", "request_confirmation", "prompt", answer, "executionBlocked", true);
             default -> Map.of("type", "none");
         };
         Map<String, Object> hostAction = switch (status) {
             case "completed", "completed_with_gaps", "partial" -> hostActionForCompleted(taskSpec);
             case "needs_input" -> Map.of("type", "ask_user", "allowAnotherMcpCallThisTurn", false);
-            case "confirmation_required" -> Map.of("type", "open_cpclaw_confirmation", "allowAnotherMcpCallThisTurn", false);
+            case "confirmation_required" -> Map.of("type", "request_confirmation", "allowAnotherMcpCallThisTurn", false);
             default -> Map.of("type", "report_failure", "allowAnotherMcpCallThisTurn", false);
         };
         Map<String, Object> evidence = mapValue(safe.get("evidence"));

@@ -77,6 +77,7 @@ class InsightReportServiceTests {
         when(dataItemRepository.findByEntityId("opp-id")).thenReturn(List.of(
             oppLead,
             field("opp-created", "opp-id", "createdTime", "创建时间", "DATETIME"),
+            field("opp-converted", "opp-id", "conversionTime", "转商机时间", "DATETIME"),
             field("opp-owner", "opp-id", "owner", "商机跟进人", "STAFF_SELECTOR"),
             field("opp-system-status", "opp-id", "sequenceStatus", "单据状态", "TEXT"),
             field("opp-stage", "opp-id", "sales_stage", "销售阶段", "TEXT"),
@@ -106,8 +107,8 @@ class InsightReportServiceTests {
         )).thenReturn(Optional.empty());
         when(dataReader.configuredUsername()).thenReturn("18124691161");
         CloudPivotRuntimeQueryResult opportunityResult = result("int_bu_oppor", List.of(
-            record("opp-1", Map.of("createdTime", "2024-01-10", "owner", Map.of("name", "张三"), "sequenceStatus", "COMPLETED", "sales_stage", "方案确认", "pre_sign_dam_yuan", 800000, "sign_time", "2024-05-20", "clues_id", Map.of("id", "lead-1"))),
-            record("opp-2", Map.of("createdTime", "2024-03-12", "owner", Map.of("name", "李四"), "sequenceStatus", "COMPLETED", "sales_stage", "需求沟通", "pre_sign_dam_yuan", 400000, "clues_id", Map.of("id", "lead-2"))),
+            record("opp-1", Map.of("createdTime", "2024-01-10", "conversionTime", "2024-01-10", "owner", Map.of("name", "张三"), "sequenceStatus", "COMPLETED", "sales_stage", "方案确认", "pre_sign_dam_yuan", 800000, "sign_time", "2024-05-20", "clues_id", Map.of("id", "lead-1"))),
+            record("opp-2", Map.of("createdTime", "2024-03-12", "conversionTime", "2024-03-12", "owner", Map.of("name", "李四"), "sequenceStatus", "COMPLETED", "sales_stage", "需求沟通", "pre_sign_dam_yuan", 400000, "clues_id", Map.of("id", "lead-2"))),
             record("opp-3", Map.of("createdTime", "2024-09-01", "owner", Map.of("name", "王五"), "sequenceStatus", "COMPLETED", "sales_stage", "初步接洽", "pre_sign_dam_yuan", 100000)),
             recordWithNullDate("opp-4"),
             recordWithTopLevelDate("opp-5")
@@ -155,6 +156,7 @@ class InsightReportServiceTests {
         assertTrue(report.kpis().stream().anyMatch(kpi -> "私海线索数".equals(kpi.label()) && "3".equals(kpi.value())));
         assertTrue(report.kpis().stream().anyMatch(kpi -> "商机数".equals(kpi.label()) && "3".equals(kpi.value())));
         assertTrue(report.kpis().stream().anyMatch(kpi -> "金额合计".equals(kpi.label()) && kpi.value().contains("140")));
+        assertTrue(report.kpis().stream().anyMatch(kpi -> "平均转化用时".equals(kpi.label()) && "天".equals(kpi.unit())));
         assertTrue(report.charts().stream().anyMatch(chart -> "business-flow".equals(chart.id()) && "bar".equals(chart.type())));
         assertTrue(report.charts().stream().anyMatch(chart -> "stage-distribution".equals(chart.id())
             && "funnel".equals(chart.type())
@@ -168,6 +170,32 @@ class InsightReportServiceTests {
         assertTrue(report.sections().getFirst().findings().stream().anyMatch(value -> value.contains("已有 1 条销售合同")));
         assertTrue(report.relatedQuestions().stream().anyMatch(question -> question.contains("没有转化")));
         assertTrue(result.answer().contains("关键发现"));
+    }
+
+    @Test
+    void reportContractContainsNarrativeSectionsAndChartsForSameInsight() {
+        InsightReportDto report = service.execute(
+            match(),
+            "分析一下2024年上半年线索转商机情况",
+            "model-id",
+            true,
+            AgentProgressListener.NOOP
+        ).report();
+
+        assertFalse(report.sections().isEmpty());
+        assertFalse(report.charts().isEmpty());
+        assertTrue(report.sections().stream().anyMatch(section -> "核心结论".equals(section.title())));
+        assertTrue(report.charts().stream().allMatch(chart -> chart.labels().size() == chart.series().getFirst().values().size()));
+    }
+
+    @Test
+    void genericAnalysisEngineClaimsCrossEntityConversionQuestionWithoutCustomTemplate() {
+        assertTrue(service.supports("分析一下本月线索转商机情况", "analyze_data"));
+    }
+
+    @Test
+    void genericAnalysisEngineClaimsCountAndStageQuestionWithoutCustomTemplate() {
+        assertTrue(service.supports("系统现在有多少商机？分别处于什么阶段？", "analyze_data"));
     }
 
     @Test

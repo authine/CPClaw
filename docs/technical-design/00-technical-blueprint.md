@@ -1,6 +1,6 @@
 # CPClaw 技术架构蓝图
 
-> 文档类型：技术架构｜状态：当前技术基线。统一 Runtime 规范以 `details/20-universal-yunshu-skill-runtime-spec.md` 为准；OpenClaw 接入以 `details/19-openclaw-class-ai-tool-integration.md` 为准。
+> 文档类型：技术架构｜状态：当前技术基线。开发准入与独立 Skill 边界以 `details/22-yunshu-skill-executable-architecture.md` 为准；安全、Provider 与发布门禁以 `details/23-security-provider-release-gates.md` 为准；统一 Runtime 规范以 `details/20-universal-yunshu-skill-runtime-spec.md` 为准；OpenClaw 接入以 `details/19-openclaw-class-ai-tool-integration.md` 为准。
 
 ## 1. 架构目标与不可变约束
 

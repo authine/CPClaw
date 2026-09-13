@@ -264,7 +264,7 @@ public class McpGatewayController {
                     "type", "object",
                     "required", List.of("type", "allowAnotherMcpCallThisTurn"),
                     "properties", Map.of(
-                        "type", Map.of("enum", List.of("compose_answer", "respond_directly", "ask_user", "open_cpclaw_confirmation", "report_failure")),
+                        "type", Map.of("enum", List.of("compose_answer", "respond_directly", "ask_user", "request_confirmation", "report_failure")),
                         "allowAnotherMcpCallThisTurn", Map.of("type", "boolean")
                     )
                 ),

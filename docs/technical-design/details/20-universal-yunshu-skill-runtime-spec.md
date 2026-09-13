@@ -1,6 +1,8 @@
 # 统一云枢 Skill Runtime 技术规范
 
-> 版本：v1.0｜状态：新的技术规范基线｜适用范围：CPClaw Web、CPClaw 内部 Agent、OpenClaw 类宿主、MCP、Remote API 和 CLI。
+> 版本：v1.1｜状态：修订候选，开发以 `22-yunshu-skill-executable-architecture.md` 为准｜适用范围：CPClaw Web、CPClaw 内部 Agent、OpenClaw 类宿主、MCP、Remote API 和 CLI。
+
+> **关键边界修订**：Yunshu Skill Gateway 必须独立可部署、认证、版本化和审计。CPClaw 只是宿主；WorkBuddy/OpenClaw 不得调用 CPClaw 对话 API、UI 或确认页。本文历史段落若出现 `open_cpclaw_confirmation` 或“回到 CPClaw”，均不再作为实现依据。
 
 ## 1. 规范目标
 
@@ -59,9 +61,13 @@ Runtime 只编排通用能力，不包含具体场景词。
 
 实现云枢连接、元数据同步、查询、聚合、表单、流程和导入等能力。Provider 只能使用已登记的云枢契约。
 
-### 3.5 Template Plugin
+### 3.5 Generic Analysis Engine and Template Overlay
 
-提供具体业务场景的对象选择器、字段角色、风险规则、分析算子编排和输出模板。模板必须版本化、签名、审核，并只能使用受限 DSL 和白名单算子。
+通用分析引擎基于元数据、字段角色、关系和确定性算子，自动生成任意业务对象的指标、趋势、异常、范围、口径和证据报告；项目、商机、回款等对象不需要预置业务模板。模板是可选的后置覆盖层，只能在通用报告基础上增加个性化指标、关注点、规则或版式，不能成为分析前置条件，也不能替代通用数据事实。
+
+模板必须版本化、签名、审核，并只能使用受限 DSL 和白名单算子。
+
+通用分析的默认交付物为“图文一体报告”：同一份 `EvidenceBundle` 先计算确定性指标，再同时生成结论段落、KPI、业务链路图、趋势/构成图、异常提示、数据范围和依据。图形不是模板专属能力，也不能由模型另行估算。模板只允许在该通用报告上增加个性化指标、关注点、规则或版式。
 
 ### 3.6 Evidence and Contract Layer
 
@@ -156,7 +162,7 @@ CPClaw Web/Agent 直接调用 `TaskGateway`，由 Runtime 统一执行。记忆�
 
 ### 7.2 OpenClaw 调用
 
-OpenClaw 加载本 Skill 的行为说明，并通过 MCP 的唯一高阶工具 `cpclaw_cloudpivot_agent` 提交 `DelegationSpec`；旧客户端可使用兼容别名 `yunshu_handle_request`。OpenClaw 负责最终表达和跨 Skill 编排，CPClaw 负责云枢证据闭环。
+OpenClaw/WorkBuddy 直接连接 Yunshu Skill Gateway，并通过统一高阶工具提交 `DelegationSpec`；CPClaw Web 使用同一 Runtime。宿主负责最终表达和宿主内确认，Skill 负责云枢证据闭环。
 
 ### 7.3 CLI/Remote
 
@@ -210,24 +216,25 @@ CLI 和 Remote API 仅转发 `DelegationSpec`、查询任务状态、获取事�
 
 ## 11. 实施路线
 
-### P0：统一规范（已完成）
+### P0：统一规范（候选，待 Gate 验证）
 
 - 冻结本规范、`DelegationSpec`、`EvidenceBundle`、`TaskExperienceEnvelope` 和终态状态机；
 - 将 CPClaw Web、MCP、CLI 的入口统一到 `TaskGateway`。
 
-### P1：共享 Runtime（已完成主链）
+### P1：共享 Runtime（已有代码路径，尚未完成外部可行性 Gate）
 
 - 抽取 `YunshuSkillRuntime`、`YunshuProvider`、`MetadataSnapshot`、`SkillPlan` 和 `EvidenceCompletionValidator`；
 - MCP 查询和 Web 查询已迁移到共享执行器；后续只做契约增强，不再新增第二条执行链；
 - 增加相同事实范围和口径的跨宿主回归测试。
 
-### P2：模板插件（治理基线已完成，生产增强规划）
+### P2：模板增强层（治理基线已完成，生产增强规划）
 
-- 将具体业务场景迁移为声明式模板插件；
+- 保持通用分析引擎对任意元数据对象可用；
+- 将个性化业务口径、指标组合和输出版式实现为声明式模板覆盖层；
 - 引入模板签名、审核、版本和灰度发布；
-- 删除通用框架中的业务词和固定判断。
+- 模板不可阻断通用分析，也不得把模板专属结论冒充为通用事实。
 
-### P3：写操作和流程（规划）
+### P3：写操作和流程（规划，需真实契约）
 
 - 按真实云枢契约登记表单、流程、更新、删除和导入能力；
 - 先生成草稿和确认计划，再逐项开放真实执行。
@@ -266,8 +273,8 @@ CLI 和 Remote API 仅转发 `DelegationSpec`、查询任务状态、获取事�
 
 测试专家应输出测试范围、环境、用例、通过/失败结果、缺陷严重度、复现步骤、未覆盖风险和最终是否建议交付。存在 P0/P1 缺陷、验收标准未满足或事实边界不一致时，开发必须回流修复并重新验证。
 
-## 14. 当前落地状态
+## 14. 当前落地状态（不得等同于生产可用）
 
-已具备：TaskGateway、SemanticTaskRuntime、MCP 高阶入口、结构化结果、EvidenceCompletion、幂等 replay、continuation token、CLI 转发、模板插件隔离；已新增 `YunshuProvider`、`YunshuExecutionScope`、`YunshuSkillRuntime`、可替换 `YunshuIntentPlanner`、`YunshuMetadataDiscovery`、`YunshuPlanValidator`、`YunshuRuntimePhase` 和 `YunshuResultComposer` 契约，并让 MCP 云枢执行器通过 Provider、规划器、元数据发现、计划校验和统一结果编排组件访问运行态查询；Web 和 MCP 已通过 `TaskGateway → SkillRegistry` 解析并执行同一个 Spring 单例 `YunshuMcpTaskExecutor`，Web 仅以 `WebTaskExperienceAdapter` 将统一 `TaskExperienceEnvelope` 转为遗留 `AgentResponse`，不再保留第二条云枢执行链；通用对话亦在同一 Runtime 内安全完成，不要求云枢连接上下文。历史场景测试已迁移为通用 Runtime 契约，避免测试反向固化业务逻辑；Web 已增加内部/外部消息 DTO 边界，普通响应和历史消息脱敏内部 schema/api 编码，内部审计与运行上下文保留受控编码；模板管理已提供 Manifest 校验、草稿、审核、发布和停用 API；无登录部署默认拒绝任意外部主体冒充。
+已有代码路径：TaskGateway、SemanticTaskRuntime、MCP 高阶入口、结构化结果、幂等 replay、continuation token、CLI 转发、模板治理和共享查询执行器。上述内容仅表示代码/自动化层级，不能证明独立 Skill Gateway、真实写入、可信身份或跨宿主体验已完成。
 
-尚需外部发布门禁：可信 OIDC/JWT 校验、真实写入/流程/导入契约、后台队列化跨断线恢复和模板版本历史回滚尚需接入对应生产基础设施与真实云枢环境。场景模板已改为默认关闭，仅通过显式配置注册；内部流程/API 编码不再进入 MCP 错误载荷或用户可见进度。旧 `YunshuAgentOrchestrator` 已删除，`AgentOrchestrator` 仅保留无语义兼容响应；固定通用对话词表已移除，模型不可用时进入受治理的 Skill 解析路径。
+尚需外部发布门禁：可信 OIDC/JWT 校验、真实写入/流程/导入契约、后台队列化跨断线恢复和模板版本历史回滚尚需接入对应生产基础设施与真实云枢环境。通用分析引擎默认启用；模板仅作为可选后置增强层。内部流程/API 编码不再进入 MCP 错误载荷或用户可见进度。旧 `YunshuAgentOrchestrator` 已删除，`AgentOrchestrator` 仅保留无语义兼容响应；固定通用对话词表已移除，模型不可用时进入受治理的 Skill 解析路径。

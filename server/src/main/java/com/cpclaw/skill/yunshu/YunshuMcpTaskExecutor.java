@@ -191,8 +191,18 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
         if (!intentPlanner.isRead(intent)) {
             return finish(taskId, "clarification_required", "请说明要查询、分析还是执行业务操作。", Map.of("question", "请补充希望完成的动作。", "intent", intent), trace, progress, 100, "动作类型不明确，未执行云枢调用。");
         }
-        if (intentPlanner.isAnalysis(intent) && insightReportService.supports(query, intent)) {
-            return executeInsight(taskId, connection, query, match, taskSpec, trace, progress);
+        if (intentPlanner.isAnalysis(intent)) {
+            if (insightReportService.supports(query, intent)) {
+                return executeInsight(taskId, connection, query, match, taskSpec, trace, progress);
+            }
+            String message = "当前未安装适用于该业务对象的分析能力，未将分析请求降级为普通记录查询。请先发布对应分析能力后重试。";
+            emit(progress, trace, taskId, YunshuRuntimePhase.VALIDATE, 80, "核对分析能力", message, "completed_with_gaps");
+            return finish(taskId, "completed_with_gaps", message, Map.of(
+                "answer", message,
+                "intent", "analyze_data",
+                "analysisAvailable", false,
+                "matchedMetadata", matched
+            ), trace, progress, 100, "专项分析能力未匹配，未执行普通查询降级。");
         }
         emit(progress, trace, taskId, YunshuRuntimePhase.PLAN, 45, "确定读取范围", "已根据元数据确定业务对象和可用读取能力。", "completed");
         try {
@@ -321,7 +331,7 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
     }
 
     private Map<String, Object> workflowActionUnavailable(String taskId, List<Map<String, Object>> trace, Consumer<TaskProgressEvent> progress) {
-        String message = "当前流程处理能力尚未通过真实云枢写入契约验证，本轮不会执行任何流程写操作。";
+        String message = "当前流程处理能力暂不可用，本轮不会执行流程变更；您可以稍后重试或联系管理员。";
         emit(progress, trace, taskId, YunshuRuntimePhase.VALIDATE, 80, "核对流程处理能力", message, "completed_with_gaps");
         return finish(taskId, "completed_with_gaps", message,
             Map.of("answer", message, "intent", "workflow_action", "workflowActionAvailable", false),
@@ -329,9 +339,9 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
     }
 
     private Map<String, Object> finishWithConfirmation(String taskId, String intent, Map<String, Object> matched, List<Map<String, Object>> trace, Consumer<TaskProgressEvent> progress, String query) {
-        String message = "识别到需要写入或处理业务数据的请求。请回到 CPClaw 确认影响范围后执行；当前 MCP 不会自行确认写操作。";
+        String message = "已识别为需要新增或处理业务记录，正在准备相关信息；信息完整后会在当前对话中请您确认并提交。";
         emit(progress, trace, taskId, YunshuRuntimePhase.VALIDATE, 80, "生成确认计划", message, "needs_input");
-        return finish(taskId, "confirmation_required", message, Map.of("intent", intent, "confirmationRequired", true, "requestSummary", limit(query, 240), "matchedMetadata", matched), trace, progress, 100, "写操作已被确认门禁拦截。");
+        return finish(taskId, "confirmation_required", message, Map.of("intent", intent, "confirmationRequired", true, "requestSummary", limit(query, 240), "matchedMetadata", matched), trace, progress, 100, "业务记录尚未提交，等待您确认。");
     }
 
     private Map<String, Object> finish(String taskId, String status, String answer, Map<String, Object> payload, List<Map<String, Object>> trace, Consumer<TaskProgressEvent> progress, int percent, String finalMessage) {

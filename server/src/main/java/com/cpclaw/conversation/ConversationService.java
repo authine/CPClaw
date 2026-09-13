@@ -3,6 +3,7 @@ package com.cpclaw.conversation;
 import com.cpclaw.agent.AgentProgressListener;
 import com.cpclaw.agent.AgentExecutionCancelledException;
 import com.cpclaw.audit.AuditService;
+import com.cpclaw.audit.entity.Confirmation;
 import com.cpclaw.agent.dto.AgentResponse;
 import com.cpclaw.agent.dto.ExecutionStepDto;
 import com.cpclaw.common.security.SensitiveDataMasker;
@@ -25,6 +26,10 @@ import com.cpclaw.task.dto.SemanticTaskRequest;
 import com.cpclaw.task.dto.TaskExperienceEnvelope;
 import com.cpclaw.task.dto.TaskProgressEvent;
 import com.cpclaw.task.dto.TaskSpec;
+import com.cpclaw.skill.yunshu.form.PersistentFormTaskRuntime;
+import com.cpclaw.yunshu.protocol.YunshuHostContext;
+import com.cpclaw.yunshu.protocol.YunshuProtocol;
+import com.cpclaw.yunshu.protocol.YunshuTaskRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,6 +62,7 @@ public class ConversationService {
     private final ConversationLifecycleService conversationLifecycleService;
     private final WebYunshuExecutionContextFactory webYunshuExecutionContextFactory;
     private final WebTaskExperienceAdapter webTaskExperienceAdapter;
+    private final PersistentFormTaskRuntime persistentFormTaskRuntime;
 
     public ConversationService(
         ConversationRepository conversationRepository,
@@ -72,7 +78,8 @@ public class ConversationService {
         PrincipalContextService principalContextService,
         ConversationLifecycleService conversationLifecycleService,
         WebYunshuExecutionContextFactory webYunshuExecutionContextFactory,
-        WebTaskExperienceAdapter webTaskExperienceAdapter
+        WebTaskExperienceAdapter webTaskExperienceAdapter,
+        PersistentFormTaskRuntime persistentFormTaskRuntime
     ) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
@@ -88,6 +95,7 @@ public class ConversationService {
         this.conversationLifecycleService = conversationLifecycleService;
         this.webYunshuExecutionContextFactory = webYunshuExecutionContextFactory;
         this.webTaskExperienceAdapter = webTaskExperienceAdapter;
+        this.persistentFormTaskRuntime = persistentFormTaskRuntime;
     }
 
     public List<ConversationSummary> listConversations() {
@@ -176,6 +184,7 @@ public class ConversationService {
             );
             response = webResult.response();
             taskExperience = webResult.envelope();
+            response = ensureWebConfirmation(response, taskExperience, conversation.getId());
             progress.checkCancelled();
             if (!progress.tryBeginCommit()) {
                 throw new AgentExecutionCancelledException();
@@ -235,6 +244,51 @@ public class ConversationService {
     }
 
     /**
+     * The shared TaskGateway deliberately returns a channel-neutral
+     * confirmation_required envelope.  Web still exposes the legacy
+     * AgentResponse contract, so bind a persisted confirmation id here before
+     * serializing the response.  Without this bridge the UI renders a confirm
+     * card but has no id to submit, which makes the button appear inert.
+     */
+    private AgentResponse ensureWebConfirmation(AgentResponse response, TaskExperienceEnvelope envelope, String conversationId) {
+        if (response == null || !response.requiresConfirmation() || hasText(response.confirmationId())) {
+            return response;
+        }
+        Map<String, Object> plan = new LinkedHashMap<>();
+        plan.put("operation", response.intent());
+        plan.put("requestSummary", envelope == null ? response.planSummary() : envelope.output().getOrDefault("requestSummary", response.planSummary()));
+        if (envelope != null) {
+            Object matchedMetadata = envelope.output().get("matchedMetadata");
+            if (matchedMetadata != null) plan.put("matchedMetadata", matchedMetadata);
+            plan.put("taskId", envelope.task().id());
+        }
+        String changesJson;
+        try {
+            changesJson = objectMapper.writeValueAsString(plan);
+        } catch (JsonProcessingException exception) {
+            changesJson = "{\"operation\":\"" + response.intent() + "\"}";
+        }
+        final String confirmationChangesJson = changesJson;
+        Confirmation confirmation = auditService.findPendingConfirmation(response.agentRunId()).orElseGet(() -> auditService.createConfirmation(
+            conversationId,
+            response.agentRunId(),
+            response.riskLevel(),
+            response.planSummary(),
+            confirmationChangesJson
+        ));
+        return withConfirmationId(response, confirmation.getId());
+    }
+
+    private AgentResponse withConfirmationId(AgentResponse response, String confirmationId) {
+        return new AgentResponse(
+            response.agentRunId(), response.intent(), response.riskLevel(), response.requiresConfirmation(),
+            response.planSummary(), response.matchReason(), response.candidates(), response.steps(),
+            confirmationId, response.thinkingElapsedMs(), response.answerElapsedMs(),
+            response.insightReport(), response.assistantMessage(), response.taskExperience()
+        );
+    }
+
+    /**
      * Web is a transport adapter too.  Keep the existing AgentResponse contract
      * for the UI while routing lifecycle, persistence and future idempotency
      * through the channel-neutral TaskGateway.
@@ -280,9 +334,23 @@ public class ConversationService {
             webYunshuExecutionContextFactory.create(),
             event -> webTaskExperienceAdapter.forward(event, progress)
         );
+        if (isWriteConfirmation(envelope)) {
+            YunshuTaskRequest start = new YunshuTaskRequest(
+                    "yunshu-skill/1.0", YunshuProtocol.Operation.start, "", content, Map.of(), Map.of(),
+                    userMessage.getId(), null, "");
+            var canonical = persistentFormTaskRuntime.handle(start,
+                    new YunshuHostContext(principal.tenantId(), principal.principalId(), "cpclaw-web", Map.of()));
+            envelope = webTaskExperienceAdapter.adaptFormTask(canonical, toMessageItem(assistantMessage), progress).taskExperience();
+        }
         envelopeRef.set(envelope);
         AgentResponse response = webTaskExperienceAdapter.adapt(envelope, toMessageItem(assistantMessage), progress);
         return new WebTaskResult(response, envelopeRef.get());
+    }
+
+    private boolean isWriteConfirmation(TaskExperienceEnvelope envelope) {
+        if (envelope == null || !"confirmation_required".equals(envelope.task().status())) return false;
+        String intent = String.valueOf(envelope.output().getOrDefault("intent", envelope.summary().getOrDefault("intent", "")));
+        return Set.of("create_data", "update_data", "delete_data", "workflow_action").contains(intent);
     }
 
     private AgentResponse cancelledResponse(MessageItem assistantMessage, boolean discardedPartialAnswer, long startedAtNanos) {

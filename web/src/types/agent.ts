@@ -1,4 +1,5 @@
 import type { MessageItem } from './conversation'
+import type { YunshuTaskExperienceEnvelope } from './yunshuTask'
 
 export interface CandidateOption {
   name: string
@@ -84,21 +85,11 @@ export interface AgentResponse {
   insightReport?: InsightReport
   assistantMessage: MessageItem
   /** Channel-neutral runtime contract; optional during legacy response replay. */
-  taskExperience?: TaskExperienceEnvelope
+  taskExperience?: YunshuTaskExperienceEnvelope
 }
 
-export interface TaskExperienceEnvelope {
-  experienceVersion: string
-  task: { id: string; status: string; updatedAt?: string; retryable: boolean }
-  summary: Record<string, unknown>
-  visibleTrace: ExecutionStep[]
-  output: Record<string, unknown>
-  interaction: Record<string, unknown>
-  hostAction: { type?: string; allowAnotherMcpCallThisTurn?: boolean; [key: string]: unknown }
-  completion: Record<string, unknown>
-  evidence: Record<string, unknown>
-  continuation: Record<string, unknown>
-}
+/** @deprecated Import YunshuTaskExperienceEnvelope from yunshuTask for new host work. */
+export type TaskExperienceEnvelope = YunshuTaskExperienceEnvelope
 
 export interface AttachmentResponse {
   id: string

@@ -1,4 +1,6 @@
-# 云枢 MCP Gateway 技术设计
+# 云枢 MCP Gateway 技术设计（历史边界，已由 22 号基线修订）
+
+> **执行口径变更**：本文件中“CPClaw 作为外部 MCP 网关”、`open_cpclaw_confirmation`、以及“回到 CPClaw 已登录界面”的内容均已废止。当前开发和验收必须以 `22-yunshu-skill-executable-architecture.md` 为准：外部宿主直接调用独立 Yunshu Skill Gateway，并在自身宿主内完成确认。
 
 > 文档类型：专项技术设计｜状态：当前 MCP 协议与安全边界；执行链以 `TaskGateway → SemanticTaskRuntime → SkillRegistry` 为准。文中 `McpSemanticTaskService` 仅表示历史适配层名称，不得再承载独立业务执行。
 
@@ -68,7 +70,7 @@ yunshu_handle_request
 
 ## 8. 身份、确认与文件边界
 
-安装标识不是用户或租户身份，短生命周期云枢账号密码也不能成为跨会话的持久化身份。查询可以由云枢账号权限保护；但用户级多轮记忆、确认单归属、审计主体和所有外部写入必须接入可信的 `externalPrincipal`（例如宿主 OIDC/JWT 声明或签名身份断言），并按 `tenantId + subjectId` 隔离。未取得该契约前，外部 MCP 仅能生成确认计划，实际确认应回到 CPClaw 已登录界面。
+安装标识不是用户或租户身份，短生命周期云枢账号密码也不能成为跨会话的持久化身份。查询可以由云枢账号权限保护；但用户级多轮记忆、确认单归属、审计主体和所有外部写入必须接入可信的 `externalPrincipal`（例如宿主 OIDC/JWT 声明或签名身份断言），并按 `tenantId + subjectId` 隔离。未取得该契约前，外部 Skill 仅能生成草稿和确认计划；不得通过跳转 CPClaw 页面规避身份缺口。
 
 确认执行采用服务器签发的确认单：计划快照、影响摘要、计划哈希、过期时间、确认主体、一次性确认票和幂等键。服务端只接受可验证主体对尚未过期计划的确认；`confirmed=true` 或模型的第二次工具调用不是确认凭据。
 

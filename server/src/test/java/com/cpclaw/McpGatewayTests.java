@@ -328,7 +328,7 @@ class McpGatewayTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.result.structuredContent.status").value("confirmation_required"))
             .andExpect(jsonPath("$.result.structuredContent.summary.intent").value("create_data"))
-            .andExpect(jsonPath("$.result.structuredContent.hostAction.type").value("open_cpclaw_confirmation"))
+            .andExpect(jsonPath("$.result.structuredContent.hostAction.type").value("request_confirmation"))
             .andExpect(jsonPath("$.result.structuredContent.hostAction.allowAnotherMcpCallThisTurn").value(false));
 
         verifyNoInteractions(cloudPivotConnector);

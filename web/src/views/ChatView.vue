@@ -151,7 +151,17 @@
             <div v-else-if="message.role === 'assistant' && messageDurationText(message)" class="message-duration">
               {{ messageDurationText(message) }}
             </div>
-            <MarkdownMessage :content="message.content" />
+            <MarkdownMessage
+              v-if="message.content && !messageInsightReport(message)"
+              :content="message.content"
+            />
+            <YunshuTaskCard
+              v-if="message.role === 'assistant' && taskExperienceForMessage(message)"
+              :envelope="taskExperienceForMessage(message)!"
+              :busy="taskActionMessageId === message.id"
+              @input="forwardTaskInput(message, $event)"
+              @action="forwardTaskAction(message, $event)"
+            />
             <InsightReport
               v-if="message.role === 'assistant' && messageInsightReport(message)"
               :report="messageInsightReport(message)!"
@@ -202,7 +212,7 @@
 
         <el-alert v-if="errorMessage" class="chat-error" type="error" show-icon :closable="false" :title="errorMessage" />
 
-        <section v-if="confirmationSummary" class="confirmation" role="alert" aria-live="polite">
+        <section v-if="legacyConfirmationSummary" class="confirmation" role="alert" aria-live="polite">
           <span class="confirmation__icon" aria-hidden="true">!</span>
           <div class="confirmation__content">
             <span class="confirmation__eyebrow">待确认操作</span>
@@ -299,7 +309,9 @@ import AttachmentUploader from '../components/chat/AttachmentUploader.vue'
 import AgentRunTimeline from '../components/chat/AgentRunTimeline.vue'
 import ModelSelector from '../components/chat/ModelSelector.vue'
 import ThinkingToggle from '../components/chat/ThinkingToggle.vue'
+import YunshuTaskCard from '../components/chat/YunshuTaskCard.vue'
 import { cancelMessageExecution, createConversation, deleteConversation, getConversation, listConversations, markConversationRead, sendMessageStream } from '../services/conversationApi'
+import { sendYunshuTaskCommand } from '../services/yunshuSkillApi'
 import { confirmOperation, getAgentRun } from '../services/auditApi'
 import { updateMessageFeedback } from '../services/feedbackApi'
 import { listModelConfigs } from '../services/settingsApi'
@@ -308,6 +320,7 @@ import type { ConversationSummary, MessageItem, SendMessageRequest } from '../ty
 import type { MessageStreamEvent } from '../services/conversationApi'
 import type { ModelConfigSummary } from '../types/settings'
 import type { AuditDetail, AuditTool } from '../services/auditApi'
+import type { YunshuTaskExperienceEnvelope } from '../types/yunshuTask'
 
 type JsonRecord = Record<string, unknown>
 
@@ -321,6 +334,8 @@ const messages = ref<MessageItem[]>([])
 const uploadedAttachments = ref<AttachmentResponse[]>([])
 const input = ref('')
 const lastAgent = ref<AgentResponse>()
+const taskExperienceByMessageId = ref<Record<string, YunshuTaskExperienceEnvelope>>({})
+const taskActionMessageId = ref('')
 const traceByMessageId = ref<Record<string, AgentResponse>>({})
 const expandedTraceByMessageId = ref<Record<string, boolean>>({})
 const selectedTraceMessageId = ref('')
@@ -356,6 +371,7 @@ const selectedModel = computed(() => models.value.find((model) => model.id === s
 const currentConversation = computed(() => conversations.value.find((conversation) => conversation.id === conversationId.value))
 const currentConversationTitle = computed(() => currentConversation.value?.title || '新会话')
 const confirmationSummary = computed(() => (lastAgent.value?.requiresConfirmation ? lastAgent.value.planSummary : ''))
+const legacyConfirmationSummary = computed(() => lastAgent.value?.taskExperience ? '' : confirmationSummary.value)
 const confirmationAction = computed(() => writeActionLabel(lastAgent.value?.intent))
 const confirmationObject = computed(() => lastAgent.value?.candidates?.[0]?.name || '目标业务对象')
 const orderedMessages = computed(() => [...messages.value].sort(compareMessages))
@@ -542,6 +558,7 @@ async function openConversation(id: string) {
     conversationId.value = detail.conversation.id
     messages.value = detail.messages
     traceByMessageId.value = restoreMessageTraces(detail.messages)
+    taskExperienceByMessageId.value = {}
     expandedTraceByMessageId.value = {}
     selectedTraceMessageId.value = ''
     uploadedAttachments.value = []
@@ -611,6 +628,7 @@ function clearCurrentConversation() {
   pendingConversationPreview.value = undefined
   messages.value = []
   traceByMessageId.value = {}
+  taskExperienceByMessageId.value = {}
   expandedTraceByMessageId.value = {}
   selectedTraceMessageId.value = ''
   uploadedAttachments.value = []
@@ -752,6 +770,11 @@ async function cancelCurrentExecution() {
 
 async function confirmLastOperation() {
   if (!lastAgent.value?.confirmationId || confirming.value) {
+    if (!confirming.value) {
+      const message = '确认单尚未准备完成，请稍候或重新发送该操作。'
+      errorMessage.value = message
+      ElMessage.warning(message)
+    }
     return
   }
   confirming.value = true
@@ -786,6 +809,179 @@ function handleAttachmentUploaded(attachment: AttachmentResponse) {
 
 function removeAttachment(id: string) {
   uploadedAttachments.value = uploadedAttachments.value.filter((attachment) => attachment.id !== id)
+}
+
+/**
+ * Host-only continuation.  The Web app forwards opaque task state back to the
+ * Yunshu Skill Gateway and renders the returned fact; no CloudPivot rule is
+ * reconstructed in this component.
+ */
+async function forwardTaskInput(message: MessageItem, inputPayload: Record<string, unknown>) {
+  const envelope = taskExperienceForMessage(message)
+  if (!envelope || taskActionMessageId.value) return
+  await forwardTaskCommand(message, envelope, 'input', { input: inputPayload })
+}
+
+async function forwardTaskAction(
+  message: MessageItem,
+  action: { type: 'confirm' | 'update_draft' | 'cancel'; patch?: Record<string, unknown>; confirmationTicket?: string }
+) {
+  const envelope = taskExperienceForMessage(message)
+  if (!envelope || taskActionMessageId.value) return
+  await forwardTaskCommand(message, envelope, 'action', {
+    action: {
+      type: action.type,
+      patch: action.patch,
+      confirmationTicket: action.confirmationTicket
+    }
+  })
+}
+
+async function forwardTaskCommand(
+  message: MessageItem,
+  envelope: YunshuTaskExperienceEnvelope,
+  operation: 'input' | 'action',
+  payload: { input?: Record<string, unknown>; action?: { type: 'confirm' | 'update_draft' | 'cancel'; patch?: Record<string, unknown>; confirmationTicket?: string } }
+) {
+  taskActionMessageId.value = message.id
+  errorMessage.value = ''
+  try {
+    const nextEnvelope = normalizeTaskExperience(await sendYunshuTaskCommand({
+      protocolVersion: 'yunshu-skill/1.0',
+      operation,
+      taskId: envelope.task.id,
+      input: payload.input,
+      action: payload.action,
+      clientRequestId: crypto.randomUUID(),
+      expectedStateVersion: envelope.task.stateVersion,
+      continuationToken: envelope.next.continuationToken
+    }))
+    if (!nextEnvelope) throw new Error('云枢 Skill 返回的任务状态不完整，无法安全继续。')
+    taskExperienceByMessageId.value = { ...taskExperienceByMessageId.value, [message.id]: nextEnvelope }
+    if (lastAgent.value?.assistantMessage.id === message.id) {
+      lastAgent.value = { ...lastAgent.value, taskExperience: nextEnvelope, requiresConfirmation: false, confirmationId: undefined }
+    }
+    const resultMessage = stringValue(nextEnvelope.output.message)
+    if (resultMessage && ['submitted', 'failed', 'manual_review'].includes(nextEnvelope.task.status)) {
+      messages.value = messages.value.map((item) => item.id === message.id ? { ...item, content: resultMessage } : item)
+    }
+    await nextTick()
+    await scrollMessagesToBottom()
+  } catch (error) {
+    errorMessage.value = messageFromError(error)
+    ElMessage.error(errorMessage.value)
+  } finally {
+    taskActionMessageId.value = ''
+  }
+}
+
+function taskExperienceForMessage(message: MessageItem): YunshuTaskExperienceEnvelope | undefined {
+  const envelope = taskExperienceByMessageId.value[message.id]
+  if (!envelope) return undefined
+  const status = envelope.task.status
+  const interactive = envelope.interaction.type !== 'none' || envelope.hostAction.type === 'request_confirmation'
+  return interactive || ['needs_input', 'draft_ready', 'validation_error', 'ready_to_submit', 'confirmation_required', 'submitted', 'unknown', 'manual_review', 'failed'].includes(status)
+    ? envelope
+    : undefined
+}
+
+/** Normalizes the current canonical gateway response and the temporary v2 Web bridge. */
+function normalizeTaskExperience(value: unknown): YunshuTaskExperienceEnvelope | undefined {
+  const source = recordValue(value)
+  const task = recordValue(source.task)
+  const id = stringValue(task.id)
+  const status = stringValue(task.status)
+  if (!id || !status) return undefined
+  const interaction = recordValue(source.interaction)
+  const output = recordValue(source.output)
+  const draft = Object.keys(recordValue(source.draft)).length ? recordValue(source.draft) : recordValue(output.draft)
+  const validation = Object.keys(recordValue(source.validation)).length ? recordValue(source.validation) : recordValue(output.validation)
+  const next = Object.keys(recordValue(source.next)).length ? recordValue(source.next) : recordValue(output.next)
+  const completion = Object.keys(recordValue(source.completion)).length ? recordValue(source.completion) : recordValue(output.completion)
+  const hostAction = Object.keys(recordValue(source.hostAction)).length ? recordValue(source.hostAction) : recordValue(output.hostAction)
+  const legacyContinuation = recordValue(source.continuation)
+  return {
+    protocolVersion: stringValue(source.protocolVersion) || 'yunshu-skill/1.0',
+    task: {
+      id,
+      kind: stringValue(task.kind) || 'query',
+      status,
+      stateVersion: Number(task.stateVersion) || 0,
+      retryable: Boolean(task.retryable),
+      updatedAt: stringValue(task.updatedAt) || undefined
+    },
+    interaction: {
+      ...interaction,
+      type: stringValue(interaction.type) || 'none',
+      questions: arrayValue(interaction.questions).map((value, index) => {
+        const question = recordValue(value)
+        return {
+          id: stringValue(question.id) || `question-${index + 1}`,
+          slotRefs: arrayValue(question.slotRefs).map(stringValue).filter(Boolean),
+          type: stringValue(question.type) || 'text',
+          prompt: stringValue(question.prompt),
+          required: Boolean(question.required),
+          options: arrayValue(question.options).map((option) => {
+            const raw = recordValue(option)
+            return { label: stringValue(raw.label) || stringValue(raw.name) || stringValue(raw.value), value: raw.value as string | number | boolean }
+          }),
+          validation: recordValue(question.validation)
+        }
+      })
+    },
+    draft: {
+      formRef: recordValue(draft.formRef),
+      metadataVersion: stringValue(draft.metadataVersion),
+      draftVersion: Number(draft.draftVersion) || 0,
+      fields: arrayValue(draft.fields).map((value) => {
+        const field = recordValue(value)
+        return {
+          fieldCode: stringValue(field.fieldCode),
+          label: stringValue(field.displayName) || stringValue(field.label) || undefined,
+          type: stringValue(field.type) || undefined,
+          value: field.value,
+          required: Boolean(field.required),
+          source: stringValue(field.source) || undefined,
+          confidence: typeof field.confidence === 'number' ? field.confidence : undefined,
+          validationStatus: stringValue(field.validationStatus) || undefined,
+          error: stringValue(field.error) || undefined,
+          editable: field.editable === undefined ? undefined : Boolean(field.editable)
+        }
+      })
+    },
+    validation: {
+      issues: arrayValue(validation.issues).map((value) => {
+        const issue = recordValue(value)
+        return {
+          code: stringValue(issue.code) || undefined,
+          fieldCode: stringValue(issue.fieldCode) || undefined,
+          slotRef: stringValue(issue.slotRef) || undefined,
+          message: stringValue(issue.message),
+          severity: Boolean(issue.blocking) ? 'error' : stringValue(issue.severity) || undefined
+        }
+      })
+    },
+    next: {
+      requiredInputSchema: recordValue(next.requiredInputSchema),
+      continuationToken: stringValue(next.continuationToken) || stringValue(legacyContinuation.continuationToken) || undefined,
+      expiresAt: stringValue(next.expiresAt) || undefined
+    },
+    completion: { state: stringValue(completion.state) || 'incomplete', missing: arrayValue(completion.missing).map(stringValue).filter(Boolean) },
+    output: recordValue(source.output),
+    evidence: recordValue(source.evidence),
+    hostAction: {
+      type: stringValue(hostAction.type) || 'report_failure',
+      allowAnotherCallThisTurn: Boolean(hostAction.allowAnotherCallThisTurn),
+      payload: recordValue(hostAction.payload)
+    },
+    auditRef: recordValue(source.auditRef),
+    error: Object.keys(recordValue(source.error)).length ? {
+      code: stringValue(recordValue(source.error).code) || undefined,
+      message: stringValue(recordValue(source.error).message) || undefined,
+      retryable: Boolean(recordValue(source.error).retryable)
+    } : undefined,
+    visibleTrace: normalizeExecutionSteps(source.visibleTrace)
+  }
 }
 
 function submitRelatedQuestion(question: string) {
@@ -1219,6 +1415,13 @@ async function handleMessageStreamEvent(event: MessageStreamEvent, pendingMessag
     traceByMessageId.value = {
       ...traceByMessageId.value,
       [completedResponse.assistantMessage.id]: completedResponse
+    }
+    const taskExperience = normalizeTaskExperience(completedResponse.taskExperience)
+    if (taskExperience) {
+      taskExperienceByMessageId.value = {
+        ...taskExperienceByMessageId.value,
+        [completedResponse.assistantMessage.id]: taskExperience
+      }
     }
     selectedTraceMessageId.value = completedResponse.assistantMessage.id
     if (completedResponse.assistantMessage.content.trim()) {

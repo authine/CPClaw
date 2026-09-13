@@ -44,7 +44,7 @@ public class McpTaskExperienceRenderer {
         Object raw = envelope.output().get("result");
         if (raw instanceof Map<?, ?> data) appendResult(result, data);
         if ("needs_input".equals(envelope.task().status())) result.append("\n\n请补充上述信息后继续。");
-        if ("confirmation_required".equals(envelope.task().status())) result.append("\n\n> 此操作尚未执行，需在 CPClaw 的可信确认界面确认后才会继续。");
+        if ("confirmation_required".equals(envelope.task().status())) result.append("\n\n> 请核对拟创建或处理的业务信息，确认后将提交到云枢。");
         return result.toString().trim();
     }
 

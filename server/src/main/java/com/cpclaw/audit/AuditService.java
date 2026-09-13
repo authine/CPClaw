@@ -26,6 +26,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -192,6 +193,11 @@ public class AuditService {
         confirmation.setCreatedAt(now);
         confirmation.setExpiresAt(now.plusSeconds(1800));
         return confirmationRepository.save(confirmation);
+    }
+
+    public Optional<Confirmation> findPendingConfirmation(String agentRunId) {
+        if (agentRunId == null || agentRunId.isBlank()) return Optional.empty();
+        return confirmationRepository.findFirstByAgentRunIdAndStatusOrderByCreatedAtDesc(agentRunId, "pending");
     }
 
     @Transactional

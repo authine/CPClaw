@@ -125,6 +125,18 @@
       </article>
     </div>
 
+    <div v-if="report.sections.length" class="report-sections">
+      <article v-for="section in report.sections" :key="section.title" class="report-section">
+        <div class="report-section-title">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>{{ section.title }}</span>
+        </div>
+        <ul v-if="section.findings.length">
+          <li v-for="finding in section.findings" :key="finding">{{ finding }}</li>
+        </ul>
+      </article>
+    </div>
+
     <footer v-if="report.dataSources.length || report.relatedQuestions.length" class="report-footer">
       <div v-if="report.dataSources.length" class="data-sources">
         <div class="report-section-title">
@@ -160,7 +172,9 @@ const props = defineProps<{ report: InsightReport }>()
 const emit = defineEmits<{ question: [question: string] }>()
 
 const palette = ['#2563eb', '#16a34a', '#f59e0b', '#e11d48', '#0891b2', '#7c3aed']
-const visibleCharts = computed(() => props.report.charts.slice(0, 3))
+// The backend already applies the report chart budget. Do not hide a chart
+// here: text sections and every selected visual are one report contract.
+const visibleCharts = computed(() => props.report.charts)
 
 function toneClass(tone: string) {
   const value = tone.toLowerCase()
@@ -418,6 +432,31 @@ function linePoints(chart: InsightChart) {
 .kpi-item p {
   margin: 0;
   line-height: 1.5;
+}
+
+.report-sections {
+  display: grid;
+  gap: 12px;
+}
+
+.report-section {
+  padding: 14px 16px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.report-section ul {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0;
+  padding-left: 20px;
+}
+
+.report-section li {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .chart-list {

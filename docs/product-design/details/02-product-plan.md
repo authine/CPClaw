@@ -1,5 +1,7 @@
 # CPClaw 产品概要设计与路线图
 
+> **当前架构基线**：外部 AI 工具直接调用独立 Yunshu Skill Gateway。CPClaw Web 是宿主之一，不是 WorkBuddy/OpenClaw 的对话中转层。统一协议与开发门禁见 `docs/technical-design/details/22-yunshu-skill-executable-architecture.md`。
+
 > 文档类型：产品概要设计｜状态：当前基线。蓝图见 `../00-product-blueprint.md`；可验收需求见 `01-requirements.md`；交互视觉规范见 `../../design/ui-design-system.md`。
 
 ## 1. 信息架构
@@ -65,7 +67,7 @@ OpenClaw 只需调用高阶 MCP 工具提交一个 `DelegationSpec`。CPClaw 返
 
 - `respond_directly`：宿主直接将 CPClaw 结果交给用户，不再次追问 CPClaw。
 - `ask_user`：宿主按问题补充信息后再发起一次委派。
-- `open_cpclaw_confirmation`：宿主展示确认要求，确认后携带票据续接。
+- `request_confirmation`：当前宿主展示确认要求，确认后携带签名票据续接；不得跳转 CPClaw。
 - `report_failure`：宿主说明失败原因和可执行的下一步。
 
 OpenClaw 可负责跨 Skill 编排和最终语言组织，但不得修改数字、范围、口径、风险信号或证据缺口。

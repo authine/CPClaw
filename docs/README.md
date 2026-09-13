@@ -19,6 +19,12 @@
 | 规范需求 | [`product-design/details/01-requirements.md`](product-design/details/01-requirements.md) | 可验收产品和非功能需求 |
 | 技术架构 | [`technical-design/00-technical-blueprint.md`](technical-design/00-technical-blueprint.md) | 分层、控制面/执行面/数据面、技术债 |
 | 统一云枢 Runtime | [`technical-design/details/20-universal-yunshu-skill-runtime-spec.md`](technical-design/details/20-universal-yunshu-skill-runtime-spec.md) | 生命周期、接口、结果、宿主契约 |
+| Yunshu Skill 开发准入 | [`technical-design/details/22-yunshu-skill-executable-architecture.md`](technical-design/details/22-yunshu-skill-executable-architecture.md) | 独立 Gateway、FormTask、宿主内确认、协议和 G0-G6 Gate |
+| Yunshu Skill 安全与发布门禁 | [`technical-design/details/23-security-provider-release-gates.md`](technical-design/details/23-security-provider-release-gates.md) | 身份、Provider、UNKNOWN 对账、Markdown 治理与 G0-G6 Gate |
+| Yunshu Skill 实施契约 | [`technical-design/details/24-yunshu-skill-implementation-contract.md`](technical-design/details/24-yunshu-skill-implementation-contract.md) | Canonical Protocol、错误码、工作包、DoR/DoD 与交付判定 |
+| CPClaw 助手化架构复核 | [`technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md`](technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md) | 当前助手能力差距、核心优化方案、阶段优先级与验收边界 |
+| Yunshu Skill 验收契约 | [`test-cases/25-yunshu-skill-contract-acceptance.md`](test-cases/25-yunshu-skill-contract-acceptance.md) | Mock Gateway/Provider、跨宿主、幂等、断线与安全验收用例 |
+| Yunshu Skill 模拟验证 | [`test-cases/26-yunshu-skill-simulated-validation-2026-09-01.md`](test-cases/26-yunshu-skill-simulated-validation-2026-09-01.md) | 本轮可执行的 FormTask、宿主认证、确认拦截与前端模拟用例 |
 | 模板插件 | [`technical-design/details/15-analysis-template-plugin-contract.md`](technical-design/details/15-analysis-template-plugin-contract.md) | 场景扩展与治理边界 |
 | OpenClaw 集成 | [`technical-design/details/19-openclaw-class-ai-tool-integration.md`](technical-design/details/19-openclaw-class-ai-tool-integration.md) | MCP/CLI 接入和联调规则 |
 | 状态与发布门禁 | [`technical-design/details/21-product-status-matrix-and-release-gates.md`](technical-design/details/21-product-status-matrix-and-release-gates.md) | 完成度分层、OpenClaw SLO 与生产发布条件 |
@@ -34,10 +40,13 @@
 4. [`product-design/details/02-product-plan.md`](product-design/details/02-product-plan.md)
 5. [`technical-design/00-technical-blueprint.md`](technical-design/00-technical-blueprint.md)
 6. [`technical-design/details/20-universal-yunshu-skill-runtime-spec.md`](technical-design/details/20-universal-yunshu-skill-runtime-spec.md)
-7. [`technical-design/details/15-analysis-template-plugin-contract.md`](technical-design/details/15-analysis-template-plugin-contract.md)
-8. [`technical-design/details/19-openclaw-class-ai-tool-integration.md`](technical-design/details/19-openclaw-class-ai-tool-integration.md)
-9. [`test-cases/07-test-plan.md`](test-cases/07-test-plan.md) 和相关验收记录
-10. [`project-management/PROGRESS.md`](project-management/PROGRESS.md)
+7. [`technical-design/details/22-yunshu-skill-executable-architecture.md`](technical-design/details/22-yunshu-skill-executable-architecture.md)
+8. [`technical-design/details/23-security-provider-release-gates.md`](technical-design/details/23-security-provider-release-gates.md)
+9. [`technical-design/details/15-analysis-template-plugin-contract.md`](technical-design/details/15-analysis-template-plugin-contract.md)
+10. [`technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md`](technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md)
+11. [`technical-design/details/19-openclaw-class-ai-tool-integration.md`](technical-design/details/19-openclaw-class-ai-tool-integration.md)
+12. [`test-cases/07-test-plan.md`](test-cases/07-test-plan.md) 和相关验收记录
+13. [`project-management/PROGRESS.md`](project-management/PROGRESS.md)
 
 ## 4. 专项文档路由
 
@@ -48,8 +57,8 @@
 - `06-key-technical-strategy.md`：关键技术方案总览。
 - `08-intelligent-data-inquiry-report-engine.md`：通用分析与报告实现边界。
 - `10-conversational-operation-architecture.md`：受控写操作和流程的阶段性准入。
-- `16/17/18/19/20`：MCP 网关、交付架构、委派证据、宿主接入和统一 Runtime。
-- `07-intent-action-output-chain-review-2026-07-02.md`：**历史评审**，不可作为现行规范。
+- `16/18/19/20/22/23/24`：MCP/Skill Gateway、委派证据、宿主接入、统一 Runtime、实施契约与发布门禁。
+- `technical-design/archive/`：已被现行基线取代的历史技术评审，仅用于追溯，不可作为开发依据。
 
 ## 5. 变更规则
 

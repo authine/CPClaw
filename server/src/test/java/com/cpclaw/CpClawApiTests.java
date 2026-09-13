@@ -557,7 +557,7 @@ class CpClawApiTests {
             .andExpect(jsonPath("$.data.intent").value("workflow_action"))
             .andExpect(jsonPath("$.data.riskLevel").value("high"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
-            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("本轮不会执行任何流程写操作")));
+            .andExpect(jsonPath("$.data.assistantMessage.content").value(containsString("当前流程处理能力暂不可用")));
 
         MvcResult streamRequest = mockMvc.perform(post("/api/conversations/messages/stream")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1233,7 +1233,7 @@ class CpClawApiTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.intent").value("delete_data"))
             .andExpect(jsonPath("$.data.requiresConfirmation").value(true))
-            .andExpect(jsonPath("$.data.confirmationId").isEmpty());
+            .andExpect(jsonPath("$.data.confirmationId").isNotEmpty());
 
         mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
