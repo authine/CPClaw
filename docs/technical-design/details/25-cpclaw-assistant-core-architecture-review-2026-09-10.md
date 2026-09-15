@@ -302,3 +302,40 @@ Web 适配层不得因为识别到写操作而再次调用 `PersistentFormTaskRu
 5. 普通对话创建 `general_conversation` 任务或明确记录为无需云枢，Provider 调用次数为 0；
 6. 用户纠正字段/口径后只修改对应 slot，并产生可审计事件；
 7. 服务重启或宿主断线后按原 `taskId` 恢复，不要求用户重新描述目标。
+
+## 12. 2026-09-13 独立复审增量结论
+
+本轮由架构、后端安全、QA/交互三位未参与上一轮实现的专家独立复审最新代码。结论不是“已通过”，而是“可继续分阶段开发，尚不具备生产交付条件”。
+
+### 已落地的防回归收敛
+
+- Web 只有 `create_data` 可以进入表单运行时；`update_data`、`delete_data`、`workflow_action` 不再被伪装成新建表单。
+- 表单 `start` 强制非空 `clientRequestId`，避免空幂等键绕过唯一约束。
+- 表单终态禁止草稿更新和重复取消；取消不再以相同 `draftVersion` 写入重复修订。
+- 已修复 `YunshuTaskEnvelope` 字段变更导致的编译错误，并对先前错误的“全量测试通过”记录进行了更正。
+
+### 仍然阻断交付的问题
+
+1. `findByIdempotencyKey → create` 不是原子操作，并发启动可能产生唯一键异常；必须改为数据库原子获取/创建并回放原结果。
+2. 确认票消费、Provider 写入、结果回查没有执行记录和原子协议；当前 `provider-write-verified` 不能替代真实 Provider 实现，仍须保持 fail-closed。
+3. 稳定业务任务、执行 attempt、命令 requestId 尚未完全统一；续接票先消费后建子任务存在响应丢失后无法重放风险。
+4. 外部宿主尚无真实 JWT/OIDC/签名身份解析；当前 `X-Yunshu-Host-Id` 只完成宿主路由，不构成生产认证。
+5. `mcp-adapter/cpclaw-yunshu.mjs` 是 Canonical JSON-line 转发器，不是可直接宣称兼容标准 MCP 的完整 `initialize/tools/list/tools/call` Server。
+6. 元数据字段类型、枚举、关联、默认值仍未完整传递到前端和 Provider；自然语言隐含字段抽取仍只能作为候选，不能直接视为已确认值。
+7. 通用分析的无模板分支和事件回放仍未达到产品目标；必须补充“项目/收款/合同”等非线索场景和断线恢复验证。
+
+因此本阶段的发布门禁更新为：只读查询、通用分析草稿、表单草稿和确认计划可继续验证；真实云枢创建、标准 MCP、外部宿主生产接入和生产发布均保持 `NOT_READY`。
+
+## 13. 2026-09-13 云枢写入契约探查结论
+
+通过当前云枢环境前端资源的只读静态探查，确认运行时表单 API 为：
+
+- `GET /api/runtime/form/load`
+- `POST /api/runtime/form/save`
+- `POST /api/runtime/form/submit`
+- `GET /api/runtime/form/getReplayToken`
+- `GET /api/runtime/form/loadNew`
+
+同时确认 `/api/app/businessrule/create` 属于业务规则定义管理，不是新增业务记录接口，禁止接入智能填单 Provider。
+
+当前仍未从动态表单组装代码中确认 `save`/`submit` 的完整请求体、关联字段编码、回放令牌绑定和真实记录标识返回结构。因此代码只增加了 `CloudPivotConnector.saveForm/submitForm` 的受控边界和 `yunshu_operation_executions` 执行账本（Flyway V34），没有把猜测的 payload 接到确认按钮，也没有执行真实写入。真实 Provider 投产门禁仍未通过。

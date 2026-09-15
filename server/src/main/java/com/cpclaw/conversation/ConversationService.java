@@ -334,7 +334,7 @@ public class ConversationService {
             webYunshuExecutionContextFactory.create(),
             event -> webTaskExperienceAdapter.forward(event, progress)
         );
-        if (isWriteConfirmation(envelope)) {
+        if (isCreateFormConfirmation(envelope)) {
             YunshuTaskRequest start = new YunshuTaskRequest(
                     "yunshu-skill/1.0", YunshuProtocol.Operation.start, "", content, Map.of(), Map.of(),
                     userMessage.getId(), null, "");
@@ -347,10 +347,10 @@ public class ConversationService {
         return new WebTaskResult(response, envelopeRef.get());
     }
 
-    private boolean isWriteConfirmation(TaskExperienceEnvelope envelope) {
+    private boolean isCreateFormConfirmation(TaskExperienceEnvelope envelope) {
         if (envelope == null || !"confirmation_required".equals(envelope.task().status())) return false;
         String intent = String.valueOf(envelope.output().getOrDefault("intent", envelope.summary().getOrDefault("intent", "")));
-        return Set.of("create_data", "update_data", "delete_data", "workflow_action").contains(intent);
+        return "create_data".equals(intent);
     }
 
     private AgentResponse cancelledResponse(MessageItem assistantMessage, boolean discardedPartialAnswer, long startedAtNanos) {
@@ -629,3 +629,4 @@ public class ConversationService {
         return value != null && !value.isBlank();
     }
 }
+

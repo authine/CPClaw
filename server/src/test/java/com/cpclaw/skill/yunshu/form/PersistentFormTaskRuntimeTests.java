@@ -142,7 +142,7 @@ class PersistentFormTaskRuntimeTests {
         CloudPivotEntityRepository entities = mock(CloudPivotEntityRepository.class);
         CloudPivotAppRepository apps = mock(CloudPivotAppRepository.class);
         CloudPivotDataItemRepository dataItems = mock(CloudPivotDataItemRepository.class);
-        when(search.searchLocalMetadata("线索")).thenReturn(List.of(
+        when(search.searchLocalMetadata("私海线索")).thenReturn(List.of(
                 new MetadataSearchResult("entity", "menu-id", "私海线索", "menu_private_clues", "市场管理 / 私海线索", "low", "test"),
                 new MetadataSearchResult("entity", "lead-id", "私海线索", "sql_line", "zlcsstcrm / 私海线索", "low", "test")));
         CloudPivotEntity entity = new CloudPivotEntity();
@@ -155,7 +155,7 @@ class PersistentFormTaskRuntimeTests {
         when(apps.findById("crm-app")).thenReturn(java.util.Optional.of(app));
         when(dataItems.findByEntityId("lead-id")).thenReturn(List.of(name));
 
-        ProviderFormSchema schema = new LocalMetadataFormSchemaProvider(search, entities, apps, dataItems).resolve("创建一个线索", new FormTaskScope("t", "u", "h"));
+        ProviderFormSchema schema = new LocalMetadataFormSchemaProvider(search, entities, apps, dataItems).resolve("创建一个私海线索", new FormTaskScope("t", "u", "h"));
 
         assertEquals("zlcsstcrm", schema.formRef().applicationCode());
         assertEquals("sql_line", schema.formRef().schemaCode());
@@ -211,3 +211,4 @@ class PersistentFormTaskRuntimeTests {
         private FormTaskSnapshot scoped(String id, FormTaskScope scope) { FormTaskSnapshot value = tasks.get(id); if (value == null || !value.scope().equals(scope)) throw new FormTaskNotFoundException("not found"); return value; }
     }
 }
+

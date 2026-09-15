@@ -1,4 +1,5 @@
 # CPClaw 项目进度
+2026-09-13 继续实现与独立复审：先修复 `PersistentFormTaskRuntime` 对新版 `YunshuTaskEnvelope` 字段的编译错误；随后发现上一条记录把测试结果误报为全通过，实际 `mvn test` 曾有失败，已更正业务断言并重新执行定向验证。当前已完成三项防回归收敛：表单启动强制稳定 `clientRequestId`、终态任务禁止草稿/取消回写、取消只写任务状态不重复写同一草稿版本修订；Web 仅将 `create_data` 路由到表单运行时，修改/删除/流程动作不再伪装成新建表单。三位独立专家复审确认：当前可继续只读/草稿/确认计划开发，但不能宣称真实云枢写入、生产 WorkBuddy/MCP 或生产身份认证已完成；主要阻断项为幂等创建并发竞态、确认票与 Provider 未形成原子写入闭环、外部宿主身份适配、标准 MCP adapter、字段类型/枚举/关联约束、通用分析无模板分支和事件回放。详见 `docs/technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md`，本轮结论以代码与测试证据为准。
 
 2026-09-10 完成 CPClaw 助手化核心方案专家评审与首项实现：架构、后端运行时、产品体验/安全三方一致判定方案方向可行，可进入契约先行的分阶段开发，但当前不可生产交付。新增 `docs/technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md`，冻结 BusinessTask、TaskUnderstanding、AnalysisSpec、能力图、Provider 契约和首阶段验收；同步调整 `YunshuInsightReportService.supports`，使通用分析在 `analyze_data/summarize_data` 已通过 Runtime 对象与计划校验后默认可进入，专项模板只做后置增强。后端定向回归测试通过：InsightReportServiceTests 9、CpClawApiTests、McpGatewayTests 8、YunshuProtocolTests 3、PersistentFormTaskRuntimeTests 8、WebTaskExperienceAdapterTests 1、McpTaskExperienceRendererTests 1、YunshuSkillHttpControllerTests 3，失败/错误均为 0。下一步按 A 阶段落地统一 BusinessTask 与 TaskUnderstanding，禁止 Web 写操作创建 FormTask 旁路任务。
 
@@ -702,3 +703,12 @@ MVP 核心要求：
 2026-08-27（云枢 Skill 场景验证）：新增 `23-yunshu-skill-scenario-validation-2026-08-27.md`，覆盖数据查询、数据分析、待办/已办/我发起流程查询、发起流程、填单、审核、修改和删除。查询/分析及流程只读场景在受控环境通过；发起流程和审核在未完成真实写契约前安全阻断，填单/修改/删除进入确认门禁。新增意图规划回归测试，区分“发起流程”和“查看我发起的流程”。
 
 本轮验证结果：`server/` 全量 Maven 测试通过（36 个测试集、108 个测试，失败/错误均为 0）；`web/` 生产构建通过；CLI/MCP 语法检查通过。由于当前环境未配置真实云枢账号和数据库连接，未执行真实租户写操作，生产门禁状态保持不变。
+
+
+2026-09-13 继续上线前收敛：前端 Yunshu 多轮 input/action 现在按消息、操作和任务 stateVersion 复用 clientRequestId，网络重试不会生成新的命令幂等键；前端生产构建再次通过。通用分析兼容入口已取消模板存在性门槛，专项模板仅做增强。标准 MCP stdio 适配器已实测 initialize/tools/list 返回 JSON-RPC 响应。真实云枢 Provider、外部宿主 JWT/OIDC、真实环境端到端写入与回查仍是上线阻断项。
+
+2026-09-13 真实环境核验与写入契约复核：使用本地 MySQL root（凭据未写入仓库）启动最新 JAR，Flyway 33/33、后端 8080、前端 5173 均正常；读取已保存云枢环境并完成真实元数据同步，结果为 33 应用、1048 实体、19014 字段、984 关联，状态 succeeded。复核发现此前“已接入真实创建接口”的表述不准确：云枢元数据中出现的 Create/Update 能力是 CPClaw 同步生成的候选动作，并非云枢返回的已验证写入契约；当前仅新增了受控 Provider/Connector 接口骨架和安全的记录身份判定，未打开真实写入。投产门禁仍为 NOT_READY，必须先通过真实接口响应、执行记录、幂等回查和受控创建验证。
+
+2026-09-13 只读探查确认云枢运行时表单契约：前端资源明确使用 `/api/runtime/form/load`、`/api/runtime/form/save`、`/api/runtime/form/submit`、`/api/runtime/form/getReplayToken` 和 `/api/runtime/form/loadNew`；`/api/app/businessrule/create` 是业务规则定义接口，禁止作为业务数据创建接口。代码新增 `CloudPivotConnector.saveForm/submitForm` 受控边界和 Flyway V34 `yunshu_operation_executions` 执行账本，但因动态表单 payload、回放令牌绑定和返回记录标识仍未确认，暂未接入确认按钮或执行真实写入。
+
+2026-09-13 执行账本迁移验证：Flyway 已升级至 34，后端启动成功并注册 30 个 JPA repository；全量后端测试完成且退出码为 0。执行账本当前只记录 STARTED/COMPLETED/UNKNOWN 状态模型，尚未接入真实确认动作，防止在表单 payload 未确认前误写云枢。

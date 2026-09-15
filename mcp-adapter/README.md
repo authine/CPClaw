@@ -25,9 +25,11 @@
 
 后续 `input`、`action`、`get`、`events` 必须携带原 `taskId`、`expectedStateVersion` 和需要时的 continuation token。完整字段和状态处理见 [CPClaw-Yunshu-Skill.md](CPClaw-Yunshu-Skill.md)。
 
-## stdio 转发器
+## 标准 MCP stdio 适配器
 
-`cpclaw-yunshu.mjs` 仅把一行一个 Canonical Command 转发至独立 Yunshu Skill Gateway；它不存储或转发云枢账号密码，不连接 CPClaw MCP。配置：
+`cpclaw-yunshu.mjs` 是一个最小标准 MCP stdio Server：实现 `initialize`、`notifications/initialized`、`ping`、`tools/list` 和 `tools/call`，只暴露 `yunshu_task` 一个业务工具。工具调用会转换为 `yunshu-skill/1.0` Canonical Command，再转发至独立 Yunshu Skill Gateway；它不存储或转发云枢账号密码，不连接 CPClaw 对话或旧 MCP。
+
+配置：
 
 ```text
 YUNSHU_SKILL_GATEWAY_URL=https://yunshu-skill.example.com
@@ -36,6 +38,8 @@ YUNSHU_AUTHORIZATION=宿主安全存储提供的可信身份断言（如需要�
 ```
 
 外部宿主必须有相应的 Gateway 身份验证器；未注册的宿主会被拒绝，而不是回退使用 CPClaw 默认主体。
+
+适配器会校验 `start` 必须有 `goal`，非 `start` 操作必须有原 `taskId`，并将 Gateway 的结构化响应作为 MCP `structuredContent` 返回。网关不可用时返回 `isError=true` 和可重试错误；不会自动重试写入操作。
 
 ## 依据
 

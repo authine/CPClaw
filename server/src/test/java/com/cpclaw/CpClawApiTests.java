@@ -1179,9 +1179,9 @@ class CpClawApiTests {
                     }
                     """.formatted(conversationId)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.intent").value("create_data"))
-            .andExpect(jsonPath("$.data.requiresConfirmation").value(true))
-            .andExpect(jsonPath("$.data.planSummary").value(containsString("确认影响范围")));
+            .andExpect(jsonPath("$.data.intent").value("confirmation_required"))
+            .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+            .andExpect(jsonPath("$.data.planSummary").value(containsString("唯一定位")));
 
         MvcResult writeResult = mockMvc.perform(post("/api/conversations/messages")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1545,3 +1545,7 @@ class CpClawApiTests {
         }
     }
 }
+
+
+
+

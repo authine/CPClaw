@@ -1,6 +1,7 @@
 package com.cpclaw.cloudpivot;
 
 import java.util.List;
+import java.util.Map;
 
 public interface CloudPivotConnector {
 
@@ -22,6 +23,27 @@ public interface CloudPivotConnector {
         return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, maxRecords);
     }
 
+    default CloudPivotOperationResult createRecord(String baseUrl, String username, String password, String appCode,
+            String schemaCode, Map<String, Object> data, String idempotencyKey) {
+        throw new UnsupportedOperationException("CloudPivot create operation is not implemented");
+    }
+
+    /** Runtime form save. Payload shape is provider-owned and must be verified against the target tenant. */
+    default CloudPivotOperationResult saveForm(String baseUrl, String username, String password,
+            Map<String, Object> payload, String idempotencyKey) {
+        throw new UnsupportedOperationException("CloudPivot runtime form save contract is not implemented");
+    }
+
+    /** Runtime form submit. Save and submit are separate CloudPivot operations. */
+    default CloudPivotOperationResult submitForm(String baseUrl, String username, String password,
+            Map<String, Object> payload, String idempotencyKey) {
+        throw new UnsupportedOperationException("CloudPivot runtime form submit contract is not implemented");
+    }
+
+    default CloudPivotOperationResult updateRecord(String baseUrl, String username, String password, String appCode,
+            String schemaCode, String bizObjectId, Map<String, Object> data, String idempotencyKey) {
+        throw new UnsupportedOperationException("CloudPivot update operation is not implemented");
+    }
     default CloudPivotOperationResult deleteRecord(String baseUrl, String username, String password, String appCode, String schemaCode, String bizObjectId) {
         throw new UnsupportedOperationException("CloudPivot delete operation is not implemented");
     }
@@ -38,3 +60,6 @@ public interface CloudPivotConnector {
         return queryWorkflowRead(baseUrl, username, password, apiCode, method, path, pageSize);
     }
 }
+
+
+

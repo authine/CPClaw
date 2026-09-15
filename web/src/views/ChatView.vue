@@ -336,6 +336,7 @@ const input = ref('')
 const lastAgent = ref<AgentResponse>()
 const taskExperienceByMessageId = ref<Record<string, YunshuTaskExperienceEnvelope>>({})
 const taskActionMessageId = ref('')
+const taskCommandRequestIds = ref<Record<string, string>>({})
 const traceByMessageId = ref<Record<string, AgentResponse>>({})
 const expandedTraceByMessageId = ref<Record<string, boolean>>({})
 const selectedTraceMessageId = ref('')
@@ -846,13 +847,16 @@ async function forwardTaskCommand(
   taskActionMessageId.value = message.id
   errorMessage.value = ''
   try {
+    const requestKey = `${message.id}:${operation}:${envelope.task.stateVersion}`
+    const requestId = taskCommandRequestIds.value[requestKey] || crypto.randomUUID()
+    taskCommandRequestIds.value = { ...taskCommandRequestIds.value, [requestKey]: requestId }
     const nextEnvelope = normalizeTaskExperience(await sendYunshuTaskCommand({
       protocolVersion: 'yunshu-skill/1.0',
       operation,
       taskId: envelope.task.id,
       input: payload.input,
       action: payload.action,
-      clientRequestId: crypto.randomUUID(),
+      clientRequestId: requestId,
       expectedStateVersion: envelope.task.stateVersion,
       continuationToken: envelope.next.continuationToken
     }))
@@ -4668,3 +4672,5 @@ function messageFromError(error: unknown) {
   .composer__footer { gap: 7px; }
 }
 </style>
+
+

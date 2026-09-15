@@ -135,6 +135,70 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     @Override
+    public CloudPivotOperationResult createRecord(String baseUrl, String username, String password, String appCode,
+            String schemaCode, Map<String, Object> data, String idempotencyKey) {
+        return saveRecord(baseUrl, username, password, appCode, schemaCode, null, data, idempotencyKey, "create");
+    }
+
+    @Override
+    public CloudPivotOperationResult updateRecord(String baseUrl, String username, String password, String appCode,
+            String schemaCode, String bizObjectId, Map<String, Object> data, String idempotencyKey) {
+        return saveRecord(baseUrl, username, password, appCode, schemaCode, bizObjectId, data, idempotencyKey, "update");
+    }
+
+    private CloudPivotOperationResult saveRecord(String baseUrl, String username, String password, String appCode,
+            String schemaCode, String bizObjectId, Map<String, Object> data, String idempotencyKey, String operation) {
+        if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) throw new IllegalArgumentException("云枢连接配置不完整，无法执行写入操作");
+        if (!hasText(appCode) || !hasText(schemaCode) || data == null) throw new IllegalArgumentException("写入操作缺少 appCode、schemaCode 或 data");
+        String endpoint = "/api/api/runtime/business_rule/" + encodePath(appCode) + "/" + encodePath(schemaCode) + "/" + ("create".equals(operation) ? "Create" : "Update");
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password).orElseThrow(() -> new IllegalStateException("云枢登录失败，无法执行写入操作"));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("schemaCode", schemaCode);
+        if (hasText(bizObjectId)) body.put("objectId", bizObjectId);
+        body.put("data", data);
+        if (hasText(idempotencyKey)) body.put("idempotencyKey", idempotencyKey);
+        JsonNode response = postJson(host, endpoint, session, body);
+        ensureBusinessSuccess(response, endpoint);
+        String recordRef = firstText(response, "bizObjectId", "objectId", "id", "dataId").orElse(null);
+        JsonNode nested = response.get("data");
+        if (recordRef == null && nested != null && nested.isObject()) recordRef = firstText(nested, "bizObjectId", "objectId", "id", "dataId").orElse(null);
+        return new CloudPivotOperationResult(true, operation, appCode, schemaCode, recordRef, endpoint, firstText(response, "message", "msg", "errmsg").orElse("云枢写入接口已执行"), Map.of("status", responseStatus(response), "shape", describeShape(response, 0)));
+    }
+
+    @Override
+    public CloudPivotOperationResult saveForm(String baseUrl, String username, String password,
+            Map<String, Object> payload, String idempotencyKey) {
+        return runtimeFormWrite(baseUrl, username, password, payload, idempotencyKey, "save");
+    }
+
+    @Override
+    public CloudPivotOperationResult submitForm(String baseUrl, String username, String password,
+            Map<String, Object> payload, String idempotencyKey) {
+        return runtimeFormWrite(baseUrl, username, password, payload, idempotencyKey, "submit");
+    }
+
+    private CloudPivotOperationResult runtimeFormWrite(String baseUrl, String username, String password,
+            Map<String, Object> payload, String idempotencyKey, String operation) {
+        if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) throw new IllegalArgumentException("云枢连接配置不完整，无法执行表单操作");
+        if (payload == null || payload.isEmpty()) throw new IllegalArgumentException("云枢表单请求体不能为空");
+        String endpoint = "/api/runtime/form/" + operation;
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password).orElseThrow(() -> new IllegalStateException("云枢登录失败，无法执行表单操作"));
+        Map<String, Object> request = new LinkedHashMap<>(payload);
+        if (hasText(idempotencyKey)) request.putIfAbsent("idempotencyKey", idempotencyKey);
+        JsonNode response = postJson(host, endpoint, session, request);
+        ensureBusinessSuccess(response, endpoint);
+        String recordRef = firstText(response, "bizObjectId", "objectId", "id", "dataId").orElse(null);
+        JsonNode nested = response.get("data");
+        if (recordRef == null && nested != null && nested.isObject()) recordRef = firstText(nested, "bizObjectId", "objectId", "id", "dataId").orElse(null);
+        return new CloudPivotOperationResult(true, operation, String.valueOf(payload.getOrDefault("appCode", "")),
+                String.valueOf(payload.getOrDefault("schemaCode", "")), recordRef, endpoint,
+                firstText(response, "message", "msg", "errmsg").orElse("云枢表单接口已执行"),
+                Map.of("status", responseStatus(response), "shape", describeShape(response, 0)));
+    }
+
+    @Override
     public CloudPivotOperationResult deleteRecord(String baseUrl, String username, String password, String appCode, String schemaCode, String bizObjectId) {
         if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
             throw new IllegalArgumentException("云枢连接配置不完整，无法执行删除操作");
@@ -1753,3 +1817,4 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     private record WorkflowRequestVariant(String method, Map<String, Object> request) {
     }
 }
+

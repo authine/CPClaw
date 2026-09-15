@@ -62,7 +62,7 @@ public class YunshuInsightReportService {
         // Generic analysis is a built-in Yunshu capability. A report template
         // may enrich wording, metrics or layout, but it must not decide
         // whether an otherwise valid metadata-backed analysis can run.
-        return template != null && ("analyze_data".equals(intent) || "summarize_data".equals(intent));
+        return "analyze_data".equals(intent) || "summarize_data".equals(intent);
     }
 
     public InsightExecutionResult execute(
@@ -94,3 +94,4 @@ public class YunshuInsightReportService {
         return execute(primaryMatch, question, modelConfigId, thinkingEnabled, progressListener);
     }
 }
+

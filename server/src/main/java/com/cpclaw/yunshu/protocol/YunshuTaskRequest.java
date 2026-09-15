@@ -35,6 +35,7 @@ public record YunshuTaskRequest(
         if (operation == YunshuProtocol.Operation.start) {
             if (!taskId.isBlank()) return "START_MUST_NOT_INCLUDE_TASK_ID";
             if (goal.isBlank()) return "START_REQUIRES_GOAL";
+            if (clientRequestId.isBlank()) return "CLIENT_REQUEST_ID_REQUIRED";
         } else {
             if (taskId.isBlank()) return "TASK_ID_REQUIRED";
             if (expectedStateVersion == null || expectedStateVersion < 0) return "EXPECTED_STATE_VERSION_REQUIRED";
@@ -47,3 +48,6 @@ public record YunshuTaskRequest(
 
     public boolean isValid() { return validationError().isBlank(); }
 }
+
+
+

@@ -61,7 +61,7 @@ public class InsightReportService extends YunshuInsightReportService {
 
     @Override
     public boolean supports(String question, String intent) {
-        return scenarioTemplate != null && scenarioTemplate.supports(question, intent);
+        return "analyze_data".equals(intent) || "summarize_data".equals(intent);
     }
 
     @Override
@@ -76,3 +76,4 @@ public class InsightReportService extends YunshuInsightReportService {
         return scenarioTemplate != null ? scenarioTemplate.execute(primaryMatch, question, modelConfigId, thinkingEnabled, progressListener, access) : super.execute(primaryMatch, question, modelConfigId, thinkingEnabled, progressListener, access);
     }
 }
+
