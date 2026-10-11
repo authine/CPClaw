@@ -12,4 +12,8 @@ public interface YunshuConfirmationTicketRepository extends JpaRepository<Yunshu
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from YunshuConfirmationTicket t where t.id = :id")
     Optional<YunshuConfirmationTicket> findByIdForConsumption(@Param("id") String id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<YunshuConfirmationTicket> findFirstByTaskIdAndTenantIdAndSubjectIdAndHostIdAndStatus(
+            String taskId, String tenantId, String subjectId, String hostId, String status);
 }

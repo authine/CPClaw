@@ -23,6 +23,13 @@ public interface CloudPivotConnector {
         return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, maxRecords);
     }
 
+    /** Optional server-side field projection. Implementations may ignore it. */
+    default CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password,
+            String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords,
+            List<RuntimeQueryFilter> filters, List<String> projectedFields) {
+        return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, maxRecords, filters);
+    }
+
     default CloudPivotOperationResult createRecord(String baseUrl, String username, String password, String appCode,
             String schemaCode, Map<String, Object> data, String idempotencyKey) {
         throw new UnsupportedOperationException("CloudPivot create operation is not implemented");
@@ -38,6 +45,14 @@ public interface CloudPivotConnector {
     default CloudPivotOperationResult submitForm(String baseUrl, String username, String password,
             Map<String, Object> payload, String idempotencyKey) {
         throw new UnsupportedOperationException("CloudPivot runtime form submit contract is not implemented");
+    }
+
+    default String getReplayToken(String baseUrl, String username, String password, String formPath) {
+        throw new UnsupportedOperationException("CloudPivot runtime form replay-token contract is not implemented");
+    }
+
+    default String getNewFormVersion(String baseUrl, String username, String password, String schemaCode, String sheetCode) {
+        throw new UnsupportedOperationException("CloudPivot runtime form version contract is not implemented");
     }
 
     default CloudPivotOperationResult updateRecord(String baseUrl, String username, String password, String appCode,

@@ -56,16 +56,16 @@ public class SemanticTaskPersistenceService {
 
     @Transactional(readOnly = true)
     public Optional<SemanticTaskRun> findByClientRequest(String channel, String installationKey,
-                                                          String externalPrincipal, String clientRequestId) {
-        return runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndClientRequestId(
-            channel, installationKey, externalPrincipal, clientRequestId);
+                                                          String tenantId, String externalPrincipal, String clientRequestId) {
+        return runRepository.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndClientRequestId(
+            channel, installationKey, tenantId, externalPrincipal, clientRequestId);
     }
 
     @Transactional(readOnly = true)
     public Optional<SemanticTaskRun> findByTurn(String channel, String installationKey,
-                                                String externalPrincipal, String turnId) {
-        return runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndTurnId(
-            channel, installationKey, externalPrincipal, turnId);
+                                                String tenantId, String externalPrincipal, String turnId) {
+        return runRepository.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndTurnId(
+            channel, installationKey, tenantId, externalPrincipal, turnId);
     }
 
     @Transactional

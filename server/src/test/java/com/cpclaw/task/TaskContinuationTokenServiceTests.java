@@ -5,9 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 class TaskContinuationTokenServiceTests {
+    @org.junit.jupiter.api.Test
+    void rejectsMissingOrShortDeploymentSecret() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> new TaskContinuationTokenService("", 900));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> new TaskContinuationTokenService("short", 900));
+    }
     @Test
     void tokenBindsTaskAndPrincipalAndContainsUniqueNonce() {
-        TaskContinuationTokenService service = new TaskContinuationTokenService("test-secret", 900);
+        TaskContinuationTokenService service = new TaskContinuationTokenService("cpclaw-test-continuation-secret-32chars", 900);
         String first = service.issue("task-1", "alice@example.com");
         String second = service.issue("task-1", "alice@example.com");
 
@@ -22,7 +27,7 @@ class TaskContinuationTokenServiceTests {
 
     @Test
     void tamperedOrMalformedTokenIsRejected() {
-        TaskContinuationTokenService service = new TaskContinuationTokenService("test-secret", 900);
+        TaskContinuationTokenService service = new TaskContinuationTokenService("cpclaw-test-continuation-secret-32chars", 900);
         String token = service.issue("task-1", "alice");
 
         assertFalse(service.verify(token + "x", "task-1", "alice"));
@@ -30,3 +35,4 @@ class TaskContinuationTokenServiceTests {
         assertNull(service.verifyAndRead("not-a-token"));
     }
 }
+

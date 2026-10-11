@@ -20,8 +20,8 @@
           <strong>{{ modelStats.dataItemCount }}</strong>
         </div>
         <div class="summary-item">
-          <span class="summary-label">关联</span>
-          <strong>{{ modelStats.relationCount }}</strong>
+          <span class="summary-label">动作数</span>
+          <strong>{{ modelStats.actionCount }}</strong>
         </div>
         <div class="summary-item">
           <span class="summary-label">API 动作</span>
@@ -33,12 +33,6 @@
         </div>
       </div>
       <div class="toolbar-actions">
-        <el-input v-model="query" class="search-input" clearable placeholder="搜索应用、实体、字段或 API" @keydown.enter="search">
-          <template #prefix>
-            <el-icon><Search /></el-icon>
-          </template>
-        </el-input>
-        <el-button :loading="searching" @click="search">搜索</el-button>
         <el-button type="primary" :loading="syncing" @click="sync">
           <el-icon><Refresh /></el-icon>
           <span>初始化云枢元数据</span>
@@ -64,6 +58,7 @@
     <div class="graph-status-meta">
       <span>{{ graphOverview?.provider || '尚未构建' }}</span>
       <span v-if="graphOverview?.unresolvedEdgeCount">{{ graphOverview.unresolvedEdgeCount }} 个引用待解析</span>
+      <el-button size="small" type="primary" plain @click="openGraphStructure">查看图谱结构</el-button>
       <el-button size="small" :loading="rebuildingGraph" @click="rebuildGraph">重建图谱</el-button>
     </div>
   </section>
@@ -75,6 +70,12 @@
           <h2>应用模型</h2>
           <p>{{ filteredApps.length }} 个应用 · {{ filteredEntities.length }} 个实体</p>
         </div>
+        <el-segmented
+          v-model="viewMode"
+          class="view-mode-switch"
+          :options="viewModeOptions"
+          @change="rememberViewMode"
+        />
       </div>
       <el-input v-model="entityKeyword" class="entity-search" clearable placeholder="搜索应用、实体名称或编码" />
       <el-scrollbar class="app-entity-list">
@@ -103,24 +104,53 @@
       </el-scrollbar>
     </aside>
 
-    <main class="detail-panel" v-loading="loadingModel">
+    <main class="detail-panel" :class="{ 'detail-panel--graph': viewMode === 'graph' }" v-loading="loadingModel">
       <template v-if="selectedEntity">
-        <div class="detail-header">
+        <header class="entity-hero">
+          <div class="entity-hero__main">
+            <div class="detail-kicker">{{ appName(selectedEntity.appId) }} / 实体资源</div>
+            <div class="entity-hero__title-row">
+              <h2>{{ selectedEntity.name }}</h2>
+              <el-tag class="entity-type-tag" effect="plain">{{ selectedEntity.type || 'BizModel' }}</el-tag>
+            </div>
+            <div class="entity-hero__identity">
+              <span>实体编码</span>
+              <code>{{ selectedEntity.code }}</code>
+            </div>
+            <p class="entity-hero__description">
+              {{ selectedEntity.description || '云枢业务实体，承载业务数据、字段定义、关联关系与可执行动作。' }}
+            </p>
+          </div>
+          <div class="entity-hero__stats" aria-label="实体统计">
+            <div class="entity-stat entity-stat--blue">
+              <strong>{{ selectedEntity.dataItemCount }}</strong>
+              <span>数据项</span>
+            </div>
+            <div class="entity-stat entity-stat--green">
+              <strong>{{ selectedEntity.apiActions.length }}</strong>
+              <span>业务动作</span>
+            </div>
+          </div>
+          <el-button class="entity-hero__graph-action" type="primary" plain @click="openGraphStructure">
+            查看图谱结构
+          </el-button>
+        </header>
+
+        <div v-if="viewMode === 'graph'" class="graph-mode-banner">
           <div>
-            <div class="detail-kicker">{{ appName(selectedEntity.appId) }}</div>
-            <h2>{{ selectedEntity.name }}</h2>
-            <p>{{ selectedEntity.code }}</p>
+            <span class="graph-mode-banner__eyebrow">图谱查看模式</span>
+            <strong>以实体为中心查看属性、关联关系与业务动作</strong>
           </div>
-          <div class="detail-tags">
-            <el-tag>{{ selectedEntity.type || 'data' }}</el-tag>
-            <el-tag type="success">{{ selectedEntity.dataItemCount }} 个数据项</el-tag>
-            <el-tag type="warning">{{ selectedEntity.relationCount }} 个关联</el-tag>
-          </div>
+          <span>点击左侧实体切换中心节点</span>
         </div>
 
         <el-tabs v-model="activeTab" class="metadata-tabs">
           <el-tab-pane label="数据项" name="fields">
-            <el-table :data="selectedEntity.dataItems" height="460" empty-text="暂无数据项">
+            <div class="detail-filter-row">
+              <el-input v-model="detailKeyword" clearable size="small" placeholder="筛选当前实体字段" />
+              <span>{{ filteredDataItems.length }} / {{ selectedEntity.dataItems.length }}</span>
+            </div>
+            <el-table :data="filteredDataItems" height="420" empty-text="暂无匹配字段">
               <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip />
               <el-table-column prop="code" label="编码" min-width="180" show-overflow-tooltip />
               <el-table-column prop="dataType" label="类型" width="130" show-overflow-tooltip />
@@ -143,7 +173,11 @@
           </el-tab-pane>
 
           <el-tab-pane label="关联关系" name="relations">
-            <el-table :data="selectedEntity.relations" height="460" empty-text="暂无关联关系">
+            <div class="detail-filter-row">
+              <el-input v-model="detailKeyword" clearable size="small" placeholder="筛选当前实体关联关系" />
+              <span>{{ filteredRelations.length }} / {{ selectedEntity.relations.length }}</span>
+            </div>
+            <el-table :data="filteredRelations" height="420" empty-text="暂无匹配关联关系">
               <el-table-column prop="relationName" label="关系名称" min-width="170" show-overflow-tooltip />
               <el-table-column prop="relationType" label="关系类型" width="140" show-overflow-tooltip />
               <el-table-column label="来源实体" min-width="170" show-overflow-tooltip>
@@ -159,7 +193,11 @@
           </el-tab-pane>
 
           <el-tab-pane label="API 动作" name="actions">
-            <el-table :data="selectedEntity.apiActions" height="460" empty-text="暂无 API 动作">
+            <div class="detail-filter-row">
+              <el-input v-model="detailKeyword" clearable size="small" placeholder="筛选当前实体 API 动作" />
+              <span>{{ filteredActions.length }} / {{ selectedEntity.apiActions.length }}</span>
+            </div>
+            <el-table :data="filteredActions" height="420" empty-text="暂无匹配 API 动作">
               <el-table-column prop="name" label="动作" min-width="170" show-overflow-tooltip />
               <el-table-column prop="apiCode" label="编码" min-width="170" show-overflow-tooltip />
               <el-table-column prop="operationType" label="能力类型" width="150" show-overflow-tooltip />
@@ -180,7 +218,76 @@
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="知识图谱" name="graph">
+          <el-tab-pane label="图谱结构" name="graph">
+            <div class="graph-structure-summary" v-if="graphOverview">
+              <div class="graph-structure-summary__header">
+                <div>
+                  <span class="graph-structure-summary__eyebrow">GRAPH METADATA</span>
+                  <strong>全应用图谱结构</strong>
+                  <p>展示当前图谱快照中的节点类型、关系类型与覆盖范围。</p>
+                </div>
+                <el-tag :type="graphOverview.status === 'ACTIVE' ? 'success' : 'warning'" effect="plain">
+                  {{ graphOverview.status === 'ACTIVE' ? '已构建' : graphOverview.status || '待构建' }}
+                </el-tag>
+              </div>
+              <div class="graph-structure-metrics">
+                <div><span>节点总数</span><strong>{{ graphOverview.nodeCount }}</strong></div>
+                <div><span>关系边</span><strong>{{ graphOverview.edgeCount }}</strong></div>
+                <div><span>覆盖应用</span><strong>{{ graphOverview.coveredApplicationCount }}/{{ graphOverview.applicationCount }}</strong></div>
+                <div><span>待解析边</span><strong>{{ graphOverview.unresolvedEdgeCount }}</strong></div>
+              </div>
+              <div class="graph-structure-columns">
+                <section>
+                  <div class="graph-structure-columns__title">节点类型</div>
+                  <div v-for="item in graphNodeTypeRows" :key="item.type" class="graph-type-row">
+                    <span>{{ graphNodeTypeLabel(item.type) }}</span><strong>{{ item.count }}</strong>
+                  </div>
+                </section>
+                <section>
+                  <div class="graph-structure-columns__title">关系类型</div>
+                  <div v-for="item in graphEdgeTypeRows" :key="item.type" class="graph-type-row">
+                    <span>{{ graphEdgeTypeLabel(item.type) }}</span><strong>{{ item.count }}</strong>
+                  </div>
+                </section>
+              </div>
+            </div>
+            <div v-if="graphNeighborhood" class="entity-graph-canvas">
+              <div class="entity-graph-canvas__header">
+                <div>
+                  <strong>实体关系图</strong>
+                  <span>节点展示实体摘要，连线表示当前实体的一跳关系。</span>
+                </div>
+                <el-tag size="small" effect="plain">{{ graphCanvasNodes.length }} 个节点</el-tag>
+              </div>
+              <div class="entity-graph-canvas__stage">
+                <svg class="entity-graph-canvas__edges" viewBox="0 0 1000 420" preserveAspectRatio="none" aria-hidden="true">
+                  <line
+                    v-for="edge in graphCanvasEdges"
+                    :key="edge.id"
+                    :x1="edge.source.x"
+                    :y1="edge.source.y"
+                    :x2="edge.target.x"
+                    :y2="edge.target.y"
+                    :class="['graph-edge-line', { 'is-inferred': edge.confidence !== 'EXTRACTED' }]"
+                  />
+                </svg>
+                <button
+                  v-for="node in graphCanvasNodes"
+                  :key="node.id"
+                  type="button"
+                  class="graph-entity-node"
+                  :class="{ 'is-center': node.isCenter }"
+                  :style="{ left: `${node.x / 10}%`, top: `${node.y / 4.2}%` }"
+                  @click="selectGraphNode(node)"
+                >
+                  <span class="graph-entity-node__type">{{ node.isCenter ? '中心实体' : '关联实体' }}</span>
+                  <strong>{{ node.name }}</strong>
+                  <code>{{ node.code || '未提供编码' }}</code>
+                  <small v-if="node.entity">{{ node.entity.dataItemCount }} 字段 · {{ node.entity.apiActions.length }} 动作</small>
+                </button>
+                <el-empty v-if="graphCanvasNodes.length === 0" description="当前实体暂无可绘制的关系节点" />
+              </div>
+            </div>
             <div class="neighborhood" v-loading="loadingNeighborhood">
               <template v-if="graphNeighborhood">
                 <div class="neighborhood-summary">
@@ -250,27 +357,13 @@
     </el-table>
   </section>
 
-  <section class="search-section">
-    <div class="section-header">
-      <h2>检索结果</h2>
-      <span>{{ results.length }} 条</span>
-    </div>
-    <el-table v-loading="searching" :data="results" empty-text="暂无检索结果">
-      <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="objectType" label="类型" width="120" />
-      <el-table-column prop="code" label="编码" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="graphPath" label="图谱路径" min-width="220" show-overflow-tooltip />
-      <el-table-column prop="riskLevel" label="风险" width="100" />
-      <el-table-column prop="reason" label="匹配原因" min-width="220" show-overflow-tooltip />
-    </el-table>
-  </section>
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import {
   listMetadataApps,
@@ -278,17 +371,16 @@ import {
   loadMetadataGraphOverview,
   loadMetadataModel,
   rebuildMetadataGraph,
-  searchMetadata,
   syncMetadata
 } from '../services/metadataApi'
 import type {
   MetadataAppSummary,
   MetadataEntityModel,
   MetadataGraphEdge,
+  MetadataGraphNode,
   MetadataGraphNeighborhood,
   MetadataGraphOverview,
   MetadataModelResponse,
-  MetadataSearchResult,
   MetadataSyncResponse
 } from '../types/metadata'
 
@@ -298,20 +390,25 @@ const apps = ref<MetadataAppSummary[]>([])
 const model = ref<MetadataModelResponse>(emptyModel)
 const graphOverview = ref<MetadataGraphOverview>()
 const graphNeighborhood = ref<MetadataGraphNeighborhood>()
-const results = ref<MetadataSearchResult[]>([])
 const syncResult = ref<MetadataSyncResponse>()
-const query = ref('')
 const selectedEntityId = ref('')
 const entityKeyword = ref('')
 const expandedAppIds = ref<string[]>([])
 const activeTab = ref('fields')
+type MetadataViewMode = 'list' | 'graph'
+const VIEW_MODE_STORAGE_KEY = 'cpclaw.metadata.view-mode'
+const viewModeOptions = [
+  { label: '列表', value: 'list' },
+  { label: '图谱', value: 'graph' }
+]
+const viewMode = ref<MetadataViewMode>(readViewMode())
 const loadingApps = ref(false)
 const loadingModel = ref(false)
-const searching = ref(false)
 const syncing = ref(false)
 const rebuildingGraph = ref(false)
 const loadingNeighborhood = ref(false)
 const errorMessage = ref('')
+const detailKeyword = ref('')
 
 const allEntities = computed(() => model.value.apps.flatMap(app => app.entities))
 
@@ -321,7 +418,7 @@ const modelStats = computed(() => {
     appCount: model.value.apps.length,
     entityCount: entities.length,
     dataItemCount: entities.reduce((sum, entity) => sum + entity.dataItemCount, 0),
-    relationCount: graphOverview.value?.edgesByType.ENTITY_RELATES_TO_ENTITY ?? Math.round(entities.reduce((sum, entity) => sum + entity.relationCount, 0) / 2),
+    actionCount: entities.reduce((sum, entity) => sum + entity.apiActions.length, 0),
     apiActionCount: graphOverview.value?.nodesByType.api_endpoint ?? model.value.apiActions.length,
     graphEdgeCount: graphOverview.value?.edgeCount ?? 0
   }
@@ -351,6 +448,22 @@ const filteredApps = computed(() => {
 })
 
 const selectedEntity = computed(() => allEntities.value.find(entity => entity.id === selectedEntityId.value))
+const detailKeywordLower = computed(() => detailKeyword.value.trim().toLowerCase())
+const filteredDataItems = computed(() => {
+  const entity = selectedEntity.value
+  if (!entity || !detailKeywordLower.value) return entity?.dataItems || []
+  return entity.dataItems.filter(item => `${item.name} ${item.code} ${item.dataType} ${item.description}`.toLowerCase().includes(detailKeywordLower.value))
+})
+const filteredRelations = computed(() => {
+  const entity = selectedEntity.value
+  if (!entity || !detailKeywordLower.value) return entity?.relations || []
+  return entity.relations.filter(item => `${item.relationName} ${item.relationType} ${item.targetEntityName} ${item.targetEntityCode}`.toLowerCase().includes(detailKeywordLower.value))
+})
+const filteredActions = computed(() => {
+  const entity = selectedEntity.value
+  if (!entity || !detailKeywordLower.value) return entity?.apiActions || []
+  return entity.apiActions.filter(item => `${item.name} ${item.apiCode} ${item.operationType} ${item.method} ${item.path} ${item.dataScope}`.toLowerCase().includes(detailKeywordLower.value))
+})
 
 const neighborhoodEdgeGroups = computed(() => {
   const groups = new Map<string, MetadataGraphEdge[]>()
@@ -374,7 +487,71 @@ watch([selectedEntityId, activeTab], ([entityId, tab]) => {
   }
 })
 
-onMounted(load)
+const graphNodeTypeRows = computed(() => Object.entries(graphOverview.value?.nodesByType || {})
+  .map(([type, count]) => ({ type, count }))
+  .sort((left, right) => right.count - left.count))
+
+const graphEdgeTypeRows = computed(() => Object.entries(graphOverview.value?.edgesByType || {})
+  .map(([type, count]) => ({ type, count }))
+  .sort((left, right) => right.count - left.count))
+
+const graphCanvasNodes = computed(() => {
+  const nodes = graphNeighborhood.value?.nodes || []
+  const centerId = graphNeighborhood.value?.center.id
+  const neighbors = nodes.filter(node => node.id !== centerId)
+  const center = nodes.find(node => node.id === centerId)
+  const positioned = center ? [{ ...center, x: 500, y: 210, isCenter: true, entity: entityForGraphNode(center) }] : []
+  const radiusX = 330
+  const radiusY = 145
+  neighbors.forEach((node, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(neighbors.length, 1) - Math.PI / 2
+    positioned.push({
+      ...node,
+      x: 500 + Math.cos(angle) * radiusX,
+      y: 210 + Math.sin(angle) * radiusY,
+      isCenter: false,
+      entity: entityForGraphNode(node)
+    })
+  })
+  return positioned
+})
+
+const graphCanvasEdges = computed(() => {
+  const nodes = new Map(graphCanvasNodes.value.map(node => [node.id, node]))
+  return (graphNeighborhood.value?.edges || []).map(edge => ({
+    ...edge,
+    source: nodes.get(edge.source) || { x: 500, y: 210 },
+    target: nodes.get(edge.target) || { x: 500, y: 210 }
+  })).filter(edge => edge.source.id && edge.target.id)
+})
+
+watch(viewMode, mode => {
+  activeTab.value = mode === 'graph' ? 'graph' : 'fields'
+  if (mode === 'graph' && selectedEntityId.value) void loadNeighborhood(selectedEntityId.value)
+})
+
+onMounted(() => {
+  activeTab.value = viewMode.value === 'graph' ? 'graph' : 'fields'
+  void load()
+})
+
+function readViewMode(): MetadataViewMode {
+  if (typeof window === 'undefined') return 'list'
+  return window.localStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'graph' ? 'graph' : 'list'
+}
+
+function rememberViewMode(mode: string | number | boolean) {
+  const next = mode === 'graph' ? 'graph' : 'list'
+  viewMode.value = next
+  window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, next)
+}
+
+function openGraphStructure() {
+  viewMode.value = 'graph'
+  activeTab.value = 'graph'
+  window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, 'graph')
+  if (selectedEntityId.value) void loadNeighborhood(selectedEntityId.value)
+}
 
 async function load() {
   loadingApps.value = true
@@ -407,24 +584,11 @@ async function sync() {
   try {
     syncResult.value = await syncMetadata()
     await load()
-    await search()
     ElMessage.success('元数据初始化完成')
   } catch (error) {
     reportError(error)
   } finally {
     syncing.value = false
-  }
-}
-
-async function search() {
-  searching.value = true
-  errorMessage.value = ''
-  try {
-    results.value = await searchMetadata(query.value)
-  } catch (error) {
-    reportError(error)
-  } finally {
-    searching.value = false
   }
 }
 
@@ -458,7 +622,8 @@ async function loadNeighborhood(entityId: string) {
 
 function selectEntity(entityId: string) {
   selectedEntityId.value = entityId
-  activeTab.value = 'fields'
+  detailKeyword.value = ''
+  activeTab.value = viewMode.value === 'graph' ? 'graph' : 'fields'
 }
 
 function toggleApp(appId: string) {
@@ -490,6 +655,22 @@ function graphEdgeTypeLabel(type: string) {
     API_OPERATES_ON_ENTITY: 'API 能力'
   }
   return labels[type] || type
+}
+
+function graphNodeTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    application: '应用节点', entity: '实体节点', data_item: '字段节点', api_endpoint: 'API 动作节点'
+  }
+  return labels[type] || type
+}
+
+function entityForGraphNode(node: MetadataGraphNode) {
+  const entityId = node.entityId || node.objectId
+  return allEntities.value.find(entity => entity.id === entityId || entity.code === node.code)
+}
+
+function selectGraphNode(node: { id: string; entity?: MetadataEntityModel }) {
+  if (node.entity) { selectedEntityId.value = node.entity.id; activeTab.value = 'graph' }
 }
 
 function formatPercent(value: number) {
@@ -645,6 +826,48 @@ function reportError(error: unknown) {
   font-size: 13px;
 }
 
+.view-mode-switch {
+  flex: 0 0 auto;
+}
+
+.detail-panel--graph {
+  background: linear-gradient(180deg, #fbfdff 0%, #ffffff 42%);
+}
+
+.graph-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f5f9ff;
+  color: #334155;
+}
+
+.graph-mode-banner__eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.graph-mode-banner strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.graph-mode-banner > span {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .entity-search {
   width: 100%;
   margin-top: 12px;
@@ -755,6 +978,112 @@ function reportError(error: unknown) {
   padding: 16px;
 }
 
+.entity-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 24px;
+  margin: -2px -2px 0;
+  padding: 18px 18px 16px;
+  border: 1px solid #e1e8f4;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 72%);
+  box-shadow: 0 2px 8px rgb(31 55 88 / 4%);
+}
+
+.entity-hero__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.entity-hero__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.entity-hero__title-row h2 {
+  margin: 0;
+  color: #0f1f38;
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+
+.entity-type-tag {
+  color: #3567c8;
+  border-color: #b9cdf6;
+  background: #f2f6ff;
+}
+
+.entity-hero__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.entity-hero__identity code {
+  padding: 3px 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.entity-hero__description {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: #5b6b82;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.entity-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(78px, 1fr));
+  align-self: center;
+  min-width: 264px;
+  border-left: 1px solid #e6edf7;
+}
+
+.entity-hero__graph-action {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.entity-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 72px;
+  padding: 0 14px;
+  border-right: 1px solid #edf1f6;
+}
+
+.entity-stat strong {
+  color: #162b4a;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.entity-stat span {
+  margin-top: 7px;
+  color: #738198;
+  font-size: 12px;
+}
+
+.entity-stat--blue strong { color: #2563eb; }
+.entity-stat--amber strong { color: #c27a16; }
+.entity-stat--green strong { color: #16845b; }
+
 .detail-kicker {
   margin-bottom: 4px;
   color: #2563eb;
@@ -771,7 +1100,178 @@ function reportError(error: unknown) {
 }
 
 .metadata-tabs {
+  margin: 14px 2px 0;
+  padding: 0 12px 12px;
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.detail-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.detail-filter-row .el-input {
+  max-width: 360px;
+}
+
+.detail-filter-row > span {
+  flex: 0 0 auto;
+  color: #8491a5;
+  font-size: 12px;
+}
+
+.graph-structure-summary {
+  margin: 14px 0 16px;
+  padding: 16px;
+  border: 1px solid #dce6f4;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #f7faff 0%, #ffffff 70%);
+}
+
+.graph-structure-summary__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.graph-structure-summary__eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: #3b72d9;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.graph-structure-summary__header strong {
+  color: #13233c;
+  font-size: 16px;
+}
+
+.graph-structure-summary__header p {
+  margin: 5px 0 0;
+  color: #718096;
+  font-size: 12px;
+}
+
+.graph-structure-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
   margin-top: 14px;
+}
+
+.graph-structure-metrics > div {
+  padding: 10px 12px;
+  border: 1px solid #e4ebf5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.graph-structure-metrics span,
+.graph-type-row span {
+  color: #738198;
+  font-size: 12px;
+}
+
+.graph-structure-metrics strong {
+  display: block;
+  margin-top: 4px;
+  color: #1b3153;
+  font-size: 18px;
+}
+
+.graph-structure-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.graph-structure-columns__title {
+  padding-bottom: 7px;
+  border-bottom: 1px solid #e7edf5;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.entity-graph-canvas {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #dce6f4;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.entity-graph-canvas__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.entity-graph-canvas__header strong { color: #1e3150; font-size: 14px; }
+.entity-graph-canvas__header span { margin-left: 10px; color: #7b8799; font-size: 12px; }
+
+.entity-graph-canvas__stage {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid #e4ebf5;
+  border-radius: 8px;
+  background-image: radial-gradient(#d9e3f1 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.entity-graph-canvas__edges { position: absolute; inset: 0; width: 100%; height: 100%; }
+.graph-edge-line { stroke: #8eacd5; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.graph-edge-line.is-inferred { stroke: #d3a650; stroke-dasharray: 6 5; }
+
+.graph-entity-node {
+  position: absolute;
+  width: 154px;
+  min-height: 92px;
+  transform: translate(-50%, -50%);
+  padding: 10px 12px;
+  border: 1px solid #cbd9ed;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 5px 16px rgb(38 73 120 / 10%);
+  color: #1e293b;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.graph-entity-node:hover { border-color: #6e9ce5; box-shadow: 0 8px 22px rgb(37 99 235 / 18%); transform: translate(-50%, -50%) translateY(-2px); }
+.graph-entity-node.is-center { border-color: #4d7fe0; background: #f2f6ff; }
+.graph-entity-node__type,
+.graph-entity-node code,
+.graph-entity-node small { display: block; color: #718096; font-size: 11px; }
+.graph-entity-node strong { display: block; margin: 5px 0 4px; overflow: hidden; color: #173259; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.graph-entity-node code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-entity-node small { margin-top: 6px; }
+
+.graph-type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #edf1f6;
+}
+
+.graph-type-row strong {
+  color: #1e3a63;
+  font-size: 13px;
 }
 
 .neighborhood {

@@ -12,10 +12,20 @@ public interface SemanticTaskRunRepository extends JpaRepository<SemanticTaskRun
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from SemanticTaskRun r where r.id = :id")
     Optional<SemanticTaskRun> findLockedById(@Param("id") String id);
+    Optional<SemanticTaskRun> findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndClientRequestId(
+        String channel, String installationKey, String tenantId, String externalPrincipal, String clientRequestId
+    );
+
+    /** Compatibility seam for focused in-memory/unit tests; production reads use tenant-scoped methods. */
     Optional<SemanticTaskRun> findFirstByChannelAndInstallationKeyAndExternalPrincipalAndClientRequestId(
         String channel, String installationKey, String externalPrincipal, String clientRequestId
     );
 
+    Optional<SemanticTaskRun> findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndTurnId(
+        String channel, String installationKey, String tenantId, String externalPrincipal, String turnId
+    );
+
+    /** Compatibility seam for focused in-memory/unit tests; production reads use tenant-scoped methods. */
     Optional<SemanticTaskRun> findFirstByChannelAndInstallationKeyAndExternalPrincipalAndTurnId(
         String channel, String installationKey, String externalPrincipal, String turnId
     );

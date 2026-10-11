@@ -72,7 +72,8 @@ import org.springframework.test.web.servlet.MvcResult;
     "cpclaw.persistence.runtime-guard-enabled=false",
     "cpclaw.cloudpivot.allow-metadata-fallback=true",
     "cpclaw.metadata.graphify.output-directory=${java.io.tmpdir}/cpclaw-test-graphify",
-    "cpclaw.templates.scenario.enabled=true"
+    "cpclaw.templates.scenario.enabled=true",
+    "cpclaw.identity.default-super-admin=true"
 })
 @AutoConfigureMockMvc
 class CpClawApiTests {

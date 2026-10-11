@@ -145,13 +145,7 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
         MetadataExecutionPlanner.MetadataExecutionPlan plan = discovery.plan();
         OptionalModelPlan modelPlan = modelPlan(query, context, match, plan);
         if (modelPlan.usable() && intentPlanner.isRead(intent)) {
-            String plannedIntent = intentPlanner.normalizeModelIntent(modelPlan.value().intent(), intent);
-            // A model may omit the analytical aspect of a short follow-up
-            // such as “都处于什么阶段？”. Preserve the deterministic
-            // operation-shape signal when it is more specific.
-            if (!("analyze_data".equals(intent) && "query_data".equals(plannedIntent))) {
-                intent = plannedIntent;
-            }
+            intent = mergeModelIntent(intent, modelPlan.value().intent(), intentPlanner);
         }
         emit(progress, trace, taskId, YunshuRuntimePhase.DISCOVER, 25, "匹配业务元数据", discovery.summary(), "completed");
         Map<String, Object> matched = metadata(match);
@@ -193,7 +187,7 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
         }
         if (intentPlanner.isAnalysis(intent)) {
             if (insightReportService.supports(query, intent)) {
-                return executeInsight(taskId, connection, query, match, taskSpec, trace, progress);
+                return executeInsight(taskId, connection, query, match, taskSpec, taskThinkingEnabled(taskSpec), trace, progress);
             }
             String message = "当前未安装适用于该业务对象的分析能力，未将分析请求降级为普通记录查询。请先发布对应分析能力后重试。";
             emit(progress, trace, taskId, YunshuRuntimePhase.VALIDATE, 80, "核对分析能力", message, "completed_with_gaps");
@@ -229,12 +223,26 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
         }
     }
 
+    /**
+     * Model planning can refine a read operation, but it must never turn an
+     * explicit read request into a write. The lexical signal is authoritative
+     * for the safety class; analysis is also more specific than a plain query.
+     */
+    static String mergeModelIntent(String lexicalIntent, String modelIntent, YunshuIntentPlanner planner) {
+        if (planner == null || !planner.isRead(lexicalIntent)) return lexicalIntent;
+        String planned = planner.normalizeModelIntent(modelIntent, lexicalIntent);
+        if (!planner.isRead(planned)) return lexicalIntent;
+        if ("analyze_data".equals(lexicalIntent) && "query_data".equals(planned)) return lexicalIntent;
+        return planned;
+    }
+
     private Map<String, Object> executeInsight(
         String taskId,
         BoundCloudPivotConnection connection,
         String query,
         MetadataSearchResult match,
         TaskSpec taskSpec,
+        boolean thinkingEnabled,
         List<Map<String, Object>> trace,
         Consumer<TaskProgressEvent> progress
     ) {
@@ -260,15 +268,20 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
                 match,
                 query,
                 null,
-                true,
+                thinkingEnabled,
                 insightProgress,
                 new InsightDataAccess(connection.baseUrl(), connection.username(), connection.password())
             );
             McpTaskExperienceRenderer.RenderedInsight rendered = experienceRenderer.renderInsight(execution);
-            emit(progress, trace, taskId, YunshuRuntimePhase.ANALYZE, 92, "生成业务分析结果", "已生成指标、图表数据、结论和数据口径提示。", "completed");
+            boolean materialGaps = hasMaterialInsightGaps(execution);
+            String resultState = materialGaps ? "completed_with_gaps" : "completed";
+            emit(progress, trace, taskId, YunshuRuntimePhase.ANALYZE, 92, "生成业务分析结果",
+                materialGaps ? "已生成分析结果，但关键数据覆盖不足，需补齐口径后才能形成经营结论。" : "已生成指标、图表数据、结论和数据口径提示。",
+                materialGaps ? "completed_with_gaps" : "completed");
+            Map<String, Object> evidence = evidenceComposer.compose(execution.evidence(), execution.report().scopeLabel(), "yunshu-skill-runtime");
             return finish(
                 taskId,
-                "completed",
+                resultState,
                 rendered.markdown(),
                 Map.of(
                     "answer", rendered.markdown(),
@@ -277,18 +290,36 @@ public class YunshuMcpTaskExecutor implements SkillExecutor, YunshuSkillRuntime 
                     "artifact", rendered.artifact(),
                     "dataRange", Map.of("scope", execution.report().scopeLabel(), "period", execution.report().periodLabel()),
                     "followUps", execution.report().relatedQuestions()
-                    , "evidence", evidenceComposer.compose(execution.evidence(), execution.report().scopeLabel(), "yunshu-skill-runtime")
-                    , "completion", completionValidator.validate(taskSpec,
-                        evidenceComposer.compose(execution.evidence(), execution.report().scopeLabel(), "yunshu-skill-runtime"), "completed")
+                    , "evidence", evidence
+                    , "completion", completionValidator.validate(taskSpec, evidence, resultState)
                 ),
                 trace,
                 progress,
                 100,
-                "数据洞察任务已根据已验证数据完成。"
+                materialGaps ? "数据洞察已完成，但关键数据覆盖不足，不能视为完整经营结论。" : "数据洞察任务已根据已验证数据完成。"
             );
         } catch (RuntimeException exception) {
             return finish(taskId, "failed", safeMessage(exception), Map.of("error", safeMessage(exception)), trace, progress, 100, "数据洞察执行失败，未输出未经核验的结论。");
         }
+    }
+
+    private boolean hasMaterialInsightGaps(InsightExecutionResult execution) {
+        if (execution == null || execution.report() == null) return true;
+        return execution.report().warnings().stream().anyMatch(value -> {
+            String warning = value == null ? "" : value;
+            return warning.contains("未计入期间")
+                || warning.contains("日期")
+                || warning.contains("仅有")
+                || warning.contains("覆盖不足")
+                || warning.contains("无法")
+                || warning.contains("未能通过关联字段验证");
+        });
+    }
+
+    private boolean taskThinkingEnabled(TaskSpec taskSpec) {
+        if (taskSpec == null || taskSpec.constraints() == null) return true;
+        Object value = taskSpec.constraints().get("thinkingEnabled");
+        return value == null || Boolean.parseBoolean(String.valueOf(value));
     }
 
     private Optional<ConversationRouteResult> routeConversation(String query, List<String> context) {

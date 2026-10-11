@@ -12,7 +12,8 @@ public record SemanticTaskRequest(
     String userGoal,
     List<String> context,
     TaskSpec taskSpec,
-    String continuationOfTaskId
+    String continuationOfTaskId,
+    String tenantId
 ) {
     public SemanticTaskRequest(
         String channel,
@@ -24,11 +25,11 @@ public record SemanticTaskRequest(
         List<String> context,
         TaskSpec taskSpec
     ) {
-        this(channel, installationId, externalPrincipal, clientRequestId, turnId, userGoal, context, taskSpec, "");
+        this(channel, installationId, externalPrincipal, clientRequestId, turnId, userGoal, context, taskSpec, "", "default");
     }
 
     public SemanticTaskRequest(String channel, String installationId, String externalPrincipal, String clientRequestId, String userGoal, List<String> context) {
-        this(channel, installationId, externalPrincipal, clientRequestId, "", userGoal, context, TaskSpec.empty(userGoal, "", "", clientRequestId), "");
+        this(channel, installationId, externalPrincipal, clientRequestId, "", userGoal, context, TaskSpec.empty(userGoal, "", "", clientRequestId), "", "default");
     }
 
     public SemanticTaskRequest {
@@ -41,5 +42,6 @@ public record SemanticTaskRequest(
         context = context == null ? List.of() : List.copyOf(context.stream().filter(value -> value != null && !value.isBlank()).limit(6).toList());
         taskSpec = taskSpec == null ? TaskSpec.empty(userGoal, "", turnId, clientRequestId) : taskSpec;
         continuationOfTaskId = continuationOfTaskId == null ? "" : continuationOfTaskId.trim();
+        tenantId = tenantId == null || tenantId.isBlank() ? "default" : tenantId.trim();
     }
 }

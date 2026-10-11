@@ -34,11 +34,11 @@ class SemanticTaskRuntimeContinuationTests {
 
     @BeforeEach
     void setUp() {
-        tokenService = new TaskContinuationTokenService("runtime-test-secret", 900);
+        tokenService = new TaskContinuationTokenService("cpclaw-runtime-test-secret-32chars", 900);
         objectMapper = new ObjectMapper().findAndRegisterModules();
         runtime = new SemanticTaskRuntime(runRepository, eventRepository, objectMapper, tokenService, evidencePlanner);
-        lenient().when(runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndClientRequestId(any(), any(), any(), any())).thenReturn(Optional.empty());
-        lenient().when(runRepository.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndTurnId(any(), any(), any(), any())).thenReturn(Optional.empty());
+        lenient().when(runRepository.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndClientRequestId(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        lenient().when(runRepository.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndTurnId(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -105,6 +105,7 @@ class SemanticTaskRuntimeContinuationTests {
         parent.setChannel("mcp");
         parent.setInstallationKey("install-1");
         parent.setExternalPrincipal(principal);
+        parent.setTenantId("default");
         parent.setClientRequestId("parent-request");
         parent.setTurnId("turn-1");
         parent.setStatus(status);
@@ -116,3 +117,4 @@ class SemanticTaskRuntimeContinuationTests {
         return parent;
     }
 }
+

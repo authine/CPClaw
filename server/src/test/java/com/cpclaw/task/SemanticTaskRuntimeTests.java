@@ -26,9 +26,9 @@ class SemanticTaskRuntimeTests {
         SemanticTaskRunRepository runs = mock(SemanticTaskRunRepository.class);
         SemanticTaskEventRepository events = mock(SemanticTaskEventRepository.class);
         AtomicReference<SemanticTaskRun> stored = new AtomicReference<>();
-        when(runs.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndClientRequestId(any(), any(), any(), any()))
+        when(runs.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndClientRequestId(any(), any(), any(), any(), any()))
             .thenAnswer(invocation -> Optional.ofNullable(stored.get()));
-        when(runs.findFirstByChannelAndInstallationKeyAndExternalPrincipalAndTurnId(any(), any(), any(), any()))
+        when(runs.findFirstByChannelAndInstallationKeyAndTenantIdAndExternalPrincipalAndTurnId(any(), any(), any(), any(), any()))
             .thenAnswer(invocation -> Optional.ofNullable(stored.get()));
         when(runs.saveAndFlush(any(SemanticTaskRun.class))).thenAnswer(invocation -> {
             stored.set(invocation.getArgument(0));
@@ -41,7 +41,7 @@ class SemanticTaskRuntimeTests {
 
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         SemanticTaskRuntime runtime = new SemanticTaskRuntime(
-            runs, events, mapper, new TaskContinuationTokenService("test-secret", 900), new TaskEvidencePlanner()
+            runs, events, mapper, new TaskContinuationTokenService("cpclaw-test-continuation-secret-32chars", 900), new TaskEvidencePlanner()
         );
         TaskSpec spec = TaskSpec.empty("查询目标", "conversation-1", "turn-1", "request-1");
         SemanticTaskRequest request = new SemanticTaskRequest("mcp", "installation-1", "principal-a", "request-1", "turn-1", "查询目标", List.of(), spec);
@@ -68,7 +68,7 @@ class SemanticTaskRuntimeTests {
         when(runs.save(any(SemanticTaskRun.class))).thenAnswer(invocation -> invocation.getArgument(0));
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         SemanticTaskRuntime runtime = new SemanticTaskRuntime(
-            runs, events, mapper, new TaskContinuationTokenService("test-secret", 900), new TaskEvidencePlanner()
+            runs, events, mapper, new TaskContinuationTokenService("cpclaw-test-continuation-secret-32chars", 900), new TaskEvidencePlanner()
         );
         TaskSpec reportSpec = new TaskSpec("cpclaw-delegation/1.0", "生成 CPClaw 报告", List.of(), Map.of(), List.of(), "cpclaw_report", "conv", "turn", "req", "");
         SemanticTaskRequest reportRequest = new SemanticTaskRequest("mcp", "installation-1", "principal-a", "req", "turn", "生成报告", List.of(), reportSpec);
@@ -81,3 +81,4 @@ class SemanticTaskRuntimeTests {
         assertEquals("compose_answer", evidence.hostAction().get("type"));
     }
 }
+

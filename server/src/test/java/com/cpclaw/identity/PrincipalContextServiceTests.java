@@ -13,4 +13,13 @@ class PrincipalContextServiceTests {
         assertEquals("huangj", resolved.principalId());
         assertFalse(!resolved.superAdmin() && resolved.authenticated());
     }
+
+    @Test
+    void authenticatedExternalIdentityIsNotCollapsedToDefaultOnlyPrincipal() {
+        PrincipalContextService service = new PrincipalContextService("huangj", "黄杰", "18124691161", "default", true, "default-only");
+        PrincipalContext resolved = service.resolveAuthenticatedExternal("workbuddy-user-1");
+        assertEquals("workbuddy-user-1", resolved.principalId());
+        assertEquals("default", resolved.tenantId());
+        assertFalse(resolved.superAdmin());
+    }
 }

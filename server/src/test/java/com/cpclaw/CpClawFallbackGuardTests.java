@@ -23,7 +23,8 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "cpclaw.persistence.runtime-guard-enabled=false",
-    "cpclaw.cloudpivot.allow-metadata-fallback=true"
+    "cpclaw.cloudpivot.allow-metadata-fallback=true",
+    "cpclaw.identity.default-super-admin=true"
 })
 @AutoConfigureMockMvc
 class CpClawFallbackGuardTests {

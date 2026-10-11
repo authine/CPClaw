@@ -5,6 +5,7 @@ import com.cpclaw.task.dto.TaskExperienceEnvelope;
 import com.cpclaw.task.dto.TaskSpec;
 import com.cpclaw.task.TaskContinuationTokenService;
 import com.cpclaw.identity.PrincipalContextService;
+import com.cpclaw.identity.PrincipalContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -39,6 +40,7 @@ public class McpGatewayController {
     private final TaskContinuationTokenService continuationTokenService;
     private final ObjectMapper objectMapper;
     private final PrincipalContextService principalContextService;
+    private final McpRequestAuthenticator requestAuthenticator;
 
     public McpGatewayController(
         McpInstallationService installationService,
@@ -48,7 +50,8 @@ public class McpGatewayController {
         McpTaskExperienceRenderer experienceRenderer,
         TaskContinuationTokenService continuationTokenService,
         ObjectMapper objectMapper,
-        PrincipalContextService principalContextService
+        PrincipalContextService principalContextService,
+        McpRequestAuthenticator requestAuthenticator
     ) {
         this.installationService = installationService;
         this.auditService = auditService;
@@ -58,6 +61,7 @@ public class McpGatewayController {
         this.continuationTokenService = continuationTokenService;
         this.objectMapper = objectMapper;
         this.principalContextService = principalContextService;
+        this.requestAuthenticator = requestAuthenticator;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -66,14 +70,19 @@ public class McpGatewayController {
         @RequestHeader(value = "X-CPClaw-Installation-Id", required = false) String installationId,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Username", required = false) String cloudPivotUsername,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Password", required = false) String cloudPivotPassword,
-        @RequestHeader(value = "X-CPClaw-Principal", required = false) String externalPrincipal
+        @RequestHeader(value = "X-CPClaw-Principal", required = false) String externalPrincipal,
+        @RequestHeader(value = "X-CPClaw-Tenant-Id", required = false) String tenantId,
+        @RequestHeader(value = "X-CPClaw-Auth-Timestamp", required = false) String authTimestamp,
+        @RequestHeader(value = "X-CPClaw-Auth-Signature", required = false) String authSignature
     ) {
-        return handle(request, installationId, cloudPivotUsername, cloudPivotPassword, externalPrincipal, null);
+        PrincipalContext principal = requestAuthenticator.authenticate(installationId, tenantId, externalPrincipal, authTimestamp, authSignature);
+        return handle(request, installationId, principal.tenantId(), cloudPivotUsername, cloudPivotPassword, principal.principalId(), null);
     }
 
     private Map<String, Object> handle(
         JsonNode request,
         String installationId,
+        String tenantId,
         String cloudPivotUsername,
         String cloudPivotPassword,
         String externalPrincipal,
@@ -90,7 +99,7 @@ public class McpGatewayController {
                 ));
                 case "notifications/initialized" -> Map.of();
                 case "tools/list" -> success(id, Map.of("tools", tools()));
-                case "tools/call" -> call(id, request, installationId, cloudPivotUsername, cloudPivotPassword, externalPrincipal, session);
+                case "tools/call" -> call(id, request, installationId, tenantId, cloudPivotUsername, cloudPivotPassword, externalPrincipal, session);
                 default -> error(id, -32601, "未实现的 MCP 方法：" + method);
             };
         } catch (RuntimeException exception) {
@@ -109,13 +118,17 @@ public class McpGatewayController {
         @RequestHeader(value = "X-CPClaw-Installation-Id", required = false) String installationId,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Username", required = false) String cloudPivotUsername,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Password", required = false) String cloudPivotPassword,
-        @RequestHeader(value = "X-CPClaw-Principal", required = false) String externalPrincipal
+        @RequestHeader(value = "X-CPClaw-Principal", required = false) String externalPrincipal,
+        @RequestHeader(value = "X-CPClaw-Tenant-Id", required = false) String tenantId,
+        @RequestHeader(value = "X-CPClaw-Auth-Timestamp", required = false) String authTimestamp,
+        @RequestHeader(value = "X-CPClaw-Auth-Signature", required = false) String authSignature
     ) {
         if (!hasText(installationId)) {
             throw new IllegalArgumentException("缺少 MCP 安装实例标识。");
         }
+        PrincipalContext principal = requestAuthenticator.authenticate(installationId, tenantId, externalPrincipal, authTimestamp, authSignature);
         installationService.getOrCreate(installationId);
-        McpSseSessionRegistry.Session session = sseSessionRegistry.open(installationId, cloudPivotUsername, cloudPivotPassword, externalPrincipal);
+        McpSseSessionRegistry.Session session = sseSessionRegistry.open(installationId, principal.tenantId(), cloudPivotUsername, cloudPivotPassword, principal.principalId());
         try {
             session.emitter().send(SseEmitter.event()
                 .name("endpoint")
@@ -130,7 +143,7 @@ public class McpGatewayController {
     @PostMapping(value = "/message", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> message(@RequestParam String sessionId, @RequestBody JsonNode request) {
         McpSseSessionRegistry.Session session = sseSessionRegistry.require(sessionId);
-        Map<String, Object> response = handle(request, session.installationId(), session.username(), session.password(), session.externalPrincipal(), session);
+        Map<String, Object> response = handle(request, session.installationId(), session.tenantId(), session.username(), session.password(), session.externalPrincipal(), session);
         if (request.has("id") && !request.path("id").isNull()) {
             try {
                 sseSessionRegistry.send(session, response);
@@ -152,32 +165,35 @@ public class McpGatewayController {
         @RequestHeader(value = "X-CPClaw-Installation-Id", required = false) String installationId,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Username", required = false) String username,
         @RequestHeader(value = "X-CPClaw-CloudPivot-Password", required = false) String password,
-        @RequestHeader(value = "X-CPClaw-Principal", required = false) String principal
+        @RequestHeader(value = "X-CPClaw-Principal", required = false) String principal,
+        @RequestHeader(value = "X-CPClaw-Tenant-Id", required = false) String tenantId,
+        @RequestHeader(value = "X-CPClaw-Auth-Timestamp", required = false) String authTimestamp,
+        @RequestHeader(value = "X-CPClaw-Auth-Signature", required = false) String authSignature
     ) {
         String token = text(request, "continuationToken");
-        String external = hasText(principal) ? principal.trim() : "huangj";
-        String effectivePrincipal = principalContextService.resolveExternal(external).principalId();
+        PrincipalContext authenticated = requestAuthenticator.authenticate(installationId, tenantId, principal, authTimestamp, authSignature);
+        String effectivePrincipal = authenticated.principalId();
         if (!continuationTokenService.verify(token, taskId, effectivePrincipal)) {
             return Map.of("success", false, "status", "blocked", "message", "续接票据无效、已过期或不属于当前用户。", "taskId", taskId);
         }
         BoundCloudPivotConnection connection = installationService.requireEnabledConnection(installationId, username, password);
         String turnId = text(request, "turnId");
         String clientRequestId = text(request, "clientRequestId");
-        TaskExperienceEnvelope result = semanticTaskService.handle(
+         TaskExperienceEnvelope result = semanticTaskService.handleAuthenticated(
             connection,
             text(request, "request"),
             textList(request.path("context")),
             clientRequestId,
             text(request, "conversationId"),
             turnId,
-            withContinuationToken(parseTaskSpec(request.path("taskSpec"), text(request, "request"), text(request, "conversationId"), turnId, clientRequestId), token),
-            effectivePrincipal,
+             withContinuationToken(parseTaskSpec(request.path("taskSpec"), text(request, "request"), text(request, "conversationId"), turnId, clientRequestId), token),
+             authenticated.tenantId(), effectivePrincipal,
             ignored -> { }
         );
         return Map.of("success", true, "taskId", taskId, "result", toolResult(result, experienceRenderer.markdown(result)));
     }
 
-    private Map<String, Object> call(Object id, JsonNode request, String headerInstallationId, String cloudPivotUsername, String cloudPivotPassword, String externalPrincipal, McpSseSessionRegistry.Session session) {
+    private Map<String, Object> call(Object id, JsonNode request, String headerInstallationId, String tenantId, String cloudPivotUsername, String cloudPivotPassword, String externalPrincipal, McpSseSessionRegistry.Session session) {
         String toolName = text(request.path("params"), "name");
         JsonNode arguments = request.path("params").path("arguments");
         String installationId = headerInstallationId;
@@ -186,7 +202,7 @@ public class McpGatewayController {
         try {
             BoundCloudPivotConnection connection = installationService.requireEnabledConnection(installationId, cloudPivotUsername, cloudPivotPassword);
             Map<String, Object> response = switch (toolName) {
-                case "cpclaw_cloudpivot_agent", "yunshu_handle_request" -> semanticResponse(id, request, connection, arguments, externalPrincipal, session);
+                case "cpclaw_cloudpivot_agent", "yunshu_handle_request" -> semanticResponse(id, request, connection, arguments, tenantId, externalPrincipal, session);
                 default -> error(id, -32602, "当前云枢 MCP 只公开 yunshu_handle_request 或 cpclaw_cloudpivot_agent。请直接提交用户的自然语言业务目标，不要调用或请求 schemaCode、apiCode 等内部编码。");
             };
             String auditStatus = response.containsKey("error") ? "REJECTED" : toolStatus(response, toolName);
@@ -198,10 +214,10 @@ public class McpGatewayController {
         }
     }
 
-    private Map<String, Object> semanticResponse(Object id, JsonNode request, BoundCloudPivotConnection connection, JsonNode arguments, String externalPrincipal, McpSseSessionRegistry.Session session) {
+    private Map<String, Object> semanticResponse(Object id, JsonNode request, BoundCloudPivotConnection connection, JsonNode arguments, String tenantId, String externalPrincipal, McpSseSessionRegistry.Session session) {
         String progressToken = text(request.path("params").path("_meta"), "progressToken");
         McpProgressListener progress = new McpProgressListener(sseSessionRegistry, session, progressToken);
-        TaskExperienceEnvelope result = semanticTaskService.handle(
+        TaskExperienceEnvelope result = semanticTaskService.handleAuthenticated(
             connection,
             text(arguments, "request"),
             textList(arguments.path("context")),
@@ -209,7 +225,7 @@ public class McpGatewayController {
             text(arguments, "conversationId"),
             text(arguments, "turnId"),
             parseTaskSpec(arguments.path("taskSpec"), text(arguments, "request"), text(arguments, "conversationId"), text(arguments, "turnId"), text(arguments, "clientRequestId")),
-            hasText(externalPrincipal) ? externalPrincipal : text(arguments, "externalPrincipal"),
+             tenantId, hasText(externalPrincipal) ? externalPrincipal : principalContextService.current().principalId(),
             progress::publish
         );
         return success(id, toolResult(result, experienceRenderer.markdown(result)));
@@ -239,7 +255,6 @@ public class McpGatewayController {
                 "context", Map.of("type", "array", "items", Map.of("type", "string"), "description", "最多 6 条与当前任务直接相关、且已获用户同意的自然语言上下文摘要。"),
                 "clientRequestId", Map.of("type", "string", "description", "同一用户轮次的稳定请求标识。重试时必须复用，用于避免重复任务。"),
                 "turnId", Map.of("type", "string", "description", "OpenClaw 当前轮次的稳定标识。同一轮重复调用不会再次执行云枢。"),
-                "externalPrincipal", Map.of("type", "string", "description", "可选的可信宿主用户标识；缺省使用 CPClaw 默认用户 huangj。"),
                 "conversationId", Map.of("type", "string", "description", "宿主提供的稳定会话标识。仅用于隔离多轮任务上下文和幂等，不作为云枢字段或业务参数。"),
                 "taskSpec", Map.of("type", "object", "description", "可选的领域委派规格，声明目标交付物和验收要求；不填写云枢内部编码。"),
                 "presentation", Map.of("type", "object", "description", "结果呈现偏好，例如 summary_table_chart。CPClaw 始终同时返回可直接展示的 Markdown。")

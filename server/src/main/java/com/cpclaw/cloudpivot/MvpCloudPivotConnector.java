@@ -41,6 +41,9 @@ import org.springframework.stereotype.Service;
 public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     private static final Logger log = LoggerFactory.getLogger(MvpCloudPivotConnector.class);
+    /** Status values CloudPivot uses to report a rejected business request inside a 2xx body. */
+    private static final Set<String> FAILURE_STATUS_VALUES = Set.of(
+        "error", "fail", "failed", "failure", "false", "rejected", "exception", "invalid");
     private static final List<WorkflowReadEndpoint> WORKFLOW_READ_ENDPOINTS = List.of(
         new WorkflowReadEndpoint("workflow_list_pending", "/api/runtime/workflow/list_workitems", false),
         new WorkflowReadEndpoint("workflow_list_finished", "/api/runtime/workflow/list_finished_workitems", false),
@@ -119,6 +122,11 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
 
     @Override
     public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords, List<RuntimeQueryFilter> filters) {
+        return queryRecords(baseUrl, username, password, schemaCode, pageSize, enrichAllDetails, maxRecords, filters, List.of());
+    }
+
+    @Override
+    public CloudPivotRuntimeQueryResult queryRecords(String baseUrl, String username, String password, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords, List<RuntimeQueryFilter> filters, List<String> projectedFields) {
         if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) {
             throw new IllegalArgumentException("请先在设置中绑定云枢访问地址、账号和密码");
         }
@@ -131,7 +139,15 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password)
             .orElseThrow(() -> new IllegalStateException("云枢普通用户账号验证失败，无法查询业务数据"));
-        return queryRemoteRecords(host, session, schemaCode, Math.max(1, Math.min(pageSize, connectorProperties().getMaxPageSize())), enrichAllDetails, Math.max(1, maxRecords), safeFilters(filters));
+        int boundedPageSize = Math.max(1, Math.min(pageSize, connectorProperties().getMaxPageSize()));
+        List<String> projection = safeProjectedFields(projectedFields);
+        try {
+            return queryRemoteRecords(host, session, schemaCode, boundedPageSize, enrichAllDetails, Math.max(1, maxRecords), safeFilters(filters), projection);
+        } catch (RuntimeException projectionFailure) {
+            if (projection.isEmpty()) throw projectionFailure;
+            log.info("CloudPivot field projection rejected for schemaCode={}, retrying without projection: {}", schemaCode, projectionFailure.getMessage());
+            return queryRemoteRecords(host, session, schemaCode, boundedPageSize, enrichAllDetails, Math.max(1, maxRecords), safeFilters(filters), List.of());
+        }
     }
 
     @Override
@@ -178,6 +194,36 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return runtimeFormWrite(baseUrl, username, password, payload, idempotencyKey, "submit");
     }
 
+    @Override
+    public String getReplayToken(String baseUrl, String username, String password, String formPath) {
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password).orElseThrow(() -> new IllegalStateException("云枢登录失败，无法获取表单防重放令牌"));
+        JsonNode response = getRuntimeFormJson(baseUrl, "/api/runtime/form/getReplayToken", session);
+        ensureBusinessSuccess(response, "/api/runtime/form/getReplayToken");
+        Optional<String> direct = firstText(response, "replayToken", "token");
+        if (direct.isPresent()) return direct.get();
+        JsonNode data = response.get("data");
+        if (data != null && data.isObject()) {
+            Optional<String> nested = firstText(data, "replayToken", "token", "value");
+            if (nested.isPresent()) return nested.get();
+        }
+        if (data != null && data.isTextual() && hasText(data.asText())) return data.asText();
+        throw new IllegalStateException("云枢未返回表单防重放令牌");
+    }
+
+    @Override
+    public String getNewFormVersion(String baseUrl, String username, String password, String schemaCode, String sheetCode) {
+        String host = normalizeBaseUrl(baseUrl);
+        AuthSession session = authenticate(host, username, password).orElseThrow(() -> new IllegalStateException("云枢登录失败，无法读取表单版本"));
+        String query = "?schemaCode=" + encode(schemaCode) + "&sheetCode=" + encode(sheetCode);
+        JsonNode response = getRuntimeFormJson(baseUrl, "/api/runtime/form/loadNew" + query, session);
+        ensureBusinessSuccess(response, "/api/runtime/form/loadNew");
+        Optional<String> version = firstText(response, "formVersion", "version");
+        JsonNode data = response.get("data");
+        if (version.isEmpty() && data != null && data.isObject()) version = firstText(data, "formVersion", "version");
+        return version.orElse("");
+    }
+
     private CloudPivotOperationResult runtimeFormWrite(String baseUrl, String username, String password,
             Map<String, Object> payload, String idempotencyKey, String operation) {
         if (!hasText(baseUrl) || !hasText(username) || !hasText(password)) throw new IllegalArgumentException("云枢连接配置不完整，无法执行表单操作");
@@ -186,8 +232,12 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         String host = normalizeBaseUrl(baseUrl);
         AuthSession session = authenticate(host, username, password).orElseThrow(() -> new IllegalStateException("云枢登录失败，无法执行表单操作"));
         Map<String, Object> request = new LinkedHashMap<>(payload);
-        if (hasText(idempotencyKey)) request.putIfAbsent("idempotencyKey", idempotencyKey);
-        JsonNode response = postJson(host, endpoint, session, request);
+        // CloudPivot's runtime form contract does not advertise an idempotency
+        // field in the body. Idempotency is enforced by CPClaw's execution
+        // ledger; do not inject an unverified property into the vendor payload.
+        String replayToken = getReplayToken(baseUrl, username, password, "");
+        if (hasText(replayToken)) request.put("replayToken", replayToken);
+        JsonNode response = postRuntimeFormJson(baseUrl, host, endpoint, session, request);
         ensureBusinessSuccess(response, endpoint);
         String recordRef = firstText(response, "bizObjectId", "objectId", "id", "dataId").orElse(null);
         JsonNode nested = response.get("data");
@@ -196,6 +246,47 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 String.valueOf(payload.getOrDefault("schemaCode", "")), recordRef, endpoint,
                 firstText(response, "message", "msg", "errmsg").orElse("云枢表单接口已执行"),
                 Map.of("status", responseStatus(response), "shape", describeShape(response, 0)));
+    }
+
+    private JsonNode postRuntimeFormJson(String baseUrl, String host, String endpoint, AuthSession session, Map<String, Object> payload) {
+        RuntimeException last = null;
+        for (String path : runtimeFormPathVariants(baseUrl, endpoint)) {
+            try {
+                JsonNode response = postJson(host, path, session, payload);
+                ensureBusinessSuccess(response, path);
+                return response;
+            } catch (RuntimeException ex) {
+                last = ex;
+                // The target deployment may expose /api/runtime under an
+                // extra gateway prefix. Only a 404 may try the alternate path;
+                // timeouts/5xx/business errors must never replay a write.
+                if (ex.getMessage() == null || !ex.getMessage().contains("status=404")) throw ex;
+            }
+        }
+        throw last == null ? new IllegalStateException("云枢表单接口调用失败") : last;
+    }
+
+    private JsonNode getRuntimeFormJson(String baseUrl, String endpoint, AuthSession session) {
+        RuntimeException last = null;
+        for (String path : runtimeFormPathVariants(baseUrl, endpoint)) {
+            try { return sendJson(authorizedRequest(normalizeBaseUrl(baseUrl) + path, session).GET().build()); }
+            catch (RuntimeException ex) { last = ex; if (ex.getMessage() == null || !ex.getMessage().contains("status=404")) throw ex; }
+        }
+        throw last == null ? new IllegalStateException("云枢表单接口调用失败") : last;
+    }
+
+    private List<String> runtimeFormPathVariants(String baseUrl, String endpoint) {
+        LinkedHashSet<String> paths = new LinkedHashSet<>(apiPathVariants(endpoint));
+        try {
+            String raw = baseUrl == null ? "" : baseUrl.trim();
+            URI uri = URI.create(raw);
+            String prefix = uri.getPath();
+            if (prefix != null && !prefix.isBlank() && !"/".equals(prefix)) {
+                if (!prefix.startsWith("/")) prefix = "/" + prefix;
+                for (String path : apiPathVariants(endpoint)) paths.add(prefix + path);
+            }
+        } catch (RuntimeException ignored) { }
+        return new ArrayList<>(paths);
     }
 
     @Override
@@ -580,14 +671,18 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords, List<RuntimeQueryFilter> filters) {
+        return queryRemoteRecords(host, session, schemaCode, pageSize, enrichAllDetails, maxRecords, filters, List.of());
+    }
+
+    private CloudPivotRuntimeQueryResult queryRemoteRecords(String host, AuthSession session, String schemaCode, int pageSize, boolean enrichAllDetails, int maxRecords, List<RuntimeQueryFilter> filters, List<String> projectedFields) {
         RuntimeException lastFailure = null;
-        for (String endpoint : apiPathVariants("/api/runtime/query/listSkipQueryListV2")) {
+        for (String endpoint : queryEndpointVariants()) {
             try {
                 boolean bulkQuery = pageSize >= connectorProperties().getBulkQueryThreshold();
                 int recordLimit = Math.max(1, Math.min(maxRecords, connectorProperties().getMaxAnalysisRecords()));
                 int remainingDetailBudget = enrichAllDetails ? connectorProperties().getMaxDetailEnrichRecords() : Integer.MAX_VALUE;
                 int firstDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
-                RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, firstDetailLimit, filters);
+                RuntimePage firstPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, 0, firstDetailLimit, filters, projectedFields);
                 remainingDetailBudget = remainingDetailBudget(remainingDetailBudget, firstPage.records().size(), firstDetailLimit);
                 if (pageSize <= 1 || firstPage.records().size() >= firstPage.total() || firstPage.records().size() >= recordLimit) {
                     List<Map<String, Object>> limitedRecords = firstPage.records().size() > recordLimit ? firstPage.records().subList(0, recordLimit) : firstPage.records();
@@ -597,7 +692,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
                 int page = 1;
                 while (records.size() < firstPage.total() && records.size() < recordLimit) {
                     int pageDetailLimit = detailEnrichLimit(pageSize, bulkQuery, enrichAllDetails, remainingDetailBudget);
-                    RuntimePage nextPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, page, pageDetailLimit, filters);
+                    RuntimePage nextPage = queryRemotePage(host, session, schemaCode, endpoint, pageSize, page, pageDetailLimit, filters, projectedFields);
                     if (nextPage.records().isEmpty()) {
                         break;
                     }
@@ -638,17 +733,31 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private RuntimePage queryRemotePage(String host, AuthSession session, String schemaCode, String endpoint, int pageSize, int page, int detailEnrichLimit, List<RuntimeQueryFilter> filters) {
+        return queryRemotePage(host, session, schemaCode, endpoint, pageSize, page, detailEnrichLimit, filters, List.of());
+    }
+
+    private RuntimePage queryRemotePage(String host, AuthSession session, String schemaCode, String endpoint, int pageSize, int page, int detailEnrichLimit, List<RuntimeQueryFilter> filters, List<String> projectedFields) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("queryCode", "");
         body.put("schemaCode", schemaCode);
-        body.put("options", Map.of());
+        Map<String, Object> options = new LinkedHashMap<>();
+        if (projectedFields != null && !projectedFields.isEmpty()) {
+            options.put("customDisplayColumns", projectedFields);
+            options.put("queryDisplayType", 2);
+        }
+        body.put("options", options);
         body.put("orderByFields", List.of());
         body.put("orderType", "");
         body.put("page", page);
         body.put("size", pageSize);
         List<Map<String, Object>> queryFilters = queryConditions(filters);
-        body.put("filtersNewCondition", queryFilters);
-        body.put("queryCondition", queryFilters);
+        if (endpoint.endsWith("/api/runtime/query/list")) {
+            body.put("mobile", false);
+            body.put("filters", queryFilters);
+        } else {
+            body.put("filtersNewCondition", queryFilters);
+            body.put("queryCondition", queryFilters);
+        }
 
         JsonNode response = postJson(host, endpoint, session, body);
         ensureBusinessSuccess(response, endpoint);
@@ -660,6 +769,18 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
             records.add(toMap(item));
         }
         return new RuntimePage(total, enrichRecordDetails(host, session, schemaCode, records, detailEnrichLimit));
+    }
+
+    private List<String> safeProjectedFields(List<String> projectedFields) {
+        if (projectedFields == null || projectedFields.isEmpty()) return List.of();
+        return projectedFields.stream().filter(MvpCloudPivotConnector::hasText).map(String::trim).distinct().limit(80).toList();
+    }
+
+    private List<String> queryEndpointVariants() {
+        LinkedHashSet<String> paths = new LinkedHashSet<>();
+        paths.addAll(apiPathVariants("/api/runtime/query/listSkipQueryListV2"));
+        paths.addAll(apiPathVariants("/api/runtime/query/list"));
+        return List.copyOf(paths);
     }
 
     private List<RuntimeQueryFilter> safeFilters(List<RuntimeQueryFilter> filters) {
@@ -1068,11 +1189,41 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
     }
 
     private void ensureBusinessSuccess(JsonNode response, String endpoint) {
+        Optional<String> failure = businessFailureReason(response);
+        if (failure.isPresent()) {
+            throw new IllegalStateException("CloudPivot business request failed(endpoint=" + endpoint
+                + ", " + failure.get() + ")");
+        }
+    }
+
+    /**
+     * Single decision point for "did this 2xx body report success?". A write
+     * response that is missing, explicitly flagged as failed, or carrying an
+     * error code must never be reported as a completed CloudPivot write.
+     *
+     * <p>Package-private so the contract can be pinned by tests without
+     * performing a real HTTP call.
+     */
+    static Optional<String> businessFailureReason(JsonNode response) {
+        if (response == null || response.isNull() || response.isMissingNode()) {
+            return Optional.of("empty response body");
+        }
         Optional<Long> errcode = firstLong(response, "errcode", "code");
         if (errcode.isPresent() && errcode.get() != 0L) {
-            String message = firstText(response, "errmsg", "message", "msg", "data").orElse("unknown error");
-            throw new IllegalStateException("CloudPivot business request failed(endpoint=" + endpoint + ", errcode=" + errcode.get() + ", message=" + message + ")");
+            return Optional.of("errcode=" + errcode.get() + ", message="
+                + firstText(response, "errmsg", "message", "msg", "data").orElse("unknown error"));
         }
+        // A 2xx response can still carry an explicit failure flag; treating it
+        // as success would let a rejected write be reported as created.
+        Optional<Boolean> success = firstBoolean(response, "success", "isSuccess", "succeeded", "ok");
+        if (success.isPresent() && !success.get()) {
+            return Optional.of("message=" + firstText(response, "errmsg", "message", "msg", "data").orElse(""));
+        }
+        Optional<String> status = firstText(response, "status", "resultStatus");
+        if (status.isPresent() && FAILURE_STATUS_VALUES.contains(status.get().trim().toLowerCase(Locale.ROOT))) {
+            return Optional.of("status=" + status.get());
+        }
+        return Optional.empty();
     }
 
     private HttpRequest.Builder authorizedRequest(String url, AuthSession session) {
@@ -1093,7 +1244,9 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300 || !hasText(response.body())) {
-                throw new IllegalStateException("云枢接口调用失败(status=" + response.statusCode() + ", bodyLength=" + (response.body() == null ? 0 : response.body().length()) + ")");
+                String body = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
+                if (body.length() > 500) body = body.substring(0, 500);
+                throw new IllegalStateException("云枢接口调用失败(status=" + response.statusCode() + ", bodyLength=" + (response.body() == null ? 0 : response.body().length()) + ", message=" + body + ")");
             }
             return objectMapper.readTree(response.body());
         } catch (IOException | InterruptedException exception) {
@@ -1180,7 +1333,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         });
     }
 
-    private Optional<Long> firstLong(JsonNode node, String... keys) {
+    static Optional<Long> firstLong(JsonNode node, String... keys) {
         if (node == null) {
             return Optional.empty();
         }
@@ -1192,7 +1345,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return Optional.empty();
     }
 
-    private Optional<Boolean> firstBoolean(JsonNode node, String... keys) {
+    static Optional<Boolean> firstBoolean(JsonNode node, String... keys) {
         if (node == null) {
             return Optional.empty();
         }
@@ -1290,7 +1443,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return "object{" + String.join(",", parts) + "}";
     }
 
-    private Optional<String> firstText(JsonNode node, String... keys) {
+    static Optional<String> firstText(JsonNode node, String... keys) {
         for (String key : keys) {
             if (node.has(key) && !node.get(key).isNull()) {
                 String value = node.get(key).isTextual() ? node.get(key).asText() : node.get(key).toString();
@@ -1783,7 +1936,7 @@ public class MvpCloudPivotConnector implements CloudPivotConnector {
         return Duration.ofMinutes(connectorProperties().getAuthSessionTtlMinutes());
     }
 
-    private boolean hasText(String value) {
+    static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
 

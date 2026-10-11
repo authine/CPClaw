@@ -68,15 +68,36 @@ public class ConfirmationTicketService {
             return TicketAuthorization.denied(YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "确认票与当前任务、身份或计划不匹配。");
         }
         Instant now = Instant.now();
-        if (!"PENDING".equals(ticket.getStatus())) return TicketAuthorization.denied(YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "确认票已被消费或已失效。");
+        if (!"PENDING".equals(ticket.getStatus()) && !"RESERVED".equals(ticket.getStatus())) return TicketAuthorization.denied(YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "确认票已被消费或已失效。");
         if (!ticket.getExpiresAt().isAfter(now)) {
             ticket.setStatus("EXPIRED"); repository.save(ticket);
             return TicketAuthorization.denied(YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "确认票已过期。");
         }
-        ticket.setStatus("CONSUMED");
-        ticket.setConsumedAt(now);
+        ticket.setStatus("RESERVED");
         repository.save(ticket);
         return TicketAuthorization.granted(ticket.getId(), ticket.getIdempotencyKey());
+    }
+
+    @Transactional
+    public void consumeExecution(String ticketId, YunshuHostContext context, ConfirmationPlan plan) {
+        YunshuConfirmationTicket ticket = repository.findByIdForConsumption(ticketId).orElseThrow(() -> new IllegalArgumentException("确认票不存在"));
+        if (!matchesContext(ticket, context) || !matchesPlan(ticket, plan)) throw new IllegalArgumentException("确认票上下文不匹配");
+        if ("CONSUMED".equals(ticket.getStatus())) return;
+        if (!"RESERVED".equals(ticket.getStatus())) throw new IllegalStateException("确认票未预留，不能消费");
+        ticket.setStatus("CONSUMED"); ticket.setConsumedAt(Instant.now()); repository.save(ticket);
+    }
+
+    @Transactional
+    public void consumeReconciled(String taskId, YunshuHostContext context, String idempotencyKey) {
+        YunshuConfirmationTicket ticket = repository.findFirstByTaskIdAndTenantIdAndSubjectIdAndHostIdAndStatus(
+                taskId, context.tenantId(), context.subjectId(), context.hostId(), "RESERVED").orElse(null);
+        if (ticket == null) return;
+        if (!Objects.equals(ticket.getIdempotencyKey(), idempotencyKey)) {
+            throw new IllegalStateException("回查执行记录与确认票幂等键不匹配");
+        }
+        ticket.setStatus("CONSUMED");
+        ticket.setConsumedAt(Instant.now());
+        repository.save(ticket);
     }
 
     private YunshuConfirmationTicket fromPlan(String id, ConfirmationPlan plan) {
@@ -138,7 +159,9 @@ public class ConfirmationTicketService {
     }
     private boolean equals(Object left, Object right) { return Objects.equals(left, right); }
     private boolean sameInstant(Instant left, Instant right) {
-        return left != null && right != null && left.toEpochMilli() == right.toEpochMilli();
+        // V33 used second-precision TIMESTAMP. Accept the persistence truncation
+        // window while V37 upgrades the column to microsecond precision.
+        return left != null && right != null && Math.abs(left.toEpochMilli() - right.toEpochMilli()) < 1000;
     }
 
     public record TicketIssueResult(String ticket, Instant expiresAt, YunshuProtocol.ErrorCode errorCode, String message) {

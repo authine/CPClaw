@@ -22,10 +22,12 @@ import com.cpclaw.yunshu.protocol.YunshuHostContext;
 import com.cpclaw.yunshu.protocol.YunshuProtocol;
 import com.cpclaw.yunshu.protocol.YunshuTaskEnvelope;
 import com.cpclaw.yunshu.protocol.YunshuTaskRequest;
+import com.cpclaw.yunshu.confirmation.ConfirmationTicketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 class PersistentFormTaskRuntimeTests {
@@ -161,6 +163,44 @@ class PersistentFormTaskRuntimeTests {
         assertEquals("sql_line", schema.formRef().schemaCode());
         assertEquals(List.of("sql_line_name"), schema.fields().stream().map(FormFieldSlot::fieldCode).toList());
         assertTrue(schema.fields().stream().allMatch(field -> !"form_details".equals(field.fieldCode())));
+    }
+
+    @Test
+    void naturalLanguageNamePhrasePopulatesTheSingleNameLikeField() {
+        MetadataFieldValueExtractor extractor = new MetadataFieldValueExtractor();
+        List<FormFieldSlot> slots = List.of(
+                new FormFieldSlot("sql_line_name", "线索名称", "text", null, "metadata", null, false, false, "pending", null, List.of()),
+                new FormFieldSlot("company_size", "企业规模", "text", null, "metadata", null, false, false, "pending", null, List.of()));
+
+        Map<String, Object> values = extractor.extract("我最近跟进了一个客户，叫奥哲", slots);
+
+        assertEquals("奥哲", values.get("sql_line_name"));
+    }
+
+    @Test
+    void naturalLanguageCustomerNameSelectsCompanyNameWhenMultipleNameFieldsExist() {
+        MetadataFieldValueExtractor extractor = new MetadataFieldValueExtractor();
+        List<FormFieldSlot> slots = List.of(
+                new FormFieldSlot("sql_line_name", "线索名称", "text", null, "metadata", null, false, false, "pending", null, List.of()),
+                new FormFieldSlot("company_name", "公司名称", "text", null, "metadata:primary-name", null, false, false, "pending", null, List.of()));
+
+        Map<String, Object> values = extractor.extract("我最近跟进了一个客户，叫奥哲", slots);
+
+        assertEquals("奥哲", values.get("company_name"));
+    }
+
+    @Test
+    void verifiedProviderModeReturnsIssuedConfirmationTicketInEnvelope() {
+        ConfirmationTicketService tickets = mock(ConfirmationTicketService.class);
+        when(tickets.issue(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true)))
+                .thenReturn(new ConfirmationTicketService.TicketIssueResult("ticket-1", Instant.now().plusSeconds(300), null, ""));
+        PersistentFormTaskRuntime runtime = new PersistentFormTaskRuntime(new MemoryTasks(), provider(), realLeadSchema(), tickets, true, null, null);
+        YunshuTaskEnvelope started = runtime.handle(request(YunshuProtocol.Operation.start, "", "新增私海线索", Map.of(), Map.of(), null, "ticket-start"), owner);
+        YunshuTaskEnvelope ready = runtime.handle(request(YunshuProtocol.Operation.input, started.task().id(), "",
+                Map.of("sql_line_name", "测试客户"), Map.of(), started.task().stateVersion(), "ticket-input"), owner);
+        assertEquals(YunshuProtocol.TaskStatus.confirmation_required, ready.task().status());
+        assertEquals("ticket-1", ready.output().get("confirmationTicket"));
+        assertEquals("ticket-1", ready.hostAction().payload().get("confirmationTicket"));
     }
 
     private PersistentFormTaskRuntime runtimeWithLeadSchema() {

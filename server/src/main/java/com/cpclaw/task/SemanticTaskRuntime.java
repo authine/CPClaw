@@ -61,6 +61,7 @@ public class SemanticTaskRuntime {
         run.setId(UUID.randomUUID().toString());
         run.setChannel(effectiveRequest.channel());
         run.setInstallationKey(limit(effectiveRequest.installationId(), 64));
+        run.setTenantId(limit(effectiveRequest.tenantId(), 255));
         run.setExternalPrincipal(limit(effectiveRequest.externalPrincipal(), 255));
         run.setClientRequestId(effectiveRequest.clientRequestId().isBlank() ? null : limit(effectiveRequest.clientRequestId(), 128));
         run.setTurnId(effectiveRequest.turnId().isBlank() ? null : limit(effectiveRequest.turnId(), 128));
@@ -120,7 +121,8 @@ public class SemanticTaskRuntime {
         if (parent == null || parent.isContinuationConsumed()
             || !safeEquals(parent.getChannel(), request.channel())
             || !safeEquals(parent.getInstallationKey(), request.installationId())
-            || !safeEquals(parent.getExternalPrincipal(), request.externalPrincipal())) {
+            || !safeEquals(parent.getExternalPrincipal(), request.externalPrincipal())
+            || !safeEquals(parent.getTenantId(), request.tenantId())) {
             return new ContinuationContext(request, "", blockedEnvelope("续接票据已使用或原任务不存在，不能重复续接。"));
         }
         if (!request.clientRequestId().isBlank() && safeEquals(request.clientRequestId(), parent.getClientRequestId())) {
@@ -153,7 +155,7 @@ public class SemanticTaskRuntime {
             mergeMaps(parentSpec.constraints(), current.constraints()), context, current.presentationMode(),
             request.taskSpec().conversationId(), request.taskSpec().turnId(), request.taskSpec().clientRequestId(), ""
         );
-        return new SemanticTaskRequest(request.channel(), request.installationId(), request.externalPrincipal(), request.clientRequestId(), request.turnId(), goal, context, merged);
+        return new SemanticTaskRequest(request.channel(), request.installationId(), request.externalPrincipal(), request.clientRequestId(), request.turnId(), goal, context, merged, "", request.tenantId());
     }
 
     private TaskSpec readTaskSpec(String value) {
@@ -182,14 +184,14 @@ public class SemanticTaskRuntime {
     private TaskExperienceEnvelope readDuplicate(SemanticTaskRequest request) {
         if (!request.clientRequestId().isBlank()) {
             TaskExperienceEnvelope duplicate = persistence.findByClientRequest(
-                    request.channel(), request.installationId(), request.externalPrincipal(), request.clientRequestId())
+                    request.channel(), request.installationId(), request.tenantId(), request.externalPrincipal(), request.clientRequestId())
                 .map(this::replayOrInFlight)
                 .orElse(null);
             if (duplicate != null) return duplicate;
         }
         if (!request.turnId().isBlank()) {
             return persistence.findByTurn(
-                    request.channel(), request.installationId(), request.externalPrincipal(), request.turnId())
+                    request.channel(), request.installationId(), request.tenantId(), request.externalPrincipal(), request.turnId())
                 .map(this::replayOrInFlight)
                 .orElse(null);
         }

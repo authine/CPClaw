@@ -33,19 +33,39 @@ public class McpSemanticTaskService {
     }
 
     public TaskExperienceEnvelope handle(BoundCloudPivotConnection connection, String request, List<String> context, String clientRequestId, String conversationId, String turnId, TaskSpec requestedSpec, String externalPrincipal, Consumer<TaskProgressEvent> progressConsumer) {
+        String principal = externalPrincipal == null || externalPrincipal.isBlank()
+            ? principalContextService.current().principalId()
+            : principalContextService.resolveExternal(externalPrincipal.trim()).principalId();
+        return handleWithPrincipal(connection, request, context, clientRequestId, conversationId, turnId, requestedSpec, principal, progressConsumer);
+    }
+
+    public TaskExperienceEnvelope handleAuthenticated(BoundCloudPivotConnection connection, String request, List<String> context, String clientRequestId, String conversationId, String turnId, TaskSpec requestedSpec, String principalId, Consumer<TaskProgressEvent> progressConsumer) {
+        return handleAuthenticated(connection, request, context, clientRequestId, conversationId, turnId, requestedSpec, "default", principalId, progressConsumer);
+    }
+
+    public TaskExperienceEnvelope handleAuthenticated(BoundCloudPivotConnection connection, String request, List<String> context, String clientRequestId, String conversationId, String turnId, TaskSpec requestedSpec, String tenantId, String principalId, Consumer<TaskProgressEvent> progressConsumer) {
+        if (principalId == null || principalId.isBlank()) {
+            throw new IllegalArgumentException("已认证主体不能为空");
+        }
+        return handleWithPrincipal(connection, request, context, clientRequestId, conversationId, turnId, requestedSpec, tenantId, principalId.trim(), progressConsumer);
+    }
+
+    private TaskExperienceEnvelope handleWithPrincipal(BoundCloudPivotConnection connection, String request, List<String> context, String clientRequestId, String conversationId, String turnId, TaskSpec requestedSpec, String principal, Consumer<TaskProgressEvent> progressConsumer) {
+        return handleWithPrincipal(connection, request, context, clientRequestId, conversationId, turnId, requestedSpec, "default", principal, progressConsumer);
+    }
+
+    private TaskExperienceEnvelope handleWithPrincipal(BoundCloudPivotConnection connection, String request, List<String> context, String clientRequestId, String conversationId, String turnId, TaskSpec requestedSpec, String tenantId, String principal, Consumer<TaskProgressEvent> progressConsumer) {
         TaskSpec spec = requestedSpec == null ? TaskSpec.empty(request, conversationId, turnId, clientRequestId) : new TaskSpec(
             requestedSpec.protocolVersion(), requestedSpec.goal().isBlank() ? request : requestedSpec.goal(), requestedSpec.deliverables(),
             requestedSpec.constraints(), requestedSpec.contextRefs().isEmpty() ? context : requestedSpec.contextRefs(), requestedSpec.presentationMode(),
             conversationId, turnId, clientRequestId, requestedSpec.continuationToken()
         );
-        String principal = externalPrincipal == null || externalPrincipal.isBlank()
-            ? principalContextService.current().principalId()
-            : principalContextService.resolveExternal(externalPrincipal.trim()).principalId();
+        String normalizedTenantId = tenantId == null || tenantId.isBlank() ? "default" : tenantId.trim();
         SemanticTaskRequest semanticRequest = new SemanticTaskRequest(
-            "mcp", connection.installationId(), principal, scoped(conversationId, clientRequestId), scoped(conversationId, turnId), request, context, spec
+            "mcp", connection.installationId(), principal, scoped(conversationId, clientRequestId), scoped(conversationId, turnId), request, context, spec, "", normalizedTenantId
         );
         return taskGateway.execute(semanticRequest, SkillCatalog.YUNSHU_BUSINESS_SYSTEM,
-            new SkillExecutionContext(java.util.Map.of("cloudPivotConnection", connection)), progressConsumer);
+            new SkillExecutionContext(java.util.Map.of("cloudPivotConnection", connection, "tenantId", normalizedTenantId)), progressConsumer);
     }
 
     private String scoped(String conversationId, String value) {

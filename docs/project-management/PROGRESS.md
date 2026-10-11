@@ -712,3 +712,141 @@ MVP 核心要求：
 2026-09-13 只读探查确认云枢运行时表单契约：前端资源明确使用 `/api/runtime/form/load`、`/api/runtime/form/save`、`/api/runtime/form/submit`、`/api/runtime/form/getReplayToken` 和 `/api/runtime/form/loadNew`；`/api/app/businessrule/create` 是业务规则定义接口，禁止作为业务数据创建接口。代码新增 `CloudPivotConnector.saveForm/submitForm` 受控边界和 Flyway V34 `yunshu_operation_executions` 执行账本，但因动态表单 payload、回放令牌绑定和返回记录标识仍未确认，暂未接入确认按钮或执行真实写入。
 
 2026-09-13 执行账本迁移验证：Flyway 已升级至 34，后端启动成功并注册 30 个 JPA repository；全量后端测试完成且退出码为 0。执行账本当前只记录 STARTED/COMPLETED/UNKNOWN 状态模型，尚未接入真实确认动作，防止在表单 payload 未确认前误写云枢。
+
+2026-09-15 待确认/未执行项测试验证：新增 Flyway V34 执行账本与 YunshuOperationExecutionService，记录 STARTED/COMPLETED/UNKNOWN 并按租户、主体、宿主、幂等键约束重放；新增 YunshuOperationExecutionServiceTests、CloudPivotRuntimeFormContractTests，定向测试通过。新增 docs/test-cases/29-yunshu-pending-release-gates-2026-09-15.md，明确 PG-01~PG-06 安全下限已验证，PG-07~PG-10 真实 payload、创建回查、超时回查和外部身份 E2E 仍未完成，投产状态保持 NOT_READY。
+
+2026-09-15 新增应用帮助中心与问题反馈基础能力：新增 `/help` 应用帮助中心（快速开始、业务场景、配置权限、常见问题）和 `/feedback` 反馈页面；首页增加帮助与反馈入口；后端新增 V35 `user_feedback` 表及 `/api/feedback` 提交/列表接口，反馈默认进入 OPEN 状态并绑定当前主体、租户和应用。运营后台的反馈筛选、状态流转和管理员备注尚未完成，详见 `docs/product-design/details/10-application-help-and-feedback-center.md`。
+
+2026-09-16 产品、应用架构、后端安全三方复审与首轮优化：确认真实元数据入口是 `SettingsView → MetadataBrowserPanel`，此前仅修改 `MetadataView.vue` 属于非主入口，导致用户看不到图谱、模式记忆和部分搜索优化。已在真实挂载组件移除顶部全局搜索卡，并将全局统计“关联”改为按实体 API 动作汇总的“动作数”；图谱、模式记忆、实体摘要和局部字段/关系/API筛选仍需继续迁移到主组件。架构与后端复审同时确认默认身份/元数据租户隔离、外部宿主认证、图谱导出权限以及执行账本未接入确认执行链路是生产阻断项；不得以构建通过宣称生产就绪。
+
+2026-09-18 继续评审与验证：确认主入口元数据组件已具备局部字段/关联/API 筛选和动作数统计；独立代码复核仍发现执行账本未接入确认 Provider、反馈列表缺少运营管理员边界、默认身份与元数据图谱接口尚未形成生产级租户隔离。已为反馈提交增加类型/长度校验，并限制反馈列表仅超级管理员可读；后端全量测试和前端构建均需以本轮命令结果为准，真实云枢写入/外部身份仍未达到投产门槛。
+
+2026-09-18 继续落地运营闭环：系统设置新增“问题反馈”运营列表，支持按状态和关键词筛选；反馈提交/列表接口仍绑定当前主体，列表仅超级管理员可读。前端构建通过，后端全量测试无非零失败报告。反馈状态流转、管理员备注、附件和通知仍未实现。
+
+2026-09-18 继续完成主入口统一：`SettingsView` 的真实元数据入口已切换到包含图谱结构、图谱模式记忆和实体邻域查看的 `MetadataView`，避免用户实际进入的 `MetadataBrowserPanel` 与非主实现分叉；问题反馈运营列表继续保留在系统设置。前端构建通过，后端全量测试退出码为 0。真实云枢写入、外部宿主生产认证、反馈状态流转和图谱导出权限仍未完成。
+
+2026-09-18 确认执行链路继续实现：确认计划在写入门禁开启时签发票据并回传宿主；执行使用当前主体个人云枢连接，不使用管理员元数据凭据；执行账本与 Provider runtime form save、防重放令牌、真实记录标识和 submitted/unknown 状态回写接线。默认写入门禁仍关闭，真实云枢 save/submit 回查与外部身份 E2E 尚未完成。后端全量测试 48 个报告无非零失败/错误，前端构建通过。
+
+2026-09-19 继续收敛确认与写入安全：确认票状态改为 PENDING → RESERVED → CONSUMED，Provider 执行前不再提前消费；执行账本增加 SUBMITTING 状态，重复确认在提交中直接进入 UNKNOWN 防止并发重复 Provider 调用；默认 Provider 连接使用当前用户云枢账号；保存/提交使用运行时表单 `bizObject.data` 结构并获取 replayToken。新增确认票回归与个人凭据隔离测试，定向测试通过。真实目标租户 save/submit 回执、回查和外部可信身份仍未完成。
+
+2026-09-19 受控真实 E2E 首次暴露确认票匹配缺陷：V33 时间列为秒精度，签发票 claims 保留毫秒，导致相同票据计划被拒绝。已将确认票时间列升级到 Flyway V37 微秒精度，并在迁移兼容窗口内允许小于 1 秒持久化截断；该问题修复后才能继续真实 save/submit E2E。此前测试未覆盖真实 MySQL 时间精度，列为生产回归项。
+
+2026-09-18 完成确认票与执行闭环增量：修复确认票回传参数、默认主体的个人云枢凭据解析、runtime form save payload（bizObject.data/schemaCode/sheetCode/replayToken）、执行账本 STARTED/COMPLETED/UNKNOWN 与任务 submitted/unknown 状态接线；新增确认票回传、Provider payload、个人凭据隔离测试。后端全量测试 48 个报告无非零失败/错误，最新 JAR 已重新构建并以 MySQL/Flyway 36 启动验证。仍未达到投产：目标租户真实 save/submit 回执和回查、外部宿主可信认证、默认身份替换与元数据租户 ACL 尚未完成。
+
+2026-09-18 进一步验证确认执行增量：修复确认票回传参数丢失的编译缺陷；Provider 测试固定 `bizObject.data + schemaCode + sheetCode` 表单保存 payload 和幂等键；写入连接解析改用当前主体的 `cloudPivotBaseUrl/cloudPivotUsername/user_cloudpivot_password`，不再使用管理员元数据凭据；新增 `getReplayToken` 真实契约边界。定向运行时/Provider/反馈/执行账本测试通过；真实环境写入门禁仍关闭，必须完成目标租户 save/submit 响应与回查 E2E 后再开启。
+
+2026-09-17 执行账本状态机与确认写入闭环：针对上轮阻断项“确认票消费、Provider 写入、结果回查之间没有执行记录和原子协议”完成实现。`YunshuOperationExecutionService` 现为真实状态机（STARTED→COMPLETED/UNKNOWN/FAILED，FAILED 可同键同载荷重试，COMPLETED 只能以相同记录标识重放），同键复用必须同时匹配 operation、taskId 与规范化请求内容，不符即抛 `IdempotencyConflictException`；终态转换改用 `findByIdForUpdate` 悲观行锁构成 compare-and-set，并发启动由唯一键仲裁并在新事务回读胜者。`PersistentFormTaskRuntime` 的 confirm 分支已接入“连接解析 → 账本 begin → Provider createRecord → complete/unknown/fail → 任务 submitted/unknown”闭环：账本先于 Provider 调用落库，超时/网络中断记为 UNKNOWN 并返回 `REMOTE_UNKNOWN`（retryable），契约未验证记为 FAILED 且任务保持待确认，已完成的账本行直接回放记录标识而不再调用 Provider，解析不到云枢连接则 PERMISSION_DENIED 且不写账本。`MvpCloudPivotConnector` 新增 `businessFailureReason`，空响应、`success:false`/`ok:0`、`errcode!=0`、`status=error|failed|rejected...` 不再被当成创建成功。验证：`server/` 全量 `mvn -o test` 158 tests、Failures 0、Errors 0、BUILD SUCCESS（新增 YunshuOperationExecutionServiceTests 13、PersistentFormTaskRuntimeTests 13、MvpCloudPivotConnectorResponseTests 5；Spring 容器测试 CpClawApplicationTests 通过）。门禁未变且仍为 NOT_READY：`provider-write-verified` 默认 false（打开即真实写入云枢，须先确认 save/submit payload）、UNKNOWN 自动回查对账未实现、外部宿主 JWT/OIDC 未实现、真实云枢受控创建与回查未执行。详见 `docs/technical-design/details/25-cpclaw-assistant-core-architecture-review-2026-09-10.md` 第 14 节。
+
+2026-09-19 后台运营管理平台 UI 重构：围绕 `SettingsView` 统一设置工作台的菜单层级与交互。左侧导航新增桌面端折叠/展开，并用 `localStorage` 记忆用户选择；折叠态保留图标、原生 title 与无障碍标签，移动端继续使用全宽抽屉，不继承桌面折叠宽度。菜单组选中态改为带高亮轨道、渐变背景和图标容器的层级样式，顶部工具栏与内容区增加半透明边界和稳定留白；“云枢 MCP 服务”改为面向用户的“外部 AI 接入”，技术实现下沉到页面说明，外部接入页的标题、边界、发布、接入说明和能力清单也统一改为业务表述，底层协议与接口保持不变。验证：`web/` 下 `npm run build` 通过（Vue 类型检查与 Vite 生产构建均通过）；浏览器自动化视觉复核因当前 CUA 浏览器凭据不可用，待服务恢复后补做真实视口验收。
+
+2026-09-19 外部宿主身份安全增量：MCP/SSE 网关新增生产默认 HMAC 身份认证（CPCLAW_MCP_AUTH_MODE=hmac、共享密钥、时间窗），未签名或过期请求返回 HTTP 401；签名验证后的外部主体通过独立的已认证身份路径进入任务运行时，不再被 default-only 规则压回默认管理员。新增 McpRequestAuthenticatorTests、主体隔离回归和网关定向验证；全量后端测试 169 项、Failures 0、Errors 0。默认 bootstrap 超级管理员改为 false，必须显式配置。真实 WorkBuddy 动态签名能力、JWT/OIDC/租户映射和真实云枢写入/回查仍未闭环，投产总门禁保持 NOT_READY。
+
+2026-09-19 权限错误语义修复：统一异常处理此前把 ResponseStatusException（例如反馈运营列表无权访问）转换为 500，已改为透传真实 HTTP 状态和安全错误消息；新增 GlobalExceptionHandlerTests。重新执行后端全量测试 170 项、Failures 0、Errors 0；最新 JAR 以本地 MySQL 启动后 /api/health=200、无权限反馈列表=403、未签名 MCP=401、正确 HMAC initialize=200。
+
+2026-09-19 独立 Yunshu Skill 直连认证闭环：新增配置驱动的 HmacYunshuHostContextResolver（默认 hostId=workbuddy），Skill HTTP 入口使用 X-Yunshu-Principal、时间戳和 HMAC 签名建立可信租户/主体上下文；未签名真实请求返回 401，正确签名请求进入真实元数据运行时并返回 3 个“商机”候选要求消歧，未伪造业务成功。全量后端测试 171 项、Failures 0、Errors 0；最新 JAR + 本地 MySQL 启动后 /api/health=200。真实 WorkBuddy 侧签名生成/密钥托管、JWT/OIDC 企业身份映射、云枢真实写入/回查仍需目标环境联调，投产总门禁仍 NOT_READY。
+
+2026-09-19 真实 Provider 写入与回查闭环：使用 `test/test_multi_branch` 的真实字段 `ShortText1784110275677` 和受控唯一值完成一次真实 save/submit；任务返回 `submitted` 和 recordRef `4475c2eb9e454666804856d4e2f9aa7d`。最新 JAR 刷新恢复返回同一 recordRef，`action=reconcile` 通过云枢只读查询返回 `remoteReconciled=true`、`queryTotal=11`，确认真实记录存在且没有重复写入。修复 `DefaultYunshuProvider` 回查覆盖、submitted 回执和按任务恢复；临时写入门禁已关闭。详见 `docs/test-cases/32-real-provider-write-reconcile-2026-09-19.md`。UNKNOWN 超时注入、WorkBuddy 密钥托管/JWT-OIDC、生产租户 ACL 等门禁仍未关闭。
+
+2026-09-19 回查适配器收敛：确认 Spring 实际使用的 `DefaultYunshuProvider` 已覆盖 `reconcileRecord`，不再落回接口默认的 `CONTRACT_UNVERIFIED`；回查使用限定实体的只读列表并按已知 recordRef 优先核对、无 recordRef 时按草稿字段核对。最新全量后端测试 171 项、Failures 0、Errors 0。临时真实写入开关保持关闭，服务重新启动前需重新打包最新 JAR。
+
+2026-09-19 UNKNOWN 对账安全收紧：无原始 `recordRef` 时禁止仅凭草稿字段匹配历史记录并宣布成功，Provider 必须保持 `REMOTE_UNKNOWN`；新增回归测试验证不会发起查询或误认同值历史记录。定向 Provider 测试 3 项通过，后续全量测试需以本轮命令结果为准。
+
+2026-09-19 生产认证配置门禁：HMAC 模式缺少共享密钥或密钥长度不足时，服务启动直接失败；测试运行通过 Maven Surefire 显式使用 disabled 模式，避免测试环境误阻断。最新全量后端测试 173 项、Failures 0、Errors 0；最终 JAR 启动后 8080/5173/3306 均正常。
+
+2026-09-19 图谱管理权限收敛：元数据图谱只读浏览保持可用，但 `graph/export` 和 `graph/rebuild` 现在要求当前主体为运营管理员，否则返回 403；CpClawApiTests 管理员场景回归通过。跨租户元数据 ACL 仍需生产身份矩阵继续验收。
+
+2026-09-19 图谱权限负向测试：普通主体对 `graph/export`、`graph/rebuild` 和 `metadata/sync` 均在业务服务调用前被拒绝；新增 MetadataControllerSecurityTests，验证图谱服务、元数据服务和同步日志均无副作用调用。定向测试 4 项通过。
+
+2026-09-19 图谱权限回归收敛：修正 fallback 测试显式声明管理员身份，最新全量后端测试 174 项、Failures 0、Errors 0；最终 JAR 已重新启动，8080/5173/3306 正常。
+
+2026-09-19 提交回执一致性修复：提交成功和已提交任务 get/刷新恢复统一返回 submitted、completion=submitted、hostAction=respond、providerContract=verified 与执行账本中的稳定 recordRef；增加按任务范围读取最新完成执行记录，避免刷新后回退为编辑草稿或再次调用 Provider。定向测试 24 项通过；最新 JAR 对已有真实任务只读 get 返回 recordRef=4475c2eb9e454666804856d4e2f9aa7d。受控测试期间的 provider-write-verified 仅用于本地验证，常规运行应保持 false；目标云枢字段值远端查询回查仍需独立证据，投产门禁暂不关闭。
+
+2026-09-19 图谱权限 HTTP 负向验收：新增无身份和伪造管理员请求头的 MockMvc 测试，graph/export、graph/rebuild、metadata/sync 均返回 403，且图谱、元数据和同步日志服务无调用；全量后端测试 175 项、Failures 0、Errors 0。最新 JAR 启动后 8080/5173/3306 正常。
+
+2026-09-19 租户持久化隔离：新增 Flyway V38 为 semantic_task_runs 增加 tenant_id 和租户范围索引；SemanticTaskRequest、任务重复请求查询、续接父任务校验均携带并校验 tenantId，MCP/独立 Skill 的 HMAC 已签名租户传递到任务上下文。全量后端测试 177 项、Failures 0、Errors 0；真实 MySQL 启动迁移验证待本轮打包后完成。
+
+2026-09-19 V38 真实启动验证：最新 JAR 连接本地 MySQL CPClaw 成功启动，Flyway V38 迁移通过，/api/health=200；前端 5173=200，MySQL 3306 正常监听。租户持久化隔离回归已纳入全量测试，当前全量测试 177 项通过。
+
+2026-09-19 数据库幂等租户约束收紧：发现 V21/V22 旧 semantic_task_runs 唯一索引未包含 tenant_id，新增 V39 删除旧索引并重建 tenant-aware clientRequestId/turnId 唯一索引；迁移内容回归测试通过，V38/V39 随最新 JAR 在真实 MySQL 启动验证。全量测试 177 项通过。
+
+2026-09-19 HMAC 租户绑定：MCP 与独立 Skill 的签名负载纳入 tenantId，认证成功的 PrincipalContext 使用签名租户；SemanticTaskRequest/semantic_task_runs 持久化租户，重复请求和续接查询按租户过滤。V39 重建 semantic_task_runs 租户唯一索引；真实 MySQL Flyway 版本已到 39，8080/5173/3306 正常。全量后端测试 177 项通过。尚未完成的是 JWT/OIDC 企业身份映射和 UNKNOWN 后台自动调度。
+
+2026-09-19 真实数据库租户约束验收：通过 MySQL information_schema 查询确认 Flyway 版本 39；semantic_task_runs 唯一索引仅保留 uk_semantic_task_tenant_idempotency(channel,installation_key,tenant_id,external_principal,client_request_id) 与 uk_semantic_task_tenant_turn(channel,installation_key,tenant_id,external_principal,turn_id)，旧无租户唯一索引已不存在。
+
+2026-09-19 UNKNOWN 后台对账调度：新增可配置 YunshuUnknownReconciliationScheduler，仅在 CPCLAW_YUNSHU_RECONCILIATION_ENABLED=true 时启用；每轮最多读取 20 条 UNKNOWN，调用只读 Provider 回查，只有匹配原始 recordRef 才完成执行账本、任务和确认票，绝不重复 save/submit。默认关闭，定向与全量测试合计 178 项通过。
+
+
+2026-09-19 外部 AI 接入 UI 对齐租户认证：外部 AI 接入页明确展示企业租户、用户标识、时间戳和 HMAC 签名要求，避免 WorkBuddy/OpenClaw 配置遗漏生产身份参数；前端 npm run build 通过。
+
+2026-09-20 最终运行态验证：当前工作树全量后端测试 179 项、Failures 0、Errors 0；最新 JAR 使用真实 MySQL 启动，Flyway 版本 39，semantic_task_runs 的 tenant-aware 唯一索引已在 information_schema 验证；8080 健康 200、5173=200、3306 正常。CPCLAW_YUNSHU_RECONCILIATION_ENABLED=true 时调度器条件路径可加载，provider-write-verified 保持 false。
+
+2026-09-20 WorkBuddy/OpenClaw stdio 适配器认证闭环：mcp-adapter/cpclaw-yunshu.mjs 增加 HMAC 模式，按每次请求生成包含 hostId、tenantId、principal、Unix 时间戳的签名头；密钥只从环境变量读取，不写入请求/文件。README 与 WorkBuddy 指导手册同步配置项。Node 语法检查通过，并用临时 HTTP Gateway 端到端验证 adapter_hmac_headers=PASS、退出码 0。真实 WorkBuddy 客户端托管签名和 OIDC/JWT 仍需外部环境联调。
+
+2026-09-20 外部适配器真实 Gateway 验收：使用 mcp-adapter/cpclaw-yunshu.mjs 通过本地 8080 独立 Yunshu Skill Gateway，配置 workbuddy、default 租户、adapter-e2e-user 和 HMAC 共享密钥；MCP initialize 返回 200 级结构化响应，yunshu_task 进入真实 Skill 并返回业务级 AMBIGUOUS_TARGET，证明租户签名、宿主认证和独立 Skill 直连链路生效，未触发写入。
+
+
+2026-09-20 HMAC 租户强制化回归：移除无 tenantId 的认证兼容入口，所有生产 HMAC 认证必须显式绑定租户；MCP/Skill 定向认证测试 11 项通过，最新全量后端测试 179 项、Failures 0、Errors 0。
+
+2026-09-24 外部适配器当前运行态验收：最新 CPClaw 服务进程创建于 2026-09-24 10:10:31，8080/5173/3306 正常；使用 mcp-adapter/cpclaw-yunshu.mjs 携带 tenantId=default、principal=adapter-e2e-20260924、HMAC 共享密钥直连 8080，MCP initialize 成功，yunshu_task 进入独立 Skill 并返回业务级 AMBIGUOUS_TARGET，未触发写入。
+
+2026-09-24 WorkBuddy 接入手册对齐：Remote MCP 配置明确支持 OAuth2/OIDC 或注册的租户绑定 HMAC 断言；stdio 适配器配置项、租户签名原文和验收要求已同步，避免文档只描述 OAuth 而与当前可运行 HMAC 链路不一致。
+
+2026-09-24 当前运行态重验：停止旧 2026-09-21 Java 进程后，使用当前 target/cpclaw-server-0.1.0.jar + 本地 MySQL + 显式 HMAC/续接密钥重新启动；8080/5173/3306 正常，后端健康 200，Flyway 实际版本 39，tenant-aware 唯一索引仍在。
+
+2026-09-24 反馈运营文档对齐：确认反馈状态流转和管理员备注已在代码中实现，文档边界修正为附件、通知和用户侧处理进度仍未实现；保留请求级身份认证作为生产门禁，避免把默认主体模型误标为投产。
+
+2026-09-24 元数据主入口图谱补齐：针对真实验收中 `SettingsView → MetadataBrowserPanel` 看不到图谱结构的问题，在设置页实体详情增加列表/图谱展示切换、浏览器本地模式记忆、实体邻域加载、实体/字段/API 节点与关系边画布，并支持点击实体节点继续查看邻域。复用现有 `/api/metadata/graph/neighborhood` 接口，不改变元数据模型或写入权限。前端 `npm run build` 通过；由于当前浏览器自动化凭据不可用，本轮未宣称完成浏览器视觉验收，需在浏览器可用后补做真实交互验收。
+
+2026-09-24 图谱模式交互收敛：修正列表与图谱详情同时出现的问题，使两种模式互斥；在从路由恢复实体且图谱模式已记忆时自动加载实体邻域，避免首次进入图谱为空。前端 `npm run build` 再次通过。
+
+2026-09-24 投产回归复验：后端重新执行 `mvn -o test`，182 项测试全部通过（Failures 0、Errors 0）；前端最新图谱主入口改动的 `npm run build` 通过。当前本地运行态仍为 8080/5173/3306 正常，图谱概览返回 ACTIVE（33/33 应用覆盖、20111 节点、28318 条边），真实实体邻域接口返回节点与关系边。真实浏览器视觉验收、外部宿主身份托管和生产网络故障注入仍不是本地测试可以替代的证据。
+
+2026-09-24 UNKNOWN 安全回归补充：新增 `reconciliationTransportFailureLeavesUnknownAndNeverWritesAgain`，模拟云枢回查传输异常时确认执行账本保持 UNKNOWN，不完成任务、不消费确认票、不重复创建；调度器定向测试 3/3 通过。该测试关闭安全行为门禁，但不替代真实网络中断注入演练。
+
+2026-09-24 外部身份适配实现：新增可配置的 `OidcIntrospectionYunshuHostContextResolver`，通过 OAuth2/OIDC introspection 校验 `active`、`sub` 与租户 Claim 后生成 Yunshu Skill 上下文；与 HMAC resolver 通过 `CPCLAW_YUNSHU_IDENTITY_MODE` 互斥，默认仍为 HMAC。新增本地 HTTP introspection 测试 2/2 通过，并同步 WorkBuddy/OpenClaw 接入手册。真实企业 IdP 与 WorkBuddy 客户端联调仍未完成。
+
+2026-09-24 最新后端回归与运行态：新增身份适配后执行 `mvn -o clean package`，全量测试 185 项通过（Failures 0、Errors 0），最新 JAR 已重启；真实 MySQL CPClaw 启动时 Flyway 校验 39 个迁移、当前版本 39，8080 健康接口 200，前端 5173 和 MySQL 3306 正常。当前运行默认仍为 HMAC 模式，OIDC 仅在显式配置并完成企业 IdP 联调后启用。
+
+2026-09-24 元数据主入口真实浏览器验收：使用项目现有 Playwright Java 依赖访问 `http://127.0.0.1:5173/settings?section=metadata-browser`，浏览器实际看到元数据主入口、列表/图谱切换、实体关系图谱画布、实体/API 节点和关系边；切换后确认 `localStorage` 写入 `cpclaw.metadata.view-mode=graph`，刷新页面仍自动恢复图谱画布。随后切回列表模式进入真实 API 动作页签，读取首条动作名称并输入筛选，结果从 5 条收敛为 1 条。E2E-M09、E2E-M10、E2E-M11 通过。
+
+2026-09-24 最新 Skill 运行态回归：使用重启后的 8080 JAR，通过独立 Yunshu Skill HTTP 入口携带 `workbuddy/default/adapter-e2e-20260924-final` 的租户绑定 HMAC 发起只读目标，返回 HTTP 200 与业务级 `AMBIGUOUS_TARGET`，未触发写入；确认最新身份适配改动未破坏 OpenClaw/WorkBuddy 直连链路。OIDC 测试进一步验证请求中伪造的租户/主体头不会覆盖 introspection 返回的可信身份，定向测试 2/2 通过。
+
+2026-09-24 产品文档口径收敛：更新 `01-requirements.md` 与 `08-cloudpivot-mcp-workbuddy.md`，将新接入主入口统一为独立 Yunshu Skill Gateway 的 `yunshu_task`，明确 CPClaw 不作为外部 AI 的对话/确认中转层；旧 `cpclaw_cloudpivot_agent` / `yunshu_handle_request` 仅保留迁移期兼容语义，避免产品规范与当前可运行接入包分叉。
+
+2026-09-24 最终当前树回归：后端 `mvn -o test` 185 项通过，前端 `npm run build` 通过，CodeGraph 状态 up-to-date；运行态 8080/5173/3306 仍监听，`/api/health=200`，最新 JAR 为 2026-09-24 11:55:55 打包版本。投产结论仍保留 NOT_READY：真实云枢网络中断演练、企业 IdP/WorkBuddy 生产身份矩阵、查询/经营分析/智能填单真实对话 E2E 和多实例生产恢复尚未完成。
+
+2026-09-24 多实例 UNKNOWN 对账租约：新增 Flyway V40，在 `yunshu_operation_executions` 增加 `reconciliation_owner`、`reconciliation_claimed_at` 和租约索引；调度器领取 UNKNOWN 前执行原子条件更新，活跃租约不会被其他实例重复领取，租约过期可接管，终态写回清理租约。调度器/配置/执行账本定向测试 20 项通过；全量后端测试 186 项通过。最新 JAR 启动时真实 MySQL 已从 V39 迁移到 V40，8080 健康 200，V40 索引已在 information_schema 验证。
+
+2026-09-24 租约终态回归补充：执行账本完成转换测试增加租约清理断言，确保 `COMPLETED` 不保留过期领取信息；当前生产 JAR 与 V40 运行态不受测试断言变更影响，下一次完整回归需以最新命令结果为准。
+
+2026-09-24 租约清理定向复验：`YunshuOperationExecutionServiceTests` 当前 15/15 通过，确认完成态清理 `reconciliation_owner` 与 `reconciliation_claimed_at`；真实运行服务仍为 JAR 12:56:14、MySQL schema v40、健康 200。
+
+2026-09-24 真实经营分析 E2E：使用已配置的真实模型 `gpt-pro`、真实云枢连接和请求“分析一下本月线索转商机情况，并给出图表、趋势、异常、数据范围和分析依据。只读分析，不要创建、修改或提交任何数据。”完成对话链路验证。先修复两类真实缺陷：模型规划不得把显式分析/查询改写成写入；否定表达“不要创建、修改或提交”不得触发写意图；复合目标“线索转商机”不得因交付词“异常”误选异常项目。修复后真实请求进入 `analyze_data`，定位商机与私海线索并返回真实图文报告；报告明确低置信度、日期覆盖不足和不生成误导性图表。将详情预算临时提高到 5000 后真实请求超过 10 分钟，已回滚默认 500，确认完整分析需要云枢服务端聚合/字段投影契约，不能用无限逐条详情补齐替代。相关回归：后端全量 191 项通过；真实业务 E2E 仍因数据日期覆盖不足保持“部分通过”。
+
+2026-09-24 经营分析完成态修正：真实数据存在关键日期覆盖缺口时，Yunshu 分析任务现在返回 `completed_with_gaps`，不再把低置信度报告标记为 `completed`；仍返回图文报告、数据范围、口径提示和下一步建议。最终真实回归请求返回 `intent=analyze_data`、`task.status=completed_with_gaps`、`completion=completed_with_gaps`，并明确“线索转商机转化率无法计算”。后端全量测试保持 191 项通过，服务健康 200。
+
+2026-09-24 智能填单真实多轮 E2E：使用真实 `cpclaw-web` 宿主、真实同步元数据和真实云枢连接启动“创建一个线索，我最近跟进了一个客户，叫奥哲”。修复表单候选二次召回和元数据主名称字段标记后，唯一定位 `zlcsstcrm/sql_line`，自然语言值映射为 `sql_line_name=奥哲`，任务返回 `confirmation_required`、`completion=ready`、`providerContract=unverified`，未触发写接口。该用例关闭真实字段定位、自然语言填充和确认前安全门禁；真实确认后的生产写入仍受 Provider 写入开关和外部确认契约门禁。
+
+2026-09-24 最新完整回归：在真实填单 E2E 修复后重新执行 `mvn -o test`，193 项通过（Failures 0、Errors 0）；最新运行 JAR 已连接 MySQL schema v40，8080 健康 200，前端 5173 和 MySQL 3306 正常。智能填单真实字段定位/自然语言填充/确认前门禁已验证；经营分析仍因云枢日期字段覆盖不足返回 `completed_with_gaps`，不能作为完整经营结论。
+
+2026-09-24 最终回归证据：真实填单最终请求返回 `zlcsstcrm/sql_line`、`sql_line_name=奥哲`、`confirmation_required`、`completion=ready`、`providerContract=unverified`，未触发写入；随后执行最新工作树 `mvn -o test`，193 项通过（Failures 0、Errors 0）。当前运行态 8080/5173/3306 正常，`/api/health=200`，CodeGraph up-to-date。投产结论仍为 `NOT_READY`，剩余是确认后真实写入/外部身份/网络故障/经营分析数据覆盖和多实例生产演练门禁。
+
+2026-09-24 云枢字段投影契约增量：从已接入云枢前端真实请求中确认列表接口使用 `options.customDisplayColumns` 与 `queryDisplayType`；CPClaw 连接器新增可选字段投影透传，分析任务按元数据字段集合投影，投影被目标环境拒绝时回退旧查询并保留覆盖率告警，避免无限逐条详情请求。旧连接器/Mock 兼容回归通过；完整生产验证仍需真实云枢确认该租户支持投影并重新执行分析 E2E。
+
+2026-09-24 字段投影最终回归：后端全量测试 193 项通过；最新 JAR 已重启并连接真实 MySQL schema v40，8080 健康 200，前端 5173、MySQL 3306 正常。投影参数已接入生产代码但尚未宣称云枢租户接受，分析 E2E 仍需目标环境确认投影响应和日期覆盖改善。
+
+2026-09-24 字段投影真实租户复验：重复真实“本月线索转商机”分析时，云枢租户对 `options.customDisplayColumns/queryDisplayType` 返回 HTTP 404，CPClaw 按设计回退无投影查询；回退链路在 5 分钟内仍未完成，证明当前租户未提供可用字段投影契约，不能用继续延长超时替代 Provider 能力。发布依赖明确为：云枢服务端提供并登记可用的聚合/字段投影 API 后，重新执行分析 E2E。
+
+2026-09-24 生产查询路径兼容：云枢前端实际使用的 `/api/runtime/query/list` 已作为只读回退接入，真实“系统有多少商机？”通过兼容路径返回 4323 条；经营分析仍在 180 秒内超时，说明需云枢服务端聚合/关联查询契约，不能继续扩大本地超时。查询路径定向回归和最新后端全量测试 193 项通过。
+
+2026-09-24 云枢列表路径兼容探测：从云枢前端实际请求确认 `/api/runtime/query/list` 使用 `mobile/filters/page/size`，CPClaw 增加只读兼容回退；真实“系统有多少商机？”通过该路径在短时间内返回 4323 条。部署“列表兼容 + 投影可用时关闭逐条详情补齐”后，真实“本月线索转商机”分析在 180 秒内仍超时，说明瓶颈还包括关联/报告多对象数据访问，不能用继续延长请求窗口替代云枢服务端聚合契约。分析生产门禁继续保持阻断。
+
+2026-10-11 恢复运行态复核：停止状态下重新启动当前 JAR 和前端，真实 MySQL schema v40 校验通过，8080/5173/3306 恢复监听，`/api/health=200`；真实“系统有多少商机？”查询仍返回 4323 条。当前工作树重新执行 `mvn -o test`，193 项通过（Failures 0、Errors 0）。经营分析 Provider 契约和企业生产身份仍未因日期变化自动关闭，继续保持发布阻断。
+
+2026-10-11 生产目标复核：当前日期环境变化后重新启动服务并执行完整回归，后端 193 项通过，MySQL schema v40，前端/后端健康 200，CodeGraph up-to-date。真实填单确认前 E2E 仍通过；快速商机查询返回 4323 条。经营分析在关闭思考模式、兼容 `/api/runtime/query/list`、字段投影回退和关联范围保护后仍超时，证明真实云枢租户缺少可用的服务端聚合/关联查询契约；企业身份、确认后生产写入、网络故障和多实例生产演练仍未完成。目标继续保持 `NOT_READY`，外部契约未变化前无法安全进入投产。
+
+2026-09-24 关联范围性能保护：分析任务默认只读取主对象和最相关的一个关联对象；用户明确要求“全链路/所有关联/多对象/分别”时才扩展到最多 3 个关联对象。Insight 回归 9/9 通过；最新工作树全量测试 193 项通过。真实分析仍在 180 秒内超时，发布阻断继续归因于云枢服务端聚合/关联查询契约，而非无限扩大本地请求范围。
+
+2026-09-24 最终运行态回归：`npm run build` 通过；后端最新 JAR 使用真实 MySQL schema v40 启动，8080/5173/3306 正常，`/api/health=200`，CodeGraph up-to-date。当前生产结论保持 `NOT_READY`：真实分析链路可执行且缺口会显式降级为 `completed_with_gaps`，云枢服务端仍需提供日期/关联字段的聚合或投影契约；智能填单字段定位、自然语言草稿和确认前 E2E 已通过，确认后真实写入、网络故障演练、企业身份矩阵和多实例生产演练仍未完成。
+
+2026-10-11 最新实现回归：增加云枢前端真实 `/api/runtime/query/list` 请求形状回退、分析范围默认主对象+最相关关联对象、分析请求读取宿主 `thinkingEnabled`、期间字段本地复核和字段投影兼容；新增/更新 Insight 与查询契约测试。当前工作树 `mvn -o test` 195 项通过（Failures 0、Errors 0），服务已恢复到 8080/5173/3306，schema v40，健康 200。真实商机快速查询 4323 条已验证；真实经营分析仍在 120–180 秒区间超时，未把性能改善假设为生产事实。

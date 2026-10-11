@@ -164,10 +164,24 @@ public class MetadataSearchService {
     }
 
     private String targetBusinessTerm(String query, String normalized, List<String> terms) {
+        String quoted = quotedTarget(query);
+        if (!quoted.isBlank()) return quoted;
         if (terms.isEmpty()) return "";
-        String last = canonicalTerm(terms.getLast());
+        String subject = query == null ? "" : query;
+        // Keep the business-goal clause and discard presentation requirements
+        // such as “给出图表、趋势、异常和分析依据”. Those words describe the
+        // deliverable, not the Yunshu entity to query.
+        subject = subject.replaceFirst("(?s)(并|给出|输出|提供|包含|需要|请提供).*$", "");
+        List<String> subjectTerms = businessTerms(subject, subject.toLowerCase(Locale.ROOT));
+        String last = canonicalTerm((subjectTerms.isEmpty() ? terms : subjectTerms).getLast());
         List<String> expanded = questionSemantics.expandSearchTerms(List.of(last));
         return expanded.isEmpty() ? last : expanded.getLast();
+    }
+
+    private String quotedTarget(String query) {
+        if (query == null || query.isBlank()) return "";
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("[“\\\"]([^”\\\"]{2,80})[”\\\"]").matcher(query);
+        return matcher.find() ? matcher.group(1).trim() : "";
     }
 
     private ScoredDocument scoreDocument(SearchQuery query, MetadataSearchDocument document, boolean directHit, VectorSearchCandidate vectorCandidate) {
@@ -420,14 +434,22 @@ public class MetadataSearchService {
         String name = safe(document.getName()).toLowerCase(Locale.ROOT);
         String code = safe(document.getCode()).toLowerCase(Locale.ROOT);
         String target = targetTerm.toLowerCase(Locale.ROOT);
-        return name.contains(target) || code.contains(target);
+        // Chinese business requests commonly contain a compound target such
+        // as “本月线索转商机”. Treat a verified entity name inside that target
+        // as a candidate; otherwise the whole phrase cannot match any entity
+        // and the fallback search may select an unrelated object merely
+        // because it appeared in a requested deliverable.
+        return name.contains(target) || target.contains(name) || code.contains(target) || target.contains(code);
     }
 
     private int primaryEntityScore(ScoredDocument item, String targetTerm) {
         MetadataSearchDocument document = item.document();
         String name = safe(document.getName()).toLowerCase(Locale.ROOT);
         String target = targetTerm.toLowerCase(Locale.ROOT);
-        int score = item.score() + (name.equals(target) ? 340 : 220);
+        int score = item.score() + (name.equals(target) ? 340 : (target.contains(name) ? 300 : 220));
+        if (target.matches(".*(?:转|到|变为|成为)\\s*" + java.util.regex.Pattern.quote(name) + ".*")) {
+            score += 520;
+        }
         if (SECONDARY_OBJECT_MARKERS.stream().anyMatch(marker -> name.contains(marker.toLowerCase(Locale.ROOT)))) {
             score -= 220;
         }

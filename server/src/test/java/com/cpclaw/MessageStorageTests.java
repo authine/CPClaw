@@ -61,6 +61,18 @@ class MessageStorageTests {
     }
 
     @Test
+    void semanticTaskUniqueIndexesIncludeTenantScope() throws Exception {
+        String migration = new ClassPathResource("db/migration/V39__semantic_task_tenant_unique_scope.sql")
+            .getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(migration.contains("DROP INDEX uk_semantic_task_idempotency"));
+        assertTrue(migration.contains("DROP INDEX uk_semantic_task_turn"));
+        assertTrue(migration.contains("uk_semantic_task_tenant_idempotency"));
+        assertTrue(migration.contains("uk_semantic_task_tenant_turn"));
+        assertTrue(migration.contains("channel, installation_key, tenant_id, external_principal, client_request_id"));
+        assertTrue(migration.contains("channel, installation_key, tenant_id, external_principal, turn_id"));
+    }
+
+    @Test
     void migrationCreatesCloudPivotDataItemsAndRelationSourceDataItemColumn() throws Exception {
         String migration = new ClassPathResource("db/migration/V3__cloudpivot_data_items_and_relations.sql")
             .getContentAsString(StandardCharsets.UTF_8);

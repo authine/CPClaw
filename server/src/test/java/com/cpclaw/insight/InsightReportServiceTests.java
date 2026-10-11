@@ -281,7 +281,7 @@ class InsightReportServiceTests {
     @Test
     void usesRequestScopedAccessForMcpInsightWithoutReadingConfiguredIdentity() {
         InsightDataAccess access = new InsightDataAccess("https://cloudpivot.example", "mcp-alice", "ephemeral-password");
-        when(dataReader.query(eq(access), any(CloudPivotEntity.class), anyBoolean(), eq(20_000), anyList()))
+        when(dataReader.query(eq(access), any(CloudPivotEntity.class), anyBoolean(), eq(20_000), anyList(), anyList()))
             .thenAnswer(invocation -> result(invocation.getArgument(1, CloudPivotEntity.class).getEntityCode(), List.of()));
 
         service.execute(
@@ -293,8 +293,38 @@ class InsightReportServiceTests {
             access
         );
 
-        verify(dataReader).query(eq(access), eq(opportunity), anyBoolean(), eq(20_000), anyList());
+        verify(dataReader).query(eq(access), eq(opportunity), anyBoolean(), eq(20_000), anyList(), anyList());
         org.mockito.Mockito.verify(dataReader, org.mockito.Mockito.never()).configuredUsername();
+    }
+
+    @Test
+    void successfulTransportCannotMakeOutOfPeriodRecordsCountAsPeriodData() {
+        when(dataReader.query(eq(opportunity), eq(true), eq(20_000), anyList())).thenReturn(
+            result("int_bu_oppor", List.of(
+                record("inside", Map.of("createdTime", "2024-03-01")),
+                record("before", Map.of("createdTime", "2023-12-31")),
+                record("end-exclusive", Map.of("createdTime", "2024-07-01")))));
+
+        InsightExecutionResult execution = service.execute(match(), "2024年上半年商机情况怎么样？",
+            "model-id", false, AgentProgressListener.NOOP);
+
+        assertEquals(1, execution.primaryCount());
+        assertTrue(execution.report().warnings().stream().anyMatch(warning -> warning.contains("期间") && warning.contains("范围")));
+    }
+
+    @Test
+    void missingSelectedDateCannotBeReplacedWithAnotherBusinessDate() {
+        when(dataItemRepository.findByEntityId("opp-id")).thenReturn(List.of(
+            field("created", "opp-id", "createdTime", "创建时间", "DATETIME"),
+            field("modified", "opp-id", "modifiedTime", "修改时间", "DATETIME")));
+        when(dataReader.query(eq(opportunity), eq(true), eq(20_000), anyList())).thenReturn(
+            result("int_bu_oppor", List.of(record("missing-created", Map.of("modifiedTime", "2024-03-01")))));
+
+        InsightExecutionResult execution = service.execute(match(), "2024年上半年商机情况怎么样？",
+            "model-id", false, AgentProgressListener.NOOP);
+
+        assertEquals(0, execution.primaryCount());
+        assertTrue(execution.report().warnings().stream().anyMatch(warning -> warning.contains("未计入期间")));
     }
 
     private MetadataSearchResult match() {

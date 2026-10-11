@@ -31,8 +31,10 @@ class ConfirmationTicketServiceTests {
         assertTrue(issue.issued());
 
         ConfirmationTicketService.TicketAuthorization first = service.authorizeExecution(issue.ticket(), context(), plan, true);
-        ConfirmationTicketService.TicketAuthorization replay = service.authorizeExecution(issue.ticket(), context(), plan, true);
         assertTrue(first.granted());
+        assertEquals("RESERVED", stored.get().getStatus());
+        service.consumeExecution(first.ticketId(), context(), plan);
+        ConfirmationTicketService.TicketAuthorization replay = service.authorizeExecution(issue.ticket(), context(), plan, true);
         assertFalse(replay.granted());
         assertEquals(YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, replay.errorCode());
         assertEquals("CONSUMED", stored.get().getStatus());

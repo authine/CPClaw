@@ -2,7 +2,6 @@ package com.cpclaw.task;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.time.Instant;
@@ -22,11 +21,11 @@ public class TaskContinuationTokenService {
         @Value("${cpclaw.task.continuation-ttl-seconds:900}") long ttlSeconds
     ) {
         if (secret == null || secret.isBlank() || "change-me-in-production".equals(secret)) {
-            byte[] generated = new byte[32];
-            new SecureRandom().nextBytes(generated);
-            this.secret = generated;
-        } else {
-            this.secret = secret.getBytes(StandardCharsets.UTF_8);
+            throw new IllegalStateException("任务续接密钥未配置，禁止使用默认值或临时随机密钥");
+        }
+        this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        if (this.secret.length < 32) {
+            throw new IllegalStateException("任务续接密钥长度不足 32 个字符");
         }
         this.ttlSeconds = Math.max(60, ttlSeconds);
     }

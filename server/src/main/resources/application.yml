@@ -23,14 +23,34 @@ server:
   port: ${SERVER_PORT:8080}
 
 cpclaw:
+  yunshu-skill:
+    provider-write-verified: ${CPCLAW_YUNSHU_PROVIDER_WRITE_VERIFIED:false}
+    confirmation-secret: ${CPCLAW_YUNSHU_CONFIRMATION_SECRET:}
+    host-id: ${CPCLAW_YUNSHU_HOST_ID:workbuddy}
+    # HMAC is the local/default adapter. Set to oidc only when the external
+    # host is registered with a real OAuth2/OIDC introspection endpoint.
+    identity-mode: ${CPCLAW_YUNSHU_IDENTITY_MODE:hmac}
+    oidc:
+      introspection-url: ${CPCLAW_YUNSHU_OIDC_INTROSPECTION_URL:}
+      client-id: ${CPCLAW_YUNSHU_OIDC_CLIENT_ID:}
+      client-secret: ${CPCLAW_YUNSHU_OIDC_CLIENT_SECRET:}
+      timeout-ms: ${CPCLAW_YUNSHU_OIDC_TIMEOUT_MS:3000}
+    reconciliation:
+      enabled: ${CPCLAW_YUNSHU_RECONCILIATION_ENABLED:false}
+      fixed-delay-ms: ${CPCLAW_YUNSHU_RECONCILIATION_FIXED_DELAY_MS:30000}
+      instance-id: ${CPCLAW_YUNSHU_RECONCILIATION_INSTANCE_ID:local}
+      lease-duration-ms: ${CPCLAW_YUNSHU_RECONCILIATION_LEASE_DURATION_MS:120000}
   identity:
     default-id: ${CPCLAW_DEFAULT_USER_ID:huangj}
     default-name: ${CPCLAW_DEFAULT_USER_NAME:黄杰}
     default-phone: ${CPCLAW_DEFAULT_USER_PHONE:18124691161}
     default-tenant: ${CPCLAW_DEFAULT_TENANT:default}
-    default-super-admin: ${CPCLAW_DEFAULT_USER_SUPER_ADMIN:true}
+    # Never grant the bootstrap identity operator privileges by default in a
+    # deployed environment. Set this explicitly only for a controlled local
+    # bootstrap or use a real administrator identity provider.
+    default-super-admin: ${CPCLAW_DEFAULT_USER_SUPER_ADMIN:false}
   task:
-    continuation-secret: ${CPCLAW_TASK_CONTINUATION_SECRET:change-me-in-production}
+    continuation-secret: ${CPCLAW_TASK_CONTINUATION_SECRET:}
     continuation-ttl-seconds: ${CPCLAW_TASK_CONTINUATION_TTL_SECONDS:900}
   # This must be stable across restarts; it protects values in encrypted_credentials.
   encryption-key: ${CPC_ENCRYPTION_KEY:}
@@ -40,6 +60,10 @@ cpclaw:
   # Set this to the externally reachable HTTPS origin behind the reverse proxy.
   mcp:
     public-base-url: ${CPCLAW_MCP_PUBLIC_BASE_URL:http://localhost:8080}
+    auth:
+      mode: ${CPCLAW_MCP_AUTH_MODE:hmac}
+      shared-secret: ${CPCLAW_MCP_AUTH_SHARED_SECRET:}
+      clock-skew-seconds: ${CPCLAW_MCP_AUTH_CLOCK_SKEW_SECONDS:300}
   persistence:
     runtime-guard-enabled: ${CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED:true}
   storage-root: ${CPC_STORAGE_ROOT:./storage}
@@ -77,6 +101,10 @@ cpclaw:
         auth-session-ttl-minutes: ${CPC_RUNTIME_AUTH_SESSION_TTL_MINUTES:10}
         max-analysis-records: ${CPC_RUNTIME_MAX_ANALYSIS_RECORDS:20000}
         max-page-size: ${CPC_RUNTIME_MAX_PAGE_SIZE:200}
+        # Detail enrichment is deliberately bounded. Reports expose coverage
+        # warnings instead of turning thousands of per-record calls into an
+        # unbounded request; complete analysis requires a server-side aggregate
+        # or projected list contract from CloudPivot.
         max-detail-enrich-records: ${CPC_RUNTIME_MAX_DETAIL_ENRICH_RECORDS:500}
         max-list-detail-records: ${CPC_RUNTIME_MAX_LIST_DETAIL_RECORDS:10}
         detail-enrich-parallelism: ${CPC_RUNTIME_DETAIL_ENRICH_PARALLELISM:16}

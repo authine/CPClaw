@@ -77,6 +77,8 @@
                     <systemPropertyVariables>
                         <CPC_ENCRYPTION_KEY>cpclaw-test-only-encryption-key</CPC_ENCRYPTION_KEY>
                         <CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED>false</CPCLAW_PERSISTENCE_RUNTIME_GUARD_ENABLED>
+                        <CPCLAW_MCP_AUTH_MODE>disabled</CPCLAW_MCP_AUTH_MODE>
+                        <CPCLAW_TASK_CONTINUATION_SECRET>cpclaw-test-only-continuation-secret-32chars</CPCLAW_TASK_CONTINUATION_SECRET>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

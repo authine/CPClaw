@@ -34,10 +34,21 @@
 ```text
 YUNSHU_SKILL_GATEWAY_URL=https://yunshu-skill.example.com
 YUNSHU_HOST_ID=由已注册宿主使用的 hostId
-YUNSHU_AUTHORIZATION=宿主安全存储提供的可信身份断言（如需要）
+# 内置 CPClaw HMAC Gateway 模式：
+YUNSHU_TENANT_ID=企业租户标识
+YUNSHU_PRINCIPAL=当前宿主用户标识
+YUNSHU_SHARED_SECRET=部署方安全注入的共享密钥
+# 外部 OIDC/JWT Gateway 模式可改用：
+YUNSHU_AUTHORIZATION=宿主安全存储提供的可信身份断言
 ```
 
+CPClaw 内置 Gateway 的 OIDC introspection 模式由服务端配置控制，不把 client secret 放到 WorkBuddy 工具参数中：设置 `CPCLAW_YUNSHU_IDENTITY_MODE=oidc`，并注入 `CPCLAW_YUNSHU_OIDC_INTROSPECTION_URL`、`CPCLAW_YUNSHU_OIDC_CLIENT_ID`、`CPCLAW_YUNSHU_OIDC_CLIENT_SECRET`。服务端只信任 introspection 返回的 `active=true`、`sub` 和租户 Claim（`tenant_id`/`tenantId`/`org_id`），不接受请求头自报的主体或租户。HMAC 与 OIDC 适配模式互斥。
+
 外部宿主必须有相应的 Gateway 身份验证器；未注册的宿主会被拒绝，而不是回退使用 CPClaw 默认主体。
+
+当配置 `YUNSHU_SHARED_SECRET` 时，适配器按每个请求生成 HMAC-SHA256 签名，签名原文为：
+`hostId + "\\n" + tenantId + "\\n" + principal + "\\n" + Unix 时间戳`。
+共享密钥只从进程环境读取，不写入文件、任务参数或 MCP 输出。
 
 适配器会校验 `start` 必须有 `goal`，非 `start` 操作必须有原 `taskId`，并将 Gateway 的结构化响应作为 MCP `structuredContent` 返回。网关不可用时返回 `isError=true` 和可重试错误；不会自动重试写入操作。
 

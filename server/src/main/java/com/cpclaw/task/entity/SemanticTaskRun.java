@@ -14,6 +14,7 @@ public class SemanticTaskRun {
     @Column(nullable = false) private String channel;
     @Column(name = "installation_key") private String installationKey;
     @Column(name = "external_principal") private String externalPrincipal;
+    @Column(name = "tenant_id", nullable = false) private String tenantId;
     @Column(name = "client_request_id") private String clientRequestId;
     @Column(name = "turn_id") private String turnId;
     @Column(name = "parent_task_id") private String parentTaskId;
@@ -31,6 +32,7 @@ public class SemanticTaskRun {
     public String getChannel() { return channel; } public void setChannel(String value) { channel = value; }
     public String getInstallationKey() { return installationKey; } public void setInstallationKey(String value) { installationKey = value; }
     public String getExternalPrincipal() { return externalPrincipal; } public void setExternalPrincipal(String value) { externalPrincipal = value; }
+    public String getTenantId() { return tenantId; } public void setTenantId(String value) { tenantId = value; }
     public String getClientRequestId() { return clientRequestId; } public void setClientRequestId(String value) { clientRequestId = value; }
     public String getTurnId() { return turnId; } public void setTurnId(String value) { turnId = value; }
     public String getParentTaskId() { return parentTaskId; } public void setParentTaskId(String value) { parentTaskId = value; }

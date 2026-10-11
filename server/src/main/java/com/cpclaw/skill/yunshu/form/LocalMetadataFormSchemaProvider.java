@@ -54,10 +54,25 @@ public class LocalMetadataFormSchemaProvider implements YunshuFormSchemaProvider
                 }
             }
         }
+        // Search documents may be dominated by fields/relations for a short
+        // target such as “线索”. Add synchronized entity-name matches as a
+        // second, metadata-only recall path so form discovery does not fall
+        // back to an unrelated metadata entity.
+        for (CloudPivotEntity entity : entities.findAll()) {
+            if (!blank(target) && safe(entity.getName()).contains(target)
+                    && dataItems.findByEntityId(entity.getId()).stream().anyMatch(this::isBusinessField)) {
+                usable.putIfAbsent(entity.getId(), entity);
+            }
+        }
         List<CloudPivotEntity> matches = usable.values().stream()
-                .filter(entity -> target.equalsIgnoreCase(safe(entity.getName())) || target.equalsIgnoreCase(safe(entity.getEntityCode())))
+                .filter(entity -> target.equalsIgnoreCase(safe(entity.getName()))
+                        || target.equalsIgnoreCase(safe(entity.getEntityCode()))
+                        || safe(entity.getName()).contains(target)
+                        || target.contains(safe(entity.getName())))
                 .toList();
         if (matches.isEmpty()) matches = List.copyOf(usable.values());
+        CloudPivotEntity confident = confidentMatch(matches, target);
+        if (confident != null) matches = List.of(confident);
         if (matches.size() > 1) {
             throw new AmbiguousFormTargetException(matches.stream().map(entity -> {
                 CloudPivotApp app = apps.findById(entity.getAppId()).orElse(null);
@@ -75,15 +90,24 @@ public class LocalMetadataFormSchemaProvider implements YunshuFormSchemaProvider
         List<FormFieldSlot> fields = dataItems.findByEntityId(entity.getId()).stream()
                 .filter(this::isBusinessField)
                 .sorted(Comparator.comparing(CloudPivotDataItem::getName, Comparator.nullsLast(String::compareToIgnoreCase)))
-                .map(this::toSlot)
+                .map(item -> toSlot(item, entity))
                 .toList();
         String version = entity.getSyncedAt() == null ? "metadata-index" : entity.getSyncedAt().toString();
         return new ProviderFormSchema(new FormReference(appCode, entity.getEntityCode(), entity.getEntityCode()), version, fields);
     }
 
-    private FormFieldSlot toSlot(CloudPivotDataItem item) {
+    private FormFieldSlot toSlot(CloudPivotDataItem item, CloudPivotEntity entity) {
         return new FormFieldSlot(safe(item.getDataItemCode()), safe(item.getName()), normalizeType(item.getDataType()),
-                null, "metadata", null, item.isRequired(), false, "pending", null, List.of());
+                null, isPrimaryNameField(item, entity) ? "metadata:primary-name" : "metadata", null,
+                item.isRequired(), false, "pending", null, List.of());
+    }
+
+    private boolean isPrimaryNameField(CloudPivotDataItem item, CloudPivotEntity entity) {
+        String code = safe(item.getDataItemCode()).toLowerCase();
+        String entityCode = safe(entity.getEntityCode()).toLowerCase();
+        String name = safe(item.getName()).toLowerCase();
+        return code.equals(entityCode + "_name") || code.equals("name") || code.equals("title")
+                || name.equals("名称") || name.equals("标题");
     }
 
     private String normalizeType(String value) {
@@ -112,5 +136,25 @@ public class LocalMetadataFormSchemaProvider implements YunshuFormSchemaProvider
 
     private boolean isBusinessField(CloudPivotDataItem item) {
         return !blank(item.getDataItemCode()) && !"SYSTEM".equalsIgnoreCase(safe(item.getFieldCategory()));
+    }
+
+    private CloudPivotEntity confidentMatch(List<CloudPivotEntity> matches, String target) {
+        if (matches.size() < 2 || target == null || target.length() > 2) return null;
+        List<CloudPivotEntity> ranked = matches.stream()
+                .sorted(Comparator.comparingInt((CloudPivotEntity entity) -> candidateScore(entity, target)).reversed())
+                .toList();
+        int first = candidateScore(ranked.get(0), target);
+        int second = candidateScore(ranked.get(1), target);
+        return first >= second + 120 ? ranked.get(0) : null;
+    }
+
+    private int candidateScore(CloudPivotEntity entity, String target) {
+        String name = safe(entity.getName());
+        int score = 0;
+        if (name.equalsIgnoreCase(target)) score += 600;
+        else if (name.endsWith(target)) score += 420;
+        else if (name.contains(target)) score += 300;
+        int businessFields = (int) dataItems.findByEntityId(entity.getId()).stream().filter(this::isBusinessField).count();
+        return score + Math.min(400, businessFields * 8);
     }
 }

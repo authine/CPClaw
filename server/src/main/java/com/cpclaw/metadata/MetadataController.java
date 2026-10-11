@@ -13,12 +13,15 @@ import com.cpclaw.metadata.graph.dto.MetadataGraphNeighborhoodResponse;
 import com.cpclaw.metadata.graph.dto.MetadataGraphOverviewResponse;
 import com.cpclaw.search.MetadataSearchService;
 import com.cpclaw.workflow.WorkflowCenterService;
+import com.cpclaw.identity.PrincipalContextService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/metadata")
@@ -29,19 +32,22 @@ public class MetadataController {
     private final MetadataGraphService metadataGraphService;
     private final WorkflowCenterService workflowCenterService;
     private final MetadataSyncLogService metadataSyncLogService;
+    private final PrincipalContextService principalContextService;
 
     public MetadataController(
         MetadataService metadataService,
         MetadataSearchService metadataSearchService,
         MetadataGraphService metadataGraphService,
         WorkflowCenterService workflowCenterService,
-        MetadataSyncLogService metadataSyncLogService
+        MetadataSyncLogService metadataSyncLogService,
+        PrincipalContextService principalContextService
     ) {
         this.metadataService = metadataService;
         this.metadataSearchService = metadataSearchService;
         this.metadataGraphService = metadataGraphService;
         this.workflowCenterService = workflowCenterService;
         this.metadataSyncLogService = metadataSyncLogService;
+        this.principalContextService = principalContextService;
     }
 
     @GetMapping("/apps")
@@ -61,6 +67,7 @@ public class MetadataController {
 
     @PostMapping("/sync")
     public ApiResponse<MetadataSyncResponse> sync() {
+        requireOperator();
         String logId = metadataSyncLogService.start();
         try {
             MetadataSyncResponse result = metadataService.initializeCloudPivotMetadata();
@@ -107,12 +114,20 @@ public class MetadataController {
 
     @GetMapping("/graph/export")
     public GraphifyExportResponse graphExport() {
+        requireOperator();
         return metadataGraphService.graphifyExport();
     }
 
     @PostMapping("/graph/rebuild")
     public ApiResponse<MetadataGraphOverviewResponse> rebuildGraph() {
+        requireOperator();
         metadataGraphService.rebuildCurrentMetadata();
         return ApiResponse.ok(metadataGraphService.overview());
+    }
+
+    private void requireOperator() {
+        if (!principalContextService.current().superAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有运营管理员可以导出或重建元数据图谱");
+        }
     }
 }

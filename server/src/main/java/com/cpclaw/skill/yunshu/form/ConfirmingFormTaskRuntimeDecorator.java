@@ -49,13 +49,13 @@ public final class ConfirmingFormTaskRuntimeDecorator implements YunshuSkillGate
     /** Builds the exact binding used by ticket issuance and execution re-check. */
     public ConfirmationPlan plan(FormTaskSnapshot snapshot) {
         return new ConfirmationPlan(snapshot.taskId(), snapshot.scope().tenantId(), snapshot.scope().subjectId(),
-            snapshot.scope().hostId(), SKILL_VERSION, String.valueOf(snapshot.formRef()), snapshot.metadataVersion(),
+            snapshot.scope().hostId(), SKILL_VERSION, new java.util.TreeMap<>(snapshot.formRef()).toString(), snapshot.metadataVersion(),
             snapshot.stateVersion(), snapshot.draftVersion(), planHash(snapshot),
             snapshot.taskId() + ":create:" + snapshot.draftVersion(), Instant.now().plusSeconds(1800));
     }
 
     private String planHash(FormTaskSnapshot snapshot) {
-        String raw = snapshot.formRef() + "|" + snapshot.metadataVersion() + "|" + snapshot.slots();
+        String raw = new java.util.TreeMap<>(snapshot.formRef()).toString() + "|" + snapshot.metadataVersion() + "|" + snapshot.slots();
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(raw.getBytes(StandardCharsets.UTF_8)));

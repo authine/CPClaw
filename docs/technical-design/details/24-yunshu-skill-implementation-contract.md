@@ -97,7 +97,7 @@ accepted/needs_input/draft_ready/validation_error/ready_to_submit/confirmation_r
 | WP5 Provider | 元数据、表单 Schema、读写契约适配器 | 契约登记和录制回放通过 |
 | WP6 Identity | OIDC/JWT、租户/主体/宿主绑定 | 越权、重放、票据失效测试通过 |
 | WP7 Host Adapters | CPClaw Web、WorkBuddy 模拟宿主 | 事实和状态逐状态一致 |
-| WP8 Operations | outbox、worker、回查、对账、监控 | UNKNOWN 可收敛，告警和审计可查 |
+| WP8 Operations | outbox、worker、回查、对账、监控 | UNKNOWN 可收敛；多实例通过数据库租约领取，租约过期可恢复，告警和审计可查 |
 
 ## 6. Mock Provider 必测场景
 

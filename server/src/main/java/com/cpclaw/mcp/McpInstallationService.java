@@ -98,11 +98,15 @@ public class McpInstallationService {
             "url", publicBaseUrl() + "/api/mcp/cloudpivot/sse",
             "headers", Map.of(
                 "x-cpclaw-installation-id", installation.getInstallationKey(),
+                "x-cpclaw-tenant-id", "请填写当前企业租户标识",
+                "x-cpclaw-principal", "请填写接入工具的用户标识",
+                "x-cpclaw-auth-timestamp", "请填写当前 Unix 时间戳",
+                "x-cpclaw-auth-signature", "请使用部署方共享密钥生成 HMAC-SHA256 签名",
                 "x-cpclaw-cloudpivot-username", "请填写当前终端用户的云枢账号",
                 "x-cpclaw-cloudpivot-password", "请通过 MCP 客户端的安全配置填写密码"
             ),
             "disabled", !STATUS_ENABLED.equals(installation.getStatus()),
-            "note", "这是 CPClaw 提供的 SSE MCP 服务地址。账号与密码只在 OpenClaw 兼容 MCP 客户端配置，不写入 CPClaw 数据库。"
+            "note", "这是 CPClaw 提供的 SSE MCP 服务地址。生产环境必须使用部署方共享密钥生成包含租户标识的身份签名；账号与密码只在 OpenClaw 兼容 MCP 客户端配置，不写入 CPClaw 数据库。"
         );
     }
 

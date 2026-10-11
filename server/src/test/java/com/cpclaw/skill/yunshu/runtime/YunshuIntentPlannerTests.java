@@ -32,4 +32,10 @@ class YunshuIntentPlannerTests {
         assertEquals("workflow_action", planner.classify("发起流程").toString());
         assertEquals("workflow_query", planner.classify("查看我发起的流程").toString());
     }
+
+    @Test
+    void doesNotTreatNegatedWriteConstraintsAsTheUserGoal() {
+        assertEquals("analyze_data", planner.classify("分析本月线索转商机情况，不要创建、修改或提交任何数据"));
+        assertEquals("update_data", planner.classify("不要创建，但请修改这条记录"));
+    }
 }

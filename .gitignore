@@ -54,6 +54,7 @@ server/storage/
 
 # Codex local validation state
 .codex/
+.codegraph/
 .playwright-cli/
 
 # Temporary files

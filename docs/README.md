@@ -31,6 +31,7 @@
 | 数据与安全 | [`technical-design/details/04-data-model.md`](technical-design/details/04-data-model.md)、[`05-security.md`](technical-design/details/05-security.md) | 数据边界、凭据、审计与确认 |
 | 测试基线 | [`test-cases/07-test-plan.md`](test-cases/07-test-plan.md) | 测试层次、门禁和证据 |
 | 项目状态 | [`project-management/PROGRESS.md`](project-management/PROGRESS.md) | 变更、验证和遗留风险 |
+| 真实填单验收 | [`test-cases/33-real-form-draft-confirmation-2026-09-24.md`](test-cases/33-real-form-draft-confirmation-2026-09-24.md) | 真实字段定位、自然语言字段映射、草稿与确认前写入阻断 |
 
 ## 3. 推荐阅读顺序
 

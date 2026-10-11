@@ -3,11 +3,14 @@ package com.cpclaw.skill.yunshu.form;
 import com.cpclaw.skill.yunshu.runtime.YunshuProvider;
 import com.cpclaw.skill.yunshu.runtime.FormReference;
 import com.cpclaw.skill.yunshu.runtime.ProviderFormSchema;
+import com.cpclaw.skill.yunshu.runtime.ProviderOperationResult;
 import com.cpclaw.yunshu.protocol.YunshuHostContext;
 import com.cpclaw.yunshu.protocol.YunshuProtocol;
 import com.cpclaw.yunshu.protocol.YunshuSkillGateway;
 import com.cpclaw.yunshu.protocol.YunshuTaskEnvelope;
 import com.cpclaw.yunshu.protocol.YunshuTaskRequest;
+import com.cpclaw.mcp.McpInstallationService.BoundCloudPivotConnection;
+import com.cpclaw.skill.yunshu.runtime.YunshuOperationExecutionService;
 import com.cpclaw.yunshu.confirmation.ConfirmationPlan;
 import com.cpclaw.yunshu.confirmation.ConfirmationTicketService;
 import java.time.Instant;
@@ -34,6 +37,8 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
     private final YunshuFormSchemaProvider schemaProvider;
     private final ConfirmationTicketService confirmationTickets;
     private final boolean providerWriteVerified;
+    private final YunshuConnectionResolver connectionResolver;
+    private final YunshuOperationExecutionService operationExecutions;
 
     public PersistentFormTaskRuntime(FormTaskPersistenceService tasks, YunshuProvider provider) {
         this(tasks, provider, (goal, scope) -> new ProviderFormSchema(new FormReference("", "", ""), "metadata-unresolved", List.of()), null, false);
@@ -44,15 +49,24 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
         this(tasks, provider, schemaProvider, null, false);
     }
 
-    @Autowired
     public PersistentFormTaskRuntime(FormTaskPersistenceService tasks, YunshuProvider provider,
             YunshuFormSchemaProvider schemaProvider, ConfirmationTicketService confirmationTickets,
             @Value("${cpclaw.yunshu-skill.provider-write-verified:false}") boolean providerWriteVerified) {
+        this(tasks, provider, schemaProvider, confirmationTickets, providerWriteVerified, null, null);
+    }
+
+    @Autowired
+    public PersistentFormTaskRuntime(FormTaskPersistenceService tasks, YunshuProvider provider,
+            YunshuFormSchemaProvider schemaProvider, ConfirmationTicketService confirmationTickets,
+            @Value("${cpclaw.yunshu-skill.provider-write-verified:false}") boolean providerWriteVerified,
+            YunshuConnectionResolver connectionResolver, YunshuOperationExecutionService operationExecutions) {
         this.tasks = tasks;
         this.provider = provider;
         this.schemaProvider = schemaProvider;
         this.confirmationTickets = confirmationTickets;
         this.providerWriteVerified = providerWriteVerified;
+        this.connectionResolver = connectionResolver;
+        this.operationExecutions = operationExecutions;
     }
 
     @Override
@@ -68,7 +82,7 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
                 case start -> start(request, scope);
                 case input -> input(request, scope);
                 case action -> action(request, scope, context);
-                case get -> envelope(tasks.get(request.taskId(), scope), null);
+                case get -> get(request, scope);
                 case events -> failure(request.taskId(), YunshuProtocol.ErrorCode.CONTRACT_UNVERIFIED,
                         "持久化任务事件流尚未开放；请使用 get 恢复任务状态。");
             };
@@ -104,7 +118,18 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
             created = tasks.updateDraft(created.taskId(), scope, created.stateVersion(), created.draftVersion(), slots, "user");
             created = tasks.requireConfirmation(created.taskId(), scope, created.stateVersion(), planHash(created));
         }
-        return envelope(created, null);
+            return confirmationEnvelope(created, scope);
+    }
+
+    private YunshuTaskEnvelope get(YunshuTaskRequest request, FormTaskScope scope) {
+        FormTaskSnapshot snapshot = tasks.get(request.taskId(), scope);
+        if ("submitted".equals(snapshot.status()) && operationExecutions != null) {
+            var execution = operationExecutions.latestForTask(snapshot.taskId(), scope.tenantId(), scope.subjectId(), scope.hostId()).orElse(null);
+            if (execution != null && YunshuOperationExecutionService.COMPLETED.equals(execution.getStatus())) {
+                return submittedEnvelope(snapshot, execution.getRecordRef(), Map.of("replayed", true));
+            }
+        }
+        return envelope(snapshot, null);
     }
 
     private YunshuTaskEnvelope input(YunshuTaskRequest request, FormTaskScope scope) {
@@ -139,6 +164,33 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
             // Cancellation is recorded as a revision so resumptions are never interpreted as a write attempt.
             return envelope(tasks.cancel(snapshot.taskId(), scope, snapshot.stateVersion()), null);
         }
+        if ("reconcile".equals(type)) {
+            FormTaskSnapshot current = tasks.get(request.taskId(), scope);
+            if (!List.of("unknown", "submitted").contains(current.status())) {
+                return failure(request.taskId(), YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "任务当前没有可回查的远端写入结果。");
+            }
+            if (connectionResolver == null || operationExecutions == null) {
+                return failure(request.taskId(), YunshuProtocol.ErrorCode.CONTRACT_UNVERIFIED, "回查链路尚未配置。");
+            }
+            var execution = operationExecutions.latestForTask(current.taskId(), scope.tenantId(), scope.subjectId(), scope.hostId()).orElse(null);
+            if (execution == null) return failure(request.taskId(), YunshuProtocol.ErrorCode.REMOTE_UNKNOWN, "未找到可回查的执行记录。");
+            BoundCloudPivotConnection connection = connectionResolver.resolve(context).orElse(null);
+            if (connection == null) return failure(request.taskId(), YunshuProtocol.ErrorCode.PERMISSION_DENIED, "当前宿主没有可用的云枢回查连接。");
+            ProviderOperationResult result = provider.reconcileRecord(connection,
+                    new FormReference(String.valueOf(current.formRef().getOrDefault("applicationCode", "")),
+                            String.valueOf(current.formRef().getOrDefault("schemaCode", "")),
+                            String.valueOf(current.formRef().getOrDefault("formCode", ""))),
+                    current.slots(), execution.getRecordRef());
+            if (result.completed() && result.recordRef() != null && !result.recordRef().isBlank()) {
+                operationExecutions.complete(execution.getId(), result.recordRef(), result.evidence());
+                if (!"submitted".equals(current.status())) {
+                    current = tasks.markSubmitted(current.taskId(), scope, current.stateVersion());
+                }
+                return submittedEnvelope(current, result.recordRef(), result.evidence());
+            }
+            return failureWithOutput(request.taskId(), YunshuProtocol.ErrorCode.REMOTE_UNKNOWN,
+                    "云枢回查未确认记录，仍禁止重复写入。", result.evidence());
+        }
         if ("confirm".equals(type)) {
             FormTaskSnapshot current = tasks.get(request.taskId(), scope);
             if (current.status().equals("cancelled")) {
@@ -160,7 +212,7 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
                 return failure(request.taskId(), YunshuProtocol.ErrorCode.CONFIRMATION_INVALID, "缺少确认票据。");
             }
             ConfirmationPlan plan = new ConfirmationPlan(current.taskId(), scope.tenantId(), scope.subjectId(), scope.hostId(),
-                    "yunshu-form-runtime/1.0", String.valueOf(current.formRef()), current.metadataVersion(), current.stateVersion(),
+                    "yunshu-form-runtime/1.0", canonicalFormRef(current.formRef()), current.metadataVersion(), current.stateVersion(),
                     current.draftVersion(), expectedPlanHash, current.taskId() + ":create:" + current.draftVersion(), Instant.now().plusSeconds(1800));
             ConfirmationTicketService.TicketAuthorization authorization = confirmationTickets.authorizeExecution(
                     token, new YunshuHostContext(scope.tenantId(), scope.subjectId(), scope.hostId(), context.capabilities()), plan,
@@ -168,10 +220,38 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
             if (!authorization.granted()) {
                 return failure(request.taskId(), authorization.errorCode(), authorization.message());
             }
-            return failure(request.taskId(), YunshuProtocol.ErrorCode.CONTRACT_UNVERIFIED,
-                    "当前暂时无法完成云枢创建，业务信息已保留。请稍后重试，或联系管理员核对云枢连接能力。");
+            if (connectionResolver == null || operationExecutions == null) return failure(request.taskId(), YunshuProtocol.ErrorCode.CONTRACT_UNVERIFIED, "执行链路尚未配置，业务信息已保留。");
+            BoundCloudPivotConnection connection = connectionResolver.resolve(context).orElse(null);
+            if (connection == null) return failure(request.taskId(), YunshuProtocol.ErrorCode.PERMISSION_DENIED, "当前宿主没有可用的云枢写入连接。");
+            var execution = operationExecutions.begin(current.taskId(), scope.tenantId(), scope.subjectId(), scope.hostId(), "create", authorization.idempotencyKey(), Map.of("formRef", current.formRef(), "draft", current.slots()));
+            if (YunshuOperationExecutionService.COMPLETED.equals(execution.getStatus())) {
+                confirmationTickets.consumeExecution(authorization.ticketId(), context, plan);
+                return submittedEnvelope(tasks.markSubmitted(current.taskId(), scope, current.stateVersion()), execution.getRecordRef(), Map.of("replayed", true));
+            }
+            if (YunshuOperationExecutionService.UNKNOWN.equals(execution.getStatus()) || YunshuOperationExecutionService.SUBMITTING.equals(execution.getStatus())) return failure(request.taskId(), YunshuProtocol.ErrorCode.REMOTE_UNKNOWN, "上一次云枢提交结果未知，请先完成回查，避免重复创建。");
+            operationExecutions.markSubmitting(execution.getId());
+            try {
+                var result = provider.createRecord(connection, new FormReference(String.valueOf(current.formRef().getOrDefault("applicationCode", "")), String.valueOf(current.formRef().getOrDefault("schemaCode", "")), String.valueOf(current.formRef().getOrDefault("formCode", ""))), current.slots(), authorization.idempotencyKey());
+                if (result.completed() && result.recordRef() != null && !result.recordRef().isBlank()) {
+                    operationExecutions.complete(execution.getId(), result.recordRef(), result.evidence());
+                    confirmationTickets.consumeExecution(authorization.ticketId(), context, plan);
+                    return submittedEnvelope(tasks.markSubmitted(current.taskId(), scope, current.stateVersion()), result.recordRef(), result.evidence());
+                }
+                operationExecutions.unknown(execution.getId(), result.evidence());
+                tasks.markUnknown(current.taskId(), scope, current.stateVersion());
+                return failure(request.taskId(), YunshuProtocol.ErrorCode.REMOTE_UNKNOWN, "云枢返回未包含可核对的记录标识，已暂停重试。");
+            } catch (RuntimeException error) {
+                operationExecutions.unknown(execution.getId(), Map.of("errorType", error.getClass().getSimpleName(), "message", safeError(error.getMessage())));
+                tasks.markUnknown(current.taskId(), scope, current.stateVersion());
+                return failure(request.taskId(), YunshuProtocol.ErrorCode.REMOTE_UNKNOWN, "云枢提交结果未知，已保留执行记录，请回查后再继续。");
+            }
         }
         return failure(request.taskId(), YunshuProtocol.ErrorCode.VALIDATION_ERROR, "不支持的任务动作。");
+    }
+
+    private String safeError(String value) {
+        if (value == null || value.isBlank()) return "unknown";
+        return value.length() > 240 ? value.substring(0, 240) : value;
     }
 
     private YunshuTaskEnvelope patch(YunshuTaskRequest request, FormTaskScope scope, Map<String, Object> patch, String source) {
@@ -188,7 +268,7 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
         if ("ready_to_submit".equals(updated.status())) {
             updated = tasks.requireConfirmation(updated.taskId(), scope, updated.stateVersion(), planHash(updated));
         }
-        return envelope(updated, null);
+        return "confirmation_required".equals(updated.status()) ? confirmationEnvelope(updated, scope) : envelope(updated, null);
     }
 
     @SuppressWarnings("unchecked")
@@ -223,14 +303,45 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
     }
 
     private YunshuTaskEnvelope envelope(FormTaskSnapshot snapshot, YunshuTaskEnvelope.Error error) {
+        return envelopeWithTicket(snapshot, error, "");
+    }
+
+    private YunshuTaskEnvelope submittedEnvelope(FormTaskSnapshot snapshot, String recordRef, Map<String, Object> evidence) {
+        YunshuTaskEnvelope base = envelopeWithStatus(snapshot, YunshuProtocol.TaskStatus.submitted, "submitted", null, "");
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("providerContract", "verified");
+        if (recordRef != null && !recordRef.isBlank()) output.put("recordRef", recordRef);
+        if (evidence != null && !evidence.isEmpty()) output.put("providerEvidence", evidence);
+        return new YunshuTaskEnvelope(base.protocolVersion(), base.task(), base.interaction(), base.draft(), base.validation(),
+                base.next(), new YunshuTaskEnvelope.Completion("submitted", List.of()), output,
+                evidence == null ? Map.of() : evidence,
+                new YunshuTaskEnvelope.HostAction(YunshuProtocol.HostActionType.respond, false, Map.of()),
+                base.auditRef(), null);
+    }
+
+    private YunshuTaskEnvelope confirmationEnvelope(FormTaskSnapshot snapshot, FormTaskScope scope) {
+        if (!providerWriteVerified || confirmationTickets == null) return envelope(snapshot, null);
+        ConfirmationPlan plan = new ConfirmationPlan(snapshot.taskId(), scope.tenantId(), scope.subjectId(), scope.hostId(),
+                "yunshu-form-runtime/1.0", canonicalFormRef(snapshot.formRef()), snapshot.metadataVersion(), snapshot.stateVersion(),
+                snapshot.draftVersion(), planHash(snapshot), snapshot.taskId() + ":create:" + snapshot.draftVersion(), Instant.now().plusSeconds(1800));
+        ConfirmationTicketService.TicketIssueResult issued = confirmationTickets.issue(plan, true);
+        return envelopeWithTicket(snapshot, issued.errorCode() == null ? null : new YunshuTaskEnvelope.Error(issued.errorCode(), issued.message(), false), issued.issued() ? issued.ticket() : "");
+    }
+
+    private YunshuTaskEnvelope envelopeWithTicket(FormTaskSnapshot snapshot, YunshuTaskEnvelope.Error error, String confirmationTicket) {
         YunshuProtocol.TaskStatus status = parseStatus(snapshot.status());
         String completion = status == YunshuProtocol.TaskStatus.confirmation_required ? "ready"
                 : status == YunshuProtocol.TaskStatus.cancelled ? "cancelled" : "incomplete";
-        return envelopeWithStatus(snapshot, status, completion, error);
+        return envelopeWithStatus(snapshot, status, completion, error, confirmationTicket);
     }
 
     private YunshuTaskEnvelope envelopeWithStatus(FormTaskSnapshot snapshot, YunshuProtocol.TaskStatus status, String completionState,
             YunshuTaskEnvelope.Error error) {
+        return envelopeWithStatus(snapshot, status, completionState, error, "");
+    }
+
+    private YunshuTaskEnvelope envelopeWithStatus(FormTaskSnapshot snapshot, YunshuProtocol.TaskStatus status, String completionState,
+            YunshuTaskEnvelope.Error error, String confirmationTicket) {
         List<YunshuTaskEnvelope.Field> fields = snapshot.slots().stream().map(slot -> new YunshuTaskEnvelope.Field(
                 slot.fieldCode(), slot.displayName(), slot.fieldType(), slot.value(), slot.source(), slot.confidence(),
                 slot.required(), slot.confirmed(), slot.validationState(), slot.errorMessage())).toList();
@@ -252,10 +363,20 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
                 new YunshuTaskEnvelope.Validation(issues),
                 new YunshuTaskEnvelope.Next(Map.of("fieldCodes", missing), "", null),
                 new YunshuTaskEnvelope.Completion(completionState, missing),
-                confirmation ? Map.of("planHash", planHash(snapshot), "providerContract", "unverified") : Map.of("providerContract", "unverified"),
+                confirmation ? confirmationOutput(snapshot, confirmationTicket) : Map.of("providerContract", "unverified"),
                 Map.of(), new YunshuTaskEnvelope.HostAction(hostAction, needsInput,
-                confirmation ? Map.of("planHash", planHash(snapshot)) : Map.of()),
+                confirmation ? confirmationPayload(snapshot, confirmationTicket) : Map.of()),
                 Map.of("taskId", snapshot.taskId()), error);
+    }
+
+    private Map<String, Object> confirmationOutput(FormTaskSnapshot snapshot, String ticket) {
+        Map<String, Object> output = new LinkedHashMap<>(); output.put("planHash", planHash(snapshot)); output.put("providerContract", providerWriteVerified ? "verified" : "unverified");
+        if (ticket != null && !ticket.isBlank()) output.put("confirmationTicket", ticket); return output;
+    }
+
+    private Map<String, Object> confirmationPayload(FormTaskSnapshot snapshot, String ticket) {
+        Map<String, Object> payload = new LinkedHashMap<>(); payload.put("planHash", planHash(snapshot));
+        if (ticket != null && !ticket.isBlank()) payload.put("confirmationTicket", ticket); return payload;
     }
 
     private YunshuProtocol.TaskStatus parseStatus(String status) {
@@ -284,11 +405,15 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
     }
 
     private String planHash(FormTaskSnapshot snapshot) {
-        String raw = snapshot.formRef() + "|" + snapshot.metadataVersion() + "|" + snapshot.slots();
+        String raw = canonicalFormRef(snapshot.formRef()) + "|" + snapshot.metadataVersion() + "|" + snapshot.slots();
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(raw.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException ex) { throw new IllegalStateException("SHA-256 unavailable", ex); }
+    }
+
+    private String canonicalFormRef(Map<String, Object> formRef) {
+        return new java.util.TreeMap<>(formRef == null ? Map.of() : formRef).toString();
     }
 
     private YunshuTaskEnvelope failure(String taskId, YunshuProtocol.ErrorCode code, String message) {
@@ -299,6 +424,14 @@ public class PersistentFormTaskRuntime implements YunshuSkillGateway {
                 new YunshuTaskEnvelope.Next(Map.of(), "", null), new YunshuTaskEnvelope.Completion("failed", List.of()),
                 Map.of(), Map.of(), new YunshuTaskEnvelope.HostAction(YunshuProtocol.HostActionType.report_failure, false, Map.of()),
                 Map.of(), new YunshuTaskEnvelope.Error(code, message, false));
+    }
+
+    private YunshuTaskEnvelope failureWithOutput(String taskId, YunshuProtocol.ErrorCode code, String message,
+            Map<String, Object> output) {
+        YunshuTaskEnvelope base = failure(taskId, code, message);
+        return new YunshuTaskEnvelope(base.protocolVersion(), base.task(), base.interaction(), base.draft(), base.validation(),
+                base.next(), base.completion(), output == null ? Map.of() : output, base.evidence(), base.hostAction(),
+                base.auditRef(), base.error());
     }
 }
 

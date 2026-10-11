@@ -42,6 +42,38 @@ public final class MetadataFieldValueExtractor {
                     || (value.startsWith("“") && value.endsWith("”")))) value = value.substring(1, value.length() - 1);
             if (!value.isBlank()) patch.put(codesByLabel.get(item.label()).getFirst(), value);
         }
+        if (patch.isEmpty()) {
+            // Natural language often supplies the primary name without
+            // repeating the field label. Only apply this
+            // inference when exactly one empty name-like text field exists.
+            List<FormFieldSlot> nameSlots = slots.stream()
+                    .filter(slot -> slot.value() == null || String.valueOf(slot.value()).isBlank())
+                    .filter(slot -> "text".equalsIgnoreCase(slot.fieldType()) || "textarea".equalsIgnoreCase(slot.fieldType()))
+                    .filter(slot -> containsNameMarker(slot.displayName()) || containsNameMarker(slot.fieldCode()))
+                    .toList();
+            if (!nameSlots.isEmpty()) {
+                var named = Pattern.compile("(?:叫做|叫|名为|名称是|姓名是)\\s*[“\\\"]?([^，,。；;\\r\\n“”\\\"]{2,80})").matcher(text);
+                if (named.find()) {
+                    FormFieldSlot target = chooseNameSlot(text, nameSlots);
+                    if (target != null) patch.put(target.fieldCode(), named.group(1).trim());
+                }
+            }
+        }
         return patch;
+    }
+
+    private boolean containsNameMarker(String value) {
+        if (value == null) return false;
+        String normalized = value.toLowerCase();
+        return normalized.contains("名称") || normalized.contains("姓名") || normalized.contains("标题")
+                || normalized.endsWith("_name") || normalized.endsWith("name");
+    }
+
+    private FormFieldSlot chooseNameSlot(String text, List<FormFieldSlot> slots) {
+        String value = text == null ? "" : text;
+        List<FormFieldSlot> preferred = slots.stream()
+                .filter(slot -> slot.source() != null && slot.source().contains("primary-name"))
+                .toList();
+        return preferred.size() == 1 ? preferred.getFirst() : slots.size() == 1 ? slots.getFirst() : null;
     }
 }

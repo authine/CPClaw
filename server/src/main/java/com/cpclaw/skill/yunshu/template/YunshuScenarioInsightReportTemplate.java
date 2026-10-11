@@ -180,7 +180,13 @@ public class YunshuScenarioInsightReportTemplate {
                 Map.of("schemaCode", task.entity().getEntityCode(), "role", task.role()),
                 "running"
             );
+            List<String> projectedFields = projectedFields(task);
+            // The verified list endpoint can return the metadata-selected
+            // fields directly. For real request-scoped analysis, avoid the
+            // expensive per-record form-detail fan-out when projection is
+            // available; personal-scope owner resolution still needs details.
             boolean enrichDetails = "primary".equals(task.role()) || personalScope;
+            if (access != null && !projectedFields.isEmpty() && !personalScope) enrichDetails = false;
             int recordLimit = LOCAL_PERIOD_FILTER_RECORD_LIMIT;
             List<RuntimeQueryFilter> timeFilters = dateFilters(task, timeRange);
             boolean serverTimeFiltered = !timeFilters.isEmpty();
@@ -188,14 +194,14 @@ public class YunshuScenarioInsightReportTemplate {
             try {
                 raw = access == null
                     ? dataReader.query(task.entity(), enrichDetails, recordLimit, timeFilters)
-                    : dataReader.query(access, task.entity(), enrichDetails, recordLimit, timeFilters);
+                    : dataReader.query(access, task.entity(), enrichDetails, recordLimit, timeFilters, projectedFields);
             } catch (RuntimeException filteredQueryFailure) {
                 progress.checkCancelled();
                 if (timeFilters.isEmpty()) throw filteredQueryFailure;
                 warnings.add("云枢未直接接受“" + task.entity().getName() + "”的期间筛选，报告已改为读取完整列表并按日期字段计算");
                 raw = access == null
                     ? dataReader.query(task.entity(), enrichDetails, LOCAL_PERIOD_FILTER_RECORD_LIMIT, List.of())
-                    : dataReader.query(access, task.entity(), enrichDetails, LOCAL_PERIOD_FILTER_RECORD_LIMIT, List.of());
+                    : dataReader.query(access, task.entity(), enrichDetails, LOCAL_PERIOD_FILTER_RECORD_LIMIT, List.of(), projectedFields);
                 serverTimeFiltered = false;
             }
             EntityTask runtimeTask = resolveRuntimeFields(task, raw.records(), warnings);
@@ -382,9 +388,11 @@ public class YunshuScenarioInsightReportTemplate {
         List<EntityTask> tasks = new ArrayList<>();
         tasks.add(toTask(primary, "primary", null));
         String modelSignal = modelSignal(modelPlan);
+        boolean relationshipFocused = requestsRelationshipScope(question);
         List<ScoredEdge> candidates = graph.edges().stream()
             .map(edge -> new ScoredEdge(edge, relationScore(primary, edge, question, modelSignal)))
             .filter(value -> value.score() >= 30)
+            .filter(value -> !relationshipFocused || value.score() >= 120)
             .sorted(Comparator.comparingInt(ScoredEdge::score).reversed())
             .toList();
         Set<String> selectedEntities = new LinkedHashSet<>();
@@ -400,16 +408,25 @@ public class YunshuScenarioInsightReportTemplate {
         return tasks;
     }
 
+    private boolean requestsRelationshipScope(String question) {
+        String value = normalize(question);
+        return value.contains("转化") || value.contains("转商机") || value.contains("形成")
+            || value.contains("全链路") || value.contains("所有关联") || value.contains("全部关联")
+            || value.contains("关联对象") || value.contains("各关联") || value.contains("分别")
+            || value.contains("多对象");
+    }
+
     private EntityTask resolveRuntimeFields(EntityTask task, List<Map<String, Object>> records, List<String> warnings) {
-        CloudPivotDataItem date = bestAvailableField(task.fields(), records, FieldKind.DATE, task.dateField());
+        // Field coverage cannot change the business meaning of a period.
+        // Keep the date used to build the request, including when it is absent
+        // from a returned row. Missing values are a gap, not permission to use
+        // modified/signing/planned dates as substitutes for creation dates.
+        CloudPivotDataItem date = task.dateField();
         CloudPivotDataItem owner = bestAvailableField(task.fields(), records, FieldKind.OWNER, task.ownerField());
         CloudPivotDataItem stage = bestAvailableField(task.fields(), records, FieldKind.STAGE, task.stageField());
         CloudPivotDataItem amount = bestAvailableField(task.fields(), records, FieldKind.AMOUNT, task.amountField());
         CloudPivotDataItem sign = bestAvailableField(task.fields(), records, FieldKind.SIGN_DATE, task.signField());
         CloudPivotDataItem modified = bestAvailableField(task.fields(), records, FieldKind.MODIFIED_DATE, task.modifiedField());
-        if (task.dateField() != null && date != null && !task.dateField().getId().equals(date.getId())) {
-            warnings.add("“" + task.entity().getName() + "”的首选期间字段“" + task.dateField().getName() + "”在列表中不可用，已改用“" + date.getName() + "”");
-        }
         if (task.amountField() != null && amount != null && !task.amountField().getId().equals(amount.getId())) {
             warnings.add("“" + task.entity().getName() + "”的金额字段按运行态有效值覆盖率改用“" + amount.getName() + "”");
         }
@@ -516,6 +533,16 @@ public class YunshuScenarioInsightReportTemplate {
         );
     }
 
+    private List<String> projectedFields(EntityTask task) {
+        if (task == null || task.fields() == null) return List.of();
+        return task.fields().stream()
+            .map(CloudPivotDataItem::getDataItemCode)
+            .filter(value -> value != null && !value.isBlank())
+            .distinct()
+            .limit(80)
+            .toList();
+    }
+
     private NodeData applyScope(
         EntityTask task,
         CloudPivotRuntimeQueryResult raw,
@@ -531,9 +558,7 @@ public class YunshuScenarioInsightReportTemplate {
         boolean identityApplied = false;
         boolean usable = true;
         if (timeRange.present()) {
-            if (serverTimeFiltered) {
-                timeApplied = true;
-            } else if (task.dateField() == null) {
+            if (task.dateField() == null) {
                 warnings.add("“" + task.entity().getName() + "”未找到可靠日期字段，该对象未计入期间指标");
                 records = List.of();
                 count = 0;
@@ -549,9 +574,15 @@ public class YunshuScenarioInsightReportTemplate {
                 } else if (parsableDates < records.size()) {
                     warnings.add("“" + task.entity().getName() + "”仅有 " + parsableDates + "/" + records.size() + " 条记录返回可解析日期，期间指标按可解析记录计算");
                 }
+                int receivedCount = records.size();
                 records = records.stream().filter(record -> inRange(value(record, task.dateField()), timeRange)).toList();
                 count = records.size();
                 timeApplied = true;
+                if (serverTimeFiltered && parsableDates > records.size()) {
+                    warnings.add("“" + task.entity().getName() + "”返回 " + receivedCount
+                        + " 条记录，其中存在期间范围外记录；已按“" + task.dateField().getName()
+                        + "”复核，不使用服务端 total 冒充期间数量");
+                }
             }
         }
         if (personalScope) {

@@ -64,6 +64,12 @@
             <el-icon><Setting /></el-icon>
           </el-button>
         </el-tooltip>
+        <el-tooltip content="应用帮助中心" placement="right" :show-after="300">
+          <el-button class="icon-button" circle text aria-label="应用帮助中心" @click="router.push('/help')"><el-icon><QuestionFilled /></el-icon></el-button>
+        </el-tooltip>
+        <el-tooltip content="问题反馈" placement="right" :show-after="300">
+          <el-button class="icon-button" circle text aria-label="问题反馈" @click="router.push('/feedback')"><el-icon><ChatDotRound /></el-icon></el-button>
+        </el-tooltip>
       </div>
     </aside>
 
@@ -302,7 +308,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowRight, CopyDocument, Delete, Expand, Fold, MagicStick, Moon, Plus, Promotion, Refresh, Setting, Sunny, Timer } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, CopyDocument, Delete, Expand, Fold, MagicStick, Moon, Plus, Promotion, QuestionFilled, ChatDotRound, Refresh, Setting, Sunny, Timer } from '@element-plus/icons-vue'
 import MarkdownMessage from '../components/chat/MarkdownMessage.vue'
 import InsightReport from '../components/chat/InsightReport.vue'
 import AttachmentUploader from '../components/chat/AttachmentUploader.vue'
@@ -4672,5 +4678,7 @@ function messageFromError(error: unknown) {
   .composer__footer { gap: 7px; }
 }
 </style>
+
+
 
 

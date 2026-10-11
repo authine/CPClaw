@@ -40,12 +40,16 @@ WorkBuddy 负责对话呈现和最终语言组织；Yunshu Skill 负责云枢对
 
 1. Gateway 地址，例如 `https://yunshu-skill.example.com`；
 2. WorkBuddy 已注册的 `hostId`；
-3. WorkBuddy 用户的可信身份方式，优先使用 OIDC/OAuth2/JWT；
+3. WorkBuddy 用户的可信身份方式，生产优先使用 OIDC/OAuth2/JWT；CPClaw 内置 Gateway 也支持注册的租户绑定 HMAC 断言；
 4. 该用户对应的云枢组织、数据范围和 Skill 权限；
 5. 当前开放能力（只读、分析、草稿、写入、流程处理）；
 6. 云枢 Provider 的真实 Schema、校验、创建/更新/提交/回查契约已通过验收。
 
 没有可信身份或 Provider 写入契约时，只能使用查询、分析、草稿和确认计划，不能宣称自动提交已可用。
+
+如果目标 Gateway 使用 CPClaw 内置 HMAC 验证器，WorkBuddy/stdio 适配器必须同时配置企业租户标识、用户标识和部署方共享密钥；签名原文为 `hostId + "\\n" + tenantId + "\\n" + principal + "\\n" + Unix 时间戳`。不能只传 `Authorization` 或只传用户标识。
+
+如果使用 CPClaw 内置 OIDC introspection 适配器，服务端设置 `CPCLAW_YUNSHU_IDENTITY_MODE=oidc`，并配置 `CPCLAW_YUNSHU_OIDC_INTROSPECTION_URL`、`CPCLAW_YUNSHU_OIDC_CLIENT_ID`、`CPCLAW_YUNSHU_OIDC_CLIENT_SECRET`。Gateway 只接受 `Authorization: Bearer <token>`，向 IdP 的 introspection endpoint 校验 `active=true`，并从可信响应的 `sub` 与 `tenant_id`（兼容 `tenantId`、`org_id`）生成主体和租户；不会信任请求头中的主体或租户。HMAC 与 OIDC 为互斥模式，不能同时把两套适配器配置为同一个 host。
 
 ## 4. Remote MCP 接入（推荐）
 
@@ -58,11 +62,11 @@ WorkBuddy 负责对话呈现和最终语言组织；Yunshu Skill 负责云枢对
   "name": "YunshuSkill",
   "transport": "streamable-http",
   "url": "https://yunshu-skill.example.com/mcp",
-  "authentication": "OAuth2/OIDC"
+  "authentication": "OAuth2/OIDC or registered HMAC host assertion"
 }
 ```
 
-如果 WorkBuddy 当前只支持 SSE，则由 Gateway 提供兼容 SSE 端点；仍应指向独立 Yunshu Skill Gateway，不能指向 `/api/mcp/cloudpivot`。
+如果 WorkBuddy 当前只支持 SSE，则由 Gateway 提供兼容 SSE 端点；仍应指向独立 Yunshu Skill Gateway，不能指向 `/api/mcp/cloudpivot`。若使用本仓库的 stdio 适配器，必须配置 `YUNSHU_TENANT_ID`、`YUNSHU_PRINCIPAL` 和 `YUNSHU_SHARED_SECRET`，适配器会为每次请求自动生成租户绑定的 HMAC 认证头。
 
 ### 4.2 工具检查
 
@@ -190,7 +194,7 @@ WorkBuddy 没有保存或复用原 `taskId`、`continuationToken` 或 `clientReq
 - [ ] WorkBuddy 直接连接 Yunshu Skill Gateway；
 - [ ] 工具名称为 `yunshu_task`；
 - [ ] 不调用 CPClaw 对话 API、UI 或旧 MCP 地址；
-- [ ] 可信身份、租户和数据范围验证通过；
+- [ ] 可信身份、租户和数据范围验证通过（OIDC/OAuth2/JWT 或注册的租户绑定 HMAC 断言）；
 - [ ] 分析任务能自动获取关联数据并输出图文结果；
 - [ ] 不完整输入能追问，完整输入能继续执行；
 - [ ] 填单任务能完成草稿、校验、宿主内确认和真实回查；
@@ -201,7 +205,7 @@ WorkBuddy 没有保存或复用原 `taskId`、`continuationToken` 或 `clientReq
 
 ## 11. 当前 CPClaw 代码边界
 
-当前仓库已具备 Canonical HTTP 入口和协议设计，但 Remote MCP 独立服务、外部宿主 OIDC/JWT、真实云枢写入回查和跨实例恢复仍需完成生产验证。`mcp-adapter/cpclaw-yunshu.mjs` 当前是 JSON-line 转发器，不应直接当作完整标准 MCP Server 使用。
+当前仓库已具备 Canonical HTTP 入口、标准 stdio 适配器和可配置的 HMAC/OIDC 身份适配边界；外部 IdP、真实 WorkBuddy 客户端托管、真实云枢写入回查、跨实例恢复和生产网络 E2E 仍需目标环境验证。`mcp-adapter/cpclaw-yunshu.mjs` 是标准 MCP stdio Server，但不替代目标宿主的密钥托管和企业身份联调。
 
 权威设计依据：
 

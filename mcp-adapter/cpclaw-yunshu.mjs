@@ -3,15 +3,28 @@
 // Standard MCP stdio adapter for the independently addressable Yunshu Skill Gateway.
 // It never calls CPClaw chat/MCP, persists credentials, or opens a CPClaw UI.
 import readline from 'node:readline'
+import { createHmac } from 'node:crypto'
 
 const MCP_PROTOCOL_VERSION = '2025-06-18'
 const SKILL_PROTOCOL_VERSION = 'yunshu-skill/1.0'
 const gatewayBaseUrl = (process.env.YUNSHU_SKILL_GATEWAY_URL || 'http://localhost:8080').replace(/\/$/, '')
 const hostId = process.env.YUNSHU_HOST_ID
 const authorization = process.env.YUNSHU_AUTHORIZATION
+const tenantId = process.env.YUNSHU_TENANT_ID
+const principal = process.env.YUNSHU_PRINCIPAL
+const sharedSecret = process.env.YUNSHU_SHARED_SECRET
 
 if (!hostId) {
   process.stderr.write('Yunshu Skill MCP adapter requires YUNSHU_HOST_ID\n')
+  process.exit(2)
+}
+
+if (!sharedSecret && !authorization) {
+  process.stderr.write('Yunshu Skill MCP adapter requires YUNSHU_SHARED_SECRET (HMAC) or YUNSHU_AUTHORIZATION (external Gateway assertion)\n')
+  process.exit(2)
+}
+if (sharedSecret && (!tenantId || !principal)) {
+  process.stderr.write('HMAC mode requires YUNSHU_TENANT_ID and YUNSHU_PRINCIPAL\n')
   process.exit(2)
 }
 
@@ -75,6 +88,15 @@ function canonicalCommand(args) {
 async function callGateway(command) {
   const headers = { 'content-type': 'application/json', 'x-yunshu-host-id': hostId }
   if (authorization) headers.authorization = authorization
+  if (sharedSecret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    const canonical = `${hostId}\n${tenantId}\n${principal}\n${timestamp}`
+    const signature = createHmac('sha256', sharedSecret).update(canonical, 'utf8').digest('base64url')
+    headers['x-yunshu-tenant-id'] = tenantId
+    headers['x-yunshu-principal'] = principal
+    headers['x-yunshu-auth-timestamp'] = timestamp
+    headers['x-yunshu-auth-signature'] = signature
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 60_000)
   try {

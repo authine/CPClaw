@@ -22,6 +22,8 @@ public class YunshuOperationExecution {
     @Column(name = "response_json", columnDefinition = "LONGTEXT") private String responseJson;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
+    @Column(name = "reconciliation_owner", length = 128) private String reconciliationOwner;
+    @Column(name = "reconciliation_claimed_at") private Instant reconciliationClaimedAt;
     public String getId() { return id; } public void setId(String v) { id = v; }
     public String getTaskId() { return taskId; } public void setTaskId(String v) { taskId = v; }
     public String getTenantId() { return tenantId; } public void setTenantId(String v) { tenantId = v; }
@@ -35,4 +37,6 @@ public class YunshuOperationExecution {
     public String getResponseJson() { return responseJson; } public void setResponseJson(String v) { responseJson = v; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant v) { createdAt = v; }
     public Instant getUpdatedAt() { return updatedAt; } public void setUpdatedAt(Instant v) { updatedAt = v; }
+    public String getReconciliationOwner() { return reconciliationOwner; } public void setReconciliationOwner(String v) { reconciliationOwner = v; }
+    public Instant getReconciliationClaimedAt() { return reconciliationClaimedAt; } public void setReconciliationClaimedAt(Instant v) { reconciliationClaimedAt = v; }
 }

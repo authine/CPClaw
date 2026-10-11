@@ -58,6 +58,17 @@ public class CloudPivotInsightDataReader {
         int maxRecords,
         List<RuntimeQueryFilter> filters
     ) {
+        return query(access, entity, enrichDetails, maxRecords, filters, List.of());
+    }
+
+    public CloudPivotRuntimeQueryResult query(
+        InsightDataAccess access,
+        CloudPivotEntity entity,
+        boolean enrichDetails,
+        int maxRecords,
+        List<RuntimeQueryFilter> filters,
+        List<String> projectedFields
+    ) {
         if (access == null || !access.usable()) {
             throw new IllegalArgumentException("云枢访问上下文不完整，无法执行智能问数");
         }
@@ -70,8 +81,19 @@ public class CloudPivotInsightDataReader {
             PAGE_SIZE,
             enrichDetails,
             recordLimit,
-            filters == null ? List.of() : filters
+            filters == null ? List.of() : filters,
+            projectedFields == null ? List.of() : projectedFields
         );
+        // Older connectors and isolated test doubles implement only the
+        // pre-projection contract and may return null for the optional method.
+        // Preserve the established transport boundary by retrying once through
+        // the original method; a real connector still returns its projection
+        // result directly.
+        if (result == null) {
+            result = connector.queryRecords(
+                access.baseUrl(), access.username(), access.password(), entity.getEntityCode(),
+                PAGE_SIZE, enrichDetails, recordLimit, filters == null ? List.of() : filters);
+        }
         if ("local-fallback".equals(result.sourceEndpoint())) {
             throw new IllegalStateException("智能问数报告不能使用本地演示数据源");
         }

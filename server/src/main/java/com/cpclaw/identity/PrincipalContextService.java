@@ -34,4 +34,29 @@ public class PrincipalContextService {
         if ("default-only".equals(externalMode)) return defaultPrincipal;
         return new PrincipalContext(value, value, value, "", defaultPrincipal.tenantId(), true, false);
     }
+
+    /**
+     * Resolves an identity after an upstream authenticator has already
+     * verified its proof. This must not be replaced with resolveExternal,
+     * whose default-only mode intentionally rejects untrusted headers.
+     */
+    public PrincipalContext resolveAuthenticatedExternal(String externalPrincipal) {
+        return resolveAuthenticatedExternal(defaultPrincipal.tenantId(), externalPrincipal);
+    }
+
+    public PrincipalContext resolveAuthenticatedExternal(String tenantId, String externalPrincipal) {
+        if (externalPrincipal == null || externalPrincipal.isBlank()) {
+            throw new IllegalArgumentException("已认证外部主体不能为空");
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("已认证外部租户不能为空");
+        }
+        String tenant = tenantId.trim();
+        String value = externalPrincipal.trim();
+        if (tenant.equals(defaultPrincipal.tenantId())
+                && (value.equals(defaultPrincipal.principalId()) || value.equals(defaultPrincipal.username()))) {
+            return defaultPrincipal;
+        }
+        return new PrincipalContext(value, value, value, "", tenant, true, false);
+    }
 }

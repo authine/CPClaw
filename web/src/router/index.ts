@@ -3,6 +3,8 @@ import MainLayout from '../layouts/MainLayout.vue'
 
 const ChatView = () => import('../views/ChatView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
+const HelpCenterView = () => import('../views/HelpCenterView.vue')
+const FeedbackView = () => import('../views/FeedbackView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,6 +20,8 @@ const router = createRouter({
         { path: 'audit', name: 'audit', redirect: '/settings?section=log-analytics' },
         { path: 'settings/metadata/:appId', name: 'settings-metadata-app', component: SettingsView },
         { path: 'settings', name: 'settings', component: SettingsView }
+        ,{ path: 'help', name: 'help-center', component: HelpCenterView }
+        ,{ path: 'feedback', name: 'feedback', component: FeedbackView }
       ]
     },
     { path: '/:pathMatch(.*)*', redirect: '/' }

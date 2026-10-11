@@ -317,14 +317,20 @@ Web 适配层不得因为识别到写操作而再次调用 `PersistentFormTaskRu
 ### 仍然阻断交付的问题
 
 1. `findByIdempotencyKey → create` 不是原子操作，并发启动可能产生唯一键异常；必须改为数据库原子获取/创建并回放原结果。
-2. 确认票消费、Provider 写入、结果回查没有执行记录和原子协议；当前 `provider-write-verified` 不能替代真实 Provider 实现，仍须保持 fail-closed。
+2. 确认票消费、Provider 写入、结果回查没有执行记录和原子协议；当前 `provider-write-verified` 不能替代真实 Provider 实现，仍须保持 fail-closed。→ 2026-09-17 已补齐执行账本状态机与确认写入闭环，见第 14 节；真实云枢 payload 契约仍未验证。
 3. 稳定业务任务、执行 attempt、命令 requestId 尚未完全统一；续接票先消费后建子任务存在响应丢失后无法重放风险。
 4. 外部宿主尚无真实 JWT/OIDC/签名身份解析；当前 `X-Yunshu-Host-Id` 只完成宿主路由，不构成生产认证。
-5. `mcp-adapter/cpclaw-yunshu.mjs` 是 Canonical JSON-line 转发器，不是可直接宣称兼容标准 MCP 的完整 `initialize/tools/list/tools/call` Server。
+5. `mcp-adapter/cpclaw-yunshu.mjs` 是 Canonical JSON-line 转发器，不是可直接宣称兼容标准 MCP 的完整 `initialize/tools/list/tools/call` Server。→ 该文件现已实现 `initialize`/`tools/list`/`tools/call`；生产可用性仍缺真实外部宿主的身份认证与端到端联调。
 6. 元数据字段类型、枚举、关联、默认值仍未完整传递到前端和 Provider；自然语言隐含字段抽取仍只能作为候选，不能直接视为已确认值。
 7. 通用分析的无模板分支和事件回放仍未达到产品目标；必须补充“项目/收款/合同”等非线索场景和断线恢复验证。
 
 因此本阶段的发布门禁更新为：只读查询、通用分析草稿、表单草稿和确认计划可继续验证；真实云枢创建、标准 MCP、外部宿主生产接入和生产发布均保持 `NOT_READY`。
+
+## 14. 2026-09-18 确认执行链路增量
+
+本轮将确认执行从“授权后直接返回 `CONTRACT_UNVERIFIED`”改为可受控运行的链路：宿主连接解析、确认计划签发、执行账本 `STARTED`、Provider runtime form save、防重放令牌、真实记录标识校验、账本 `COMPLETED/UNKNOWN` 和任务 `submitted/unknown` 状态回写。默认 `provider-write-verified=false` 保持关闭；只有真实环境验证完表单 payload、权限和回查后才允许开启。
+
+云枢连接解析改用当前主体个人云枢账号（`cloudPivotBaseUrl/cloudPivotUsername/user_cloudpivot_password`），不再使用管理员元数据账号执行业务写入。真实表单 payload 采用已从云枢前端资源确认的 `bizObject.data/schemaCode/sheetCode/replayToken` 结构，但完整提交回查契约仍需目标租户 E2E 证明。
 
 ## 13. 2026-09-13 云枢写入契约探查结论
 
@@ -339,3 +345,71 @@ Web 适配层不得因为识别到写操作而再次调用 `PersistentFormTaskRu
 同时确认 `/api/app/businessrule/create` 属于业务规则定义管理，不是新增业务记录接口，禁止接入智能填单 Provider。
 
 当前仍未从动态表单组装代码中确认 `save`/`submit` 的完整请求体、关联字段编码、回放令牌绑定和真实记录标识返回结构。因此代码只增加了 `CloudPivotConnector.saveForm/submitForm` 的受控边界和 `yunshu_operation_executions` 执行账本（Flyway V34），没有把猜测的 payload 接到确认按钮，也没有执行真实写入。真实 Provider 投产门禁仍未通过。
+
+## 14. 2026-09-17 执行账本状态机与确认写入闭环实现
+
+本轮针对第 12 节阻断项 2（确认票、Provider 写入、结果回查之间没有执行记录和原子协议）完成实现，并已用测试固定行为。
+
+### 14.1 执行账本不再是“孤儿”，而是真正的状态机
+
+`YunshuOperationExecutionService` 现在按“租户 + 主体 + 宿主 + 幂等键”维护一个持久化执行行：
+
+| 迁移 | 触发条件 | 语义 |
+| --- | --- | --- |
+| `STARTED → COMPLETED` | Provider 返回真实记录标识 | 云枢已创建，记录标识已落账 |
+| `STARTED → UNKNOWN` | 网络中断、超时、响应缺少记录标识 | 远端结果不可观测，必须回查，不声称“什么都没发生” |
+| `STARTED → FAILED` | Provider 明确声明写入契约未验证/明确拒绝 | 确认没有创建记录，同一幂等键可重试 |
+| `FAILED → STARTED` | 同键同载荷重试 | 允许重试，但载荷必须完全一致 |
+| `COMPLETED → COMPLETED` | 同键同记录标识重放 | 幂等返回，不重复创建 |
+
+配套约束：
+
+- 同键复用必须同时匹配 `operation`、`taskId` 与请求内容；请求内容按规范化 JSON（排序键、忽略格式）比较，不一致抛 `IdempotencyConflictException`。
+- 终态转换通过 `findByIdForUpdate` 的悲观行锁读取后再判断，构成真正的 compare-and-set；`COMPLETED` 不能被覆盖成 `UNKNOWN`/`FAILED`，也不能换成另一个记录标识。
+- 并发启动由数据库唯一键仲裁：失败事务整体丢弃，再以 `REQUIRES_NEW` 新事务回读胜出行，避免在 rollback-only 事务里读数据。
+
+### 14.2 确认动作已接入 Provider 写入闭环
+
+`PersistentFormTaskRuntime` 的 `confirm` 分支不再是“消费确认票后直接返回未验证”，而是：
+
+```
+确认票校验与消费
+  → 解析服务端保存的云枢连接（YunshuWriteConnectionProvider）
+  → 账本 begin（幂等键来自确认计划）
+  → Provider createRecord
+  → 账本 complete / unknown / fail
+  → 任务状态 submitted / unknown，或保持 confirmation_required
+```
+
+关键行为：
+
+- 账本记录在调用 Provider **之前**写入，因此响应丢失、超时或进程崩溃后不会退化成“什么都没发生”。
+- Provider 抛异常（超时、网络中断）→ 账本 `UNKNOWN` + 任务 `unknown` + `REMOTE_UNKNOWN`（retryable）。
+- Provider 明确声明契约未验证 → 账本 `FAILED` + `CONTRACT_UNVERIFIED`，任务保持 `confirmation_required`，用户可以修草稿后重试。
+- 账本已存在 `COMPLETED` 行 → 直接回放该记录标识，不再调用 Provider。
+- 解析不到云枢连接 → `PERMISSION_DENIED`，不写账本、不调用 Provider。
+- 写入成功后任务进入终态 `completed`；若本地任务状态并发冲突，仍按“记录已创建”返回 `submitted` 并在证据中标记 `taskStateConflict`，不让宿主误判未创建。
+
+### 14.3 云枢 2xx 但业务失败不再被当成成功
+
+`MvpCloudPivotConnector` 新增单一判定点 `businessFailureReason`：空响应体、`errcode/code != 0`、`success:false`/`ok:0`、`status` 为 `error|failed|failure|rejected|exception|invalid` 一律判为失败；失败即抛错，不再返回 `success=true`。这直接修复了“HTTP 200 + `{success:false}` 被当作创建成功”的风险。
+
+### 14.4 本轮验证证据（实际执行）
+
+| 检查 | 命令/范围 | 结果 |
+| --- | --- | --- |
+| 后端全量测试 | `server/` 下 `mvn -o test` | 158 tests，Failures 0，Errors 0，`BUILD SUCCESS` |
+| 账本状态机 | `YunshuOperationExecutionServiceTests` | 13 tests，0 失败 |
+| 表单运行时（含写入闭环） | `PersistentFormTaskRuntimeTests` | 13 tests，0 失败 |
+| 云枢响应判定 | `MvpCloudPivotConnectorResponseTests` | 5 tests，0 失败 |
+| Spring 容器装配 | `CpClawApplicationTests` | 通过（新增 Provider 连接解析 bean 与构造注入可用） |
+
+### 14.5 本轮未改变的门禁
+
+以下仍为 `NOT_READY`，不因上述实现而改变：
+
+1. `cpclaw.yunshu-skill.provider-write-verified` 默认仍为 `false`，默认行为仍是 fail-closed；打开该开关即会真实调用云枢，必须先完成 payload 验证。
+2. `POST /api/runtime/form/save|submit` 的完整请求体、关联字段编码、回放令牌绑定与真实记录标识位置仍未从动态表单组装逻辑确认。
+3. `UNKNOWN` 结果的自动回查/对账作业尚未实现（当前只落账并提示“待回查”）。
+4. 外部宿主 JWT/OIDC 或签名身份解析仍未实现。
+5. 尚未在真实云枢环境执行受控创建与查询回查。

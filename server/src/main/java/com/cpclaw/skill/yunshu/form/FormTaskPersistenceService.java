@@ -149,6 +149,27 @@ public class FormTaskPersistenceService {
         return snapshot(task);
     }
 
+    @Transactional
+    public FormTaskSnapshot markSubmitted(String taskId, FormTaskScope scope, long expectedStateVersion) {
+        return markTerminal(taskId, scope, expectedStateVersion, "submitted");
+    }
+
+    @Transactional
+    public FormTaskSnapshot markUnknown(String taskId, FormTaskScope scope, long expectedStateVersion) {
+        return markTerminal(taskId, scope, expectedStateVersion, "unknown");
+    }
+
+    private FormTaskSnapshot markTerminal(String taskId, FormTaskScope scope, long expectedStateVersion, String status) {
+        FormTask task = findScoped(taskId, scope);
+        boolean unknownToSubmitted = "submitted".equals(status) && "unknown".equals(task.getStatus());
+        if (task.getStateVersion() != expectedStateVersion || !("confirmation_required".equals(task.getStatus()) || unknownToSubmitted || status.equals(task.getStatus()))) {
+            throw new FormTaskVersionConflictException("Form task state has changed; reload the latest envelope");
+        }
+        task.setStatus(status); task.setStateVersion(task.getStateVersion() + 1); task.setUpdatedAt(Instant.now());
+        saveVersioned(task);
+        return snapshot(task);
+    }
+
     @Transactional(readOnly = true)
     public FormTaskSnapshot get(String taskId, FormTaskScope scope) { return snapshot(findScoped(taskId, scope)); }
 

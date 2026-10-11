@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 public final class DefaultYunshuIntentPlanner implements YunshuIntentPlanner {
     @Override
     public String classify(String query) {
-        String value = normalize(query);
+        String value = stripNegatedWriteClauses(normalize(query));
         if (contains(value, "同意", "驳回", "审核", "批准", "批复", "转交", "撤回", "处理待办", "提交审批", "发起流程", "提交流程", "启动流程")) return "workflow_action";
         if (contains(value, "待办", "未完成", "已办", "已处理", "我发起", "流程", "审批")) return "workflow_query";
         if (contains(value, "删除", "移除", "作废")) return "delete_data";
@@ -42,5 +42,18 @@ public final class DefaultYunshuIntentPlanner implements YunshuIntentPlanner {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * A safety constraint such as “只读，不要创建、修改或提交数据” must not
+     * be interpreted as a write goal. Remove only explicitly negated write
+     * verb lists; a later positive clause such as “但请修改这条记录” remains
+     * available for classification.
+     */
+    private String stripNegatedWriteClauses(String value) {
+        return value.replaceAll(
+            "(?:不要|不需要|无需|禁止|不能)(?:创建|新增|修改|更新|删除|移除|作废|提交|填单|填表)(?:(?:、|，|,|或)(?:创建|新增|修改|更新|删除|移除|作废|提交|填单|填表))*",
+            ""
+        );
     }
 }

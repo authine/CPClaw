@@ -26,9 +26,13 @@ public class McpSseSessionRegistry {
     }
 
     public Session open(String installationId, String username, String password, String externalPrincipal) {
+        return open(installationId, "default", username, password, externalPrincipal);
+    }
+
+    public Session open(String installationId, String tenantId, String username, String password, String externalPrincipal) {
         String id = UUID.randomUUID().toString();
         SseEmitter emitter = new SseEmitter(SESSION_TIMEOUT_MS);
-        Session session = new Session(id, emitter, installationId, username, password, externalPrincipal == null ? "" : externalPrincipal.trim());
+        Session session = new Session(id, emitter, installationId, tenantId, username, password, externalPrincipal == null ? "" : externalPrincipal.trim());
         sessions.put(id, session);
         Runnable remove = () -> sessions.remove(id);
         emitter.onCompletion(remove);
@@ -54,5 +58,5 @@ public class McpSseSessionRegistry {
         }
     }
 
-    public record Session(String id, SseEmitter emitter, String installationId, String username, String password, String externalPrincipal) {}
+    public record Session(String id, SseEmitter emitter, String installationId, String tenantId, String username, String password, String externalPrincipal) {}
 }
